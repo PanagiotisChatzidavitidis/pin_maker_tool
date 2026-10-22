@@ -1,0 +1,4 @@
+pillow>=10.0
+reportlab>=4.0
+# optional: drag and drop of image files onto the sheet
+tkinterdnd2>=0.3
