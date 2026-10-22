@@ -2,11 +2,14 @@
 """
 Badge Pin Maker
 ===============
+Start screen: create a new project, or pick one from your projects folder.
+
 1. Pick a paper size and a pin size - the sheet is laid out automatically.
 2. Click a circle (or drop image files onto the sheet) to add photos.
    Position / zoom / rotate each photo under the pin shape.
 3. Export a PDF or print directly. Empty circles print blank.
-4. Save the sheet as a project to reopen and edit it later.
+4. Projects are saved as .pinproj files in your projects folder so you can
+   reopen and edit them later. Dark mode lives in the start screen / View menu.
 
 Requirements:
     pip install pillow reportlab
@@ -17,12 +20,14 @@ Optional (drag and drop of image files):
 Run:
     python badge_maker.py
 
-Shortcuts:  Ctrl+N new   Ctrl+O open   Ctrl+S save   Ctrl+Shift+S save as
-            Ctrl+E export PDF   Ctrl+P print   Ctrl+Z undo   Ctrl+Y redo
+Shortcuts:  Ctrl+N new   Ctrl+O browse   Ctrl+S save   Ctrl+Shift+S save as
+            Ctrl+H projects home   Ctrl+E export PDF   Ctrl+P print
+            Ctrl+Z undo   Ctrl+Y redo
             Delete  clear the circle under the mouse
 (On macOS use Cmd instead of Ctrl.)
 """
 
+import glob
 import io
 import json
 import math
@@ -31,8 +36,9 @@ import platform
 import re
 import subprocess
 import tempfile
+import time
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from PIL import Image, ImageDraw, ImageOps, ImageTk
 from reportlab.pdfgen import canvas as pdfcanvas
@@ -58,23 +64,35 @@ IS_MAC = platform.system() == "Darwin"
 MOD = "Command" if IS_MAC else "Control"
 MOD_LABEL = "Cmd" if IS_MAC else "Ctrl"
 
-# Lo-fi cosy palette
-PETROL = "#005F73"
-TEAL = "#008080"
-TEAL_HOVER = "#1A9696"
-TEAL_DARK = "#006767"
-SAND = "#EACDB2"
-ORCHID = "#BB76A3"
-PLUM = "#7A5677"
-WARN = "#C9772B"
+# --------------------------------------------------------------------------
+# Themes. apply_theme() rebinds these names as module globals; every function
+# reads them at call time, so switching theme only needs the UI rebuilt.
+# --------------------------------------------------------------------------
+THEMES = {
+    # lo-fi cosy daylight
+    "light": dict(
+        PETROL="#005F73", TEAL="#008080", TEAL_HOVER="#1A9696", TEAL_DARK="#006767",
+        SAND="#EACDB2", SAND_HOVER="#E2C3A4", SAND_PRESS="#D6B391",
+        ORCHID="#BB76A3", PLUM="#7A5677", WARN="#C9772B",
+        BG="#F6EADD", CARD="#FCF6EE", BORDER="#E3C9AE", TEXT="#2C4651", MUTED="#80787A",
+        BLUSH="#E4D1D9", SHADOW_A="#D8C3CD", SHADOW="#CDB2C0", SHADOW_C="#BFA0B2",
+        FIELD="white", HOVER="#F3E4D2"),
+    # lo-fi night: deep petrol-slate surfaces, warm sand text, brighter accents
+    "dark": dict(
+        PETROL="#8FD3D6", TEAL="#2B9A9A", TEAL_HOVER="#3AB0B0", TEAL_DARK="#217878",
+        SAND="#33494F", SAND_HOVER="#3A535B", SAND_PRESS="#3F5A62",
+        ORCHID="#D08BBB", PLUM="#B98AB5", WARN="#E8A15A",
+        BG="#182329", CARD="#223139", BORDER="#33474F", TEXT="#EADFD2", MUTED="#93A3A6",
+        BLUSH="#121B20", SHADOW_A="#161F25", SHADOW="#10181D", SHADOW_C="#0B1216",
+        FIELD="#2C3F48", HOVER="#2B3D46"),
+}
 
-BG = "#F6EADD"
-CARD = "#FCF6EE"
-BORDER = "#E3C9AE"
-TEXT = "#2C4651"
-MUTED = "#80787A"
-BLUSH = "#E4D1D9"
-SHADOW = "#CDB2C0"
+
+def apply_theme(name):
+    globals().update(THEMES.get(name, THEMES["light"]))
+
+
+apply_theme("light")
 
 AFFINE = getattr(Image, "Transform", Image).AFFINE
 
@@ -140,6 +158,10 @@ def save_settings(data):
             json.dump(data, f, indent=2)
     except OSError:
         pass
+
+
+def default_projects_dir():
+    return os.path.join(os.path.expanduser("~"), "Badge Pin Maker Projects")
 
 
 # --------------------------------------------------------------------------
@@ -392,6 +414,19 @@ def print_pdf(path):
             subprocess.run(["xdg-open", path], check=False)
 
 
+def reveal_folder(path):
+    """Open a folder in the system file manager."""
+    try:
+        if platform.system() == "Windows":
+            os.startfile(path)  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", path], check=False)
+        else:
+            subprocess.run(["xdg-open", path], check=False)
+    except OSError:
+        pass
+
+
 # --------------------------------------------------------------------------
 # Styling helpers
 # --------------------------------------------------------------------------
@@ -421,16 +456,35 @@ def setup_style(root):
     st.map("Accent.TButton", background=[("pressed", TEAL_DARK), ("active", TEAL_HOVER)])
     st.configure("Soft.TButton", background=SAND, foreground=TEXT, padding=(12, 7),
                  borderwidth=0, focusthickness=0, focuscolor=SAND)
-    st.map("Soft.TButton", background=[("pressed", "#D6B391"), ("active", "#E2C3A4")])
+    st.map("Soft.TButton", background=[("pressed", SAND_PRESS), ("active", SAND_HOVER)])
+    st.configure("Hero.TLabel", background=CARD, foreground=PETROL, font=("Georgia", 19, "bold"))
+    st.configure("Page.TLabel", background=BG, foreground=PETROL, font=("Georgia", 24, "bold"))
+    st.configure("Section.TLabel", background=CARD, foreground=MUTED, font=(base[0], 8, "bold"))
+    st.configure("Hero.TButton", background=TEAL, foreground="white", padding=(16, 13),
+                 borderwidth=0, focusthickness=0, focuscolor=TEAL, font=(base[0], 11, "bold"))
+    st.map("Hero.TButton", background=[("pressed", TEAL_DARK), ("active", TEAL_HOVER)])
+    st.configure("Ghost.TButton", background=CARD, foreground=TEXT, padding=(12, 9),
+                 borderwidth=1, bordercolor=BORDER, lightcolor=CARD, darkcolor=CARD,
+                 focusthickness=0, focuscolor=CARD)
+    st.map("Ghost.TButton", background=[("pressed", HOVER), ("active", HOVER)],
+           bordercolor=[("active", TEAL), ("pressed", TEAL)],
+           lightcolor=[("active", HOVER), ("pressed", HOVER)],
+           darkcolor=[("active", HOVER), ("pressed", HOVER)])
     st.configure("Horizontal.TScale", background=CARD, troughcolor=BORDER)
     st.configure("Teal.Horizontal.TProgressbar", troughcolor=BORDER, background=TEAL,
                  bordercolor=BG, lightcolor=TEAL, darkcolor=TEAL, thickness=6)
-    st.configure("TCombobox", fieldbackground="white", background=SAND, bordercolor=BORDER,
-                 arrowcolor=TEAL, padding=4)
-    st.configure("TEntry", fieldbackground="white", bordercolor=BORDER, padding=3)
-    st.configure("TSpinbox", fieldbackground="white", bordercolor=BORDER, arrowcolor=TEAL)
+    st.configure("TCombobox", fieldbackground=FIELD, background=SAND, bordercolor=BORDER,
+                 arrowcolor=TEAL, padding=4, foreground=TEXT)
+    st.map("TCombobox", fieldbackground=[("readonly", FIELD)],
+           foreground=[("readonly", TEXT)])
+    st.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, bordercolor=BORDER, padding=3)
+    st.configure("TSpinbox", fieldbackground=FIELD, foreground=TEXT, bordercolor=BORDER,
+                 arrowcolor=TEAL)
+    st.configure("Vertical.TScrollbar", background=SAND, troughcolor=BG,
+                 bordercolor=BG, arrowcolor=TEXT)
     root.option_add("*TCombobox*Listbox.selectBackground", TEAL)
-    root.option_add("*TCombobox*Listbox.background", "white")
+    root.option_add("*TCombobox*Listbox.background", FIELD)
+    root.option_add("*TCombobox*Listbox.foreground", TEXT)
     return base
 
 
@@ -676,6 +730,334 @@ class CropDialog(tk.Toplevel):
 
 
 # --------------------------------------------------------------------------
+# Start screen
+# --------------------------------------------------------------------------
+def _resolve_photo(ph, base):
+    """Find a photo referenced by a project (absolute path, relative path, same folder)."""
+    orig = ph.get("path") or ""
+    rel = ph.get("rel") or ""
+    for cand in (orig, os.path.join(base, rel) if rel else "",
+                 os.path.join(base, os.path.basename(orig)) if orig else ""):
+        if cand and os.path.isfile(cand):
+            return cand
+    return None
+
+
+def read_project_info(path):
+    """Cheap summary of a .pinproj for the list (no full-res photo loading)."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        mtime = os.path.getmtime(path)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("app") != "badge-pin-maker":
+        return None
+    paper = str(data.get("paper", ""))
+    pin = str(data.get("pin", ""))
+    paper = "Custom paper" if paper.startswith("Custom") else paper.split(" (")[0]
+    pin = f"{data.get('diameter', '?')} mm pin" if pin.startswith("Custom") else pin
+    info = dict(path=path, name=os.path.splitext(os.path.basename(path))[0],
+                mtime=mtime, paper=paper, pin=pin, pins=0, art=None)
+    slots = [s for s in data.get("slots", []) if isinstance(s, dict)]
+    info["pins"] = len(slots)
+    base = os.path.dirname(os.path.abspath(path))
+    photos = data.get("photos", [])
+    for sl in sorted(slots, key=lambda s: s.get("slot", 0)):
+        try:
+            photo = _resolve_photo(photos[int(sl["photo"])], base)
+            if photo:
+                info["art"] = (photo, float(sl.get("zoom", 1.0)), float(sl.get("cx", 0.5)),
+                               float(sl.get("cy", 0.5)), float(sl.get("angle", 0.0)))
+                break
+        except (KeyError, ValueError, TypeError, IndexError, AttributeError):
+            continue
+    return info
+
+
+def _circle_alpha(size):
+    big = Image.new("L", (size * 4, size * 4), 0)
+    ImageDraw.Draw(big).ellipse((0, 0, size * 4 - 1, size * 4 - 1), fill=255)
+    return big.resize((size, size), Image.LANCZOS)
+
+
+def make_icon(art, size=56):
+    """Round thumbnail of the project's first pin, or a generic pin icon."""
+    im = None
+    if art:
+        path, zoom, cx, cy, angle = art
+        try:
+            img = Image.open(path)
+            img.draft("RGB", (800, 800))
+            img = ImageOps.exif_transpose(img) or img
+            img = img.convert("RGB")
+            img.thumbnail((600, 600), Image.LANCZOS)
+            im = render_art(Art(Source(img, path), zoom, cx, cy, angle), 1.0, size, small=True)
+        except Exception:  # noqa: BLE001
+            im = None
+    if im is None:
+        S = size * 4
+        im = Image.new("RGB", (S, S), ORCHID)
+        dr = ImageDraw.Draw(im)
+        m, a, c = S * 0.14, S * 0.14, S / 2
+        dr.ellipse((m, m, S - m, S - m), outline="white", width=max(2, S // 32))
+        dr.line((c - a, c, c + a, c), fill="white", width=max(2, S // 20))
+        dr.line((c, c - a, c, c + a), fill="white", width=max(2, S // 20))
+        im = im.resize((size, size), Image.LANCZOS)
+    im = im.convert("RGBA")
+    im.putalpha(_circle_alpha(size))
+    return ImageTk.PhotoImage(im)
+
+
+class Toggle(tk.Canvas):
+    """A small on/off pill switch bound to a BooleanVar (reads cleanly in both themes)."""
+    W, H = 44, 24
+
+    def __init__(self, parent, variable, command=None, bg=None):
+        super().__init__(parent, width=self.W, height=self.H, bg=bg or CARD,
+                         highlightthickness=0, cursor="hand2")
+        self.var, self.command = variable, command
+        self._tid = variable.trace_add("write", lambda *_: self._draw())
+        self.bind("<Button-1>", self._click)
+        self.bind("<Destroy>", self._on_destroy)
+        self._draw()
+
+    def _on_destroy(self, e):
+        if e.widget is self:
+            try:
+                self.var.trace_remove("write", self._tid)
+            except (tk.TclError, ValueError):
+                pass
+
+    def _click(self, _e=None):
+        self.var.set(not self.var.get())
+        if self.command:
+            self.command()
+
+    def _draw(self):
+        try:
+            on = bool(self.var.get())
+            self.delete("all")
+        except tk.TclError:
+            return
+        w, h = self.W, self.H
+        col = TEAL if on else SAND_PRESS
+        r = h / 2
+        self.create_oval(0, 0, h, h, fill=col, outline=col)
+        self.create_oval(w - h, 0, w, h, fill=col, outline=col)
+        self.create_rectangle(r, 0, w - r, h, fill=col, outline=col)
+        pad = 3
+        x0 = w - h + pad if on else pad
+        self.create_oval(x0, pad, x0 + h - 2 * pad, h - pad, fill="white", outline="")
+
+
+class HomeScreen(tk.Frame):
+    """Start screen: sidebar (brand, actions, options, exit) + projects list."""
+    ICON = 56
+    SIDE_W = 320
+
+    def __init__(self, app):
+        super().__init__(app, bg=BG)
+        self.app = app
+        self._icons = {}
+        self._sb_on = False
+        fam = app.base_font[0]
+
+        # ---- sidebar -------------------------------------------------------
+        side = tk.Frame(self, bg=CARD, width=self.SIDE_W)
+        side.pack(side="left", fill="y")
+        side.pack_propagate(False)
+        tk.Frame(self, bg=BORDER, width=1).pack(side="left", fill="y")
+        pad = ttk.Frame(side, style="Card.TFrame", padding=(26, 28, 26, 24))
+        pad.pack(fill="both", expand=True)
+
+        brand = ttk.Frame(pad, style="Card.TFrame")
+        brand.pack(fill="x")
+        self._logo = make_icon(None, 46)
+        tk.Label(brand, image=self._logo, bg=CARD).pack(side="left", padx=(0, 12))
+        names = ttk.Frame(brand, style="Card.TFrame")
+        names.pack(side="left")
+        ttk.Label(names, text="Badge Pin", style="Hero.TLabel").pack(anchor="w")
+        ttk.Label(names, text="Maker", style="Hero.TLabel").pack(anchor="w")
+        ttk.Label(pad, text="Photo sheets for your pin badges",
+                  style="Muted.TLabel").pack(anchor="w", pady=(14, 22))
+
+        ttk.Button(pad, text="+  New project", style="Hero.TButton",
+                   command=app.new_project).pack(fill="x")
+        ttk.Button(pad, text="Browse for a project…", style="Ghost.TButton",
+                   command=app.open_project).pack(fill="x", pady=(10, 0))
+
+        ttk.Label(pad, text="OPTIONS", style="Section.TLabel").pack(anchor="w", pady=(34, 10))
+        row = ttk.Frame(pad, style="Card.TFrame")
+        row.pack(fill="x")
+        ttk.Label(row, text="Dark mode", style="Card.TLabel").pack(side="left")
+        Toggle(row, app.v_dark, command=app.toggle_theme, bg=CARD).pack(side="right")
+
+        ttk.Label(pad, text="Projects folder", style="Card.TLabel").pack(anchor="w", pady=(18, 0))
+        self.folder_lbl = ttk.Label(pad, style="Muted.TLabel", justify="left",
+                                    wraplength=self.SIDE_W - 60)
+        self.folder_lbl.pack(anchor="w", pady=(2, 0))
+        ttk.Button(pad, text="Change folder…", style="Ghost.TButton",
+                   command=self.change_folder).pack(anchor="w", pady=(10, 0))
+
+        ttk.Button(pad, text="Exit", style="Ghost.TButton",
+                   command=app.on_close).pack(side="bottom", fill="x")
+
+        # ---- main area -----------------------------------------------------
+        main = ttk.Frame(self, padding=(34, 28, 34, 28))
+        main.pack(side="left", fill="both", expand=True)
+        top = ttk.Frame(main)
+        top.pack(fill="x")
+        ttk.Label(top, text="Your projects", style="Page.TLabel").pack(side="left")
+        ttk.Button(top, text="Open folder", style="Ghost.TButton",
+                   command=lambda: reveal_folder(app.projects_dir())).pack(side="right")
+        self.count_lbl = ttk.Label(main, style="Hint.TLabel")
+        self.count_lbl.pack(anchor="w", pady=(2, 0))
+
+        body = ttk.Frame(main)
+        body.pack(fill="both", expand=True, pady=(16, 0))
+        self.cv = tk.Canvas(body, bg=BG, highlightthickness=0)
+        self.sb = ttk.Scrollbar(body, orient="vertical", command=self.cv.yview)
+        self.cv.configure(yscrollcommand=self._on_scroll)
+        self.cv.pack(side="left", fill="both", expand=True)
+        self.list = tk.Frame(self.cv, bg=BG)
+        self._win = self.cv.create_window(0, 0, anchor="nw", window=self.list)
+        self.list.bind("<Configure>",
+                       lambda e: self.cv.configure(scrollregion=self.cv.bbox("all")))
+        self.cv.bind("<Configure>", lambda e: self.cv.itemconfigure(self._win, width=e.width))
+        self._fam = fam
+        # bind_all (without add=) so a rebuilt HomeScreen replaces the old handler
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.bind_all(seq, self._on_wheel)
+
+    def _on_scroll(self, lo, hi):
+        self.sb.set(lo, hi)
+        need = float(lo) > 0.0 or float(hi) < 1.0
+        if need and not self._sb_on:
+            self._sb_on = True
+            self.sb.pack(side="right", fill="y", before=self.cv)
+        elif not need and self._sb_on:
+            self._sb_on = False
+            self.sb.pack_forget()
+
+    def _on_wheel(self, e):
+        try:
+            if not self.winfo_ismapped():
+                return
+            if e.num == 4:
+                step = -1
+            elif e.num == 5:
+                step = 1
+            else:
+                step = -1 if e.delta > 0 else 1
+            self.cv.yview_scroll(step, "units")
+        except tk.TclError:
+            pass
+
+    def refresh(self):
+        self.folder_lbl.config(text=self.app.projects_dir())
+        for w in self.list.winfo_children():
+            w.destroy()
+        items = self.app.scan_projects()
+        self.count_lbl.config(text=f"{len(items)} project{'s' if len(items) != 1 else ''}")
+        if not items:
+            box = tk.Frame(self.list, bg=BG)
+            box.pack(fill="x", pady=(70, 0))
+            self._empty_icon = make_icon(None, 96)
+            tk.Label(box, image=self._empty_icon, bg=BG).pack()
+            tk.Label(box, text="No projects yet", bg=BG, fg=PETROL,
+                     font=("Georgia", 18, "bold")).pack(pady=(16, 4))
+            tk.Label(box, text="Create your first sheet and it will show up here.",
+                     bg=BG, fg=MUTED, font=(self._fam, 10)).pack()
+            ttk.Button(box, text="+  New project", style="Hero.TButton",
+                       command=self.app.new_project).pack(pady=(18, 0))
+            self.cv.yview_moveto(0)
+            return
+        for info in items:
+            self._row(info)
+        self.cv.yview_moveto(0)
+
+    def _row(self, info):
+        fam = self._fam
+        outer = tk.Frame(self.list, bg=BORDER)          # 1px border that lights up on hover
+        outer.pack(fill="x", pady=(0, 10))
+        card = tk.Frame(outer, bg=CARD)
+        card.pack(fill="x", padx=1, pady=1)
+
+        key = (info["path"], info["mtime"])
+        if key not in self._icons:
+            self._icons[key] = make_icon(info["art"], self.ICON)
+        icon = tk.Label(card, image=self._icons[key], bg=CARD)
+        icon.pack(side="left", padx=(16, 14), pady=12)
+
+        right = tk.Frame(card, bg=CARD)
+        right.pack(side="right", padx=16)
+        when = time.strftime("%d %b %Y", time.localtime(info["mtime"]))
+        date = tk.Label(right, text=f"Edited {when}", bg=CARD, fg=MUTED,
+                        font=(fam, 9), anchor="e")
+        date.pack(anchor="e")
+        dele = tk.Label(right, text="Delete", bg=CARD, fg=MUTED, cursor="hand2",
+                        font=(fam, 9, "underline"))
+        dele.pack(anchor="e", pady=(4, 0))
+        dele.bind("<Button-1>", lambda e, i=info: self.delete(i))
+        dele.bind("<Enter>", lambda e: dele.config(fg=WARN))
+        dele.bind("<Leave>", lambda e: dele.config(fg=MUTED))
+
+        text = tk.Frame(card, bg=CARD)
+        text.pack(side="left", fill="x", expand=True)
+        name = tk.Label(text, text=info["name"], bg=CARD, fg=PETROL, anchor="w",
+                        font=("Georgia", 14, "bold"))
+        name.pack(fill="x")
+        n = info["pins"]
+        sub = tk.Label(text, bg=CARD, fg=MUTED, anchor="w", font=(fam, 9),
+                       text=f"{info['paper']}  ·  {info['pin']}  ·  "
+                            f"{n} pin{'s' if n != 1 else ''}")
+        sub.pack(fill="x", pady=(2, 0))
+
+        widgets = (card, icon, text, name, sub, right, date, dele)
+
+        def paint(on):
+            outer.config(bg=TEAL if on else BORDER)
+            for w in widgets:
+                w.config(bg=HOVER if on else CARD)
+
+        def leave(_e):
+            try:
+                x, y = outer.winfo_pointerxy()
+                under = outer.winfo_containing(x, y)
+            except (tk.TclError, KeyError):
+                under = None
+            if under is None or not (under == outer or str(under).startswith(str(outer) + ".")):
+                paint(False)
+
+        for w in widgets:
+            w.bind("<Enter>", lambda e: paint(True), add="+")
+            w.bind("<Leave>", leave, add="+")
+            if w is not dele:
+                w.config(cursor="hand2")
+                w.bind("<Button-1>", lambda e, p=info["path"]: self.app.open_path(p))
+
+    def delete(self, info):
+        if not messagebox.askyesno(
+                "Delete project",
+                f"Delete “{info['name']}”?\n\nOnly the project file is removed; "
+                "your photos are not touched.", icon="warning", parent=self.app):
+            return
+        try:
+            os.remove(info["path"])
+        except OSError as ex:
+            messagebox.showerror("Delete project", f"Could not delete:\n{ex}")
+        self.refresh()
+
+    def change_folder(self):
+        d = filedialog.askdirectory(title="Choose projects folder",
+                                    initialdir=self.app.projects_dir())
+        if d:
+            self.app.set_projects_dir(d)
+            self.refresh()
+
+
+# --------------------------------------------------------------------------
 # Main window
 # --------------------------------------------------------------------------
 class BadgeApp(_RootBase):
@@ -683,14 +1065,21 @@ class BadgeApp(_RootBase):
         super().__init__()
         self.settings = load_settings()
         self._loading = True
+        self.screen = "home"
 
-        self.title("Untitled — Badge Pin Maker")
+        self.title("Badge Pin Maker")
         geo = self.settings.get("size")
         if not (isinstance(geo, str) and re.fullmatch(r"\d{3,4}x\d{3,4}", geo)):
             geo = "1220x820"
         self.geometry(geo)
         self.minsize(1020, 720)
+
+        s = self.settings
+        theme = s.get("theme") if s.get("theme") in THEMES else "light"
+        apply_theme(theme)                       # must come before setup_style
         self.base_font = setup_style(self)
+        self.v_dark = tk.BooleanVar(value=(theme == "dark"))
+        self.editor = tk.Frame(self, bg=BG)
 
         self.slots = {}          # slot index -> Art
         self.layout = None
@@ -705,7 +1094,6 @@ class BadgeApp(_RootBase):
         self.project_path = None
         self.dirty = False
 
-        s = self.settings
         paper = s.get("paper") if s.get("paper") in PAPER_SIZES else "A4"
         pin = s.get("pin") if s.get("pin") in PIN_SIZES else "32 mm pin"
         self.v_paper = tk.StringVar(value=paper)
@@ -715,8 +1103,8 @@ class BadgeApp(_RootBase):
         self.v_d = tk.StringVar(value=str(s.get("d", "32")))
         self.v_guides = tk.BooleanVar(value=bool(s.get("guides", True)))
 
-        self._build_menu()
         self._build_ui()
+        self.home = HomeScreen(self)
         self._bind_shortcuts()
         for v in (self.v_paper, self.v_pw, self.v_ph, self.v_pin, self.v_d, self.v_guides):
             v.trace_add("write", self._on_setting)
@@ -727,67 +1115,132 @@ class BadgeApp(_RootBase):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self._loading = False
         self.set_status()
+        self._show("home")
 
-    # ---- menu / shortcuts ---------------------------------------------------
-    def _build_menu(self):
-        def acc(k):
-            return f"{MOD_LABEL}+{k}"
-        mb = tk.Menu(self)
-        fm = tk.Menu(mb, tearoff=0)
-        fm.add_command(label="New project", accelerator=acc("N"), command=self.new_project)
-        fm.add_command(label="Open project…", accelerator=acc("O"), command=self.open_project)
-        fm.add_command(label="Save project", accelerator=acc("S"), command=self.save_project)
-        fm.add_command(label="Save project as…", accelerator=acc("Shift+S"),
-                       command=self.save_project_as)
-        fm.add_separator()
-        fm.add_command(label="Export PDF…", accelerator=acc("E"), command=self.export_pdf)
-        fm.add_command(label="Print", accelerator=acc("P"), command=self.print_now)
-        fm.add_separator()
-        fm.add_command(label="Quit", command=self.on_close)
-        em = tk.Menu(mb, tearoff=0)
-        em.add_command(label="Undo", accelerator=acc("Z"), command=self.undo)
-        em.add_command(label="Redo", accelerator=acc("Y"), command=self.redo)
-        em.add_separator()
-        em.add_command(label="Clear all photos", command=self.clear_all)
-        mb.add_cascade(label="File", menu=fm)
-        mb.add_cascade(label="Edit", menu=em)
-        self.config(menu=mb)
-
+    # ---- shortcuts (no menu bar; the buttons cover everything) -------------
     def _bind_shortcuts(self):
-        def handler(fn):
-            return lambda e: (fn(), "break")[1]
-        table = [("n", self.new_project), ("o", self.open_project), ("s", self.save_project),
-                 ("Shift-S", self.save_project_as), ("e", self.export_pdf),
-                 ("p", self.print_now), ("z", self.undo), ("y", self.redo),
-                 ("Shift-Z", self.redo)]
-        for key, fn in table:
-            self.bind(f"<{MOD}-{key}>", handler(fn))
+        def handler(fn, home_ok=False):
+            def run(e):
+                if home_ok or self.screen == "editor":
+                    fn()
+                return "break"
+            return run
+        table = [("n", self.new_project, True), ("o", self.open_project, True),
+                 ("s", self.save_project, False), ("Shift-S", self.save_project_as, False),
+                 ("e", self.export_pdf, False), ("p", self.print_now, False),
+                 ("z", self.undo, False), ("y", self.redo, False),
+                 ("Shift-Z", self.redo, False), ("h", self.go_home, False)]
+        for key, fn, home_ok in table:
+            self.bind(f"<{MOD}-{key}>", handler(fn, home_ok))
             if len(key) == 1:
-                self.bind(f"<{MOD}-{key.upper()}>", handler(fn))
+                self.bind(f"<{MOD}-{key.upper()}>", handler(fn, home_ok))
         self.bind("<Delete>", self.delete_selected)
         self.bind("<Escape>", lambda e: self.close_popup())
 
+    # ---- screens / theme / projects folder ---------------------------------
+    def _show(self, name):
+        self.screen = name
+        self.home.pack_forget()
+        self.editor.pack_forget()
+        if name == "home":
+            self.title("Badge Pin Maker")
+            self.home.refresh()
+            self.home.pack(fill="both", expand=True)
+        else:
+            self._update_title()
+            self.editor.pack(fill="both", expand=True)
+            self.schedule_redraw()
+            self.set_status()
+
+    def go_home(self):
+        if self.screen == "home" or not self._confirm_discard():
+            return
+        self.close_popup()
+        self.slots.clear()
+        self._undo.clear()
+        self._redo.clear()
+        self.project_path = None
+        self.dirty = False
+        self._show("home")
+
+    def toggle_theme(self):
+        name = "dark" if self.v_dark.get() else "light"
+        apply_theme(name)
+        self.settings["theme"] = name
+        save_settings(self.settings)
+        self.base_font = setup_style(self)
+        self.after_idle(self._rebuild_ui)        # don't destroy the widget that fired us
+
+    def _rebuild_ui(self):
+        showing = self.screen
+        self.close_popup()
+        self.home.destroy()
+        self.editor.destroy()
+        self.editor = tk.Frame(self, bg=BG)
+        self._build_ui()
+        self._paper_changed()
+        self._pin_changed()
+        self.home = HomeScreen(self)
+        self._show(showing)
+
+    def projects_dir(self):
+        d = self.settings.get("projects_dir") or default_projects_dir()
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            d = os.path.expanduser("~")
+        return d
+
+    def set_projects_dir(self, d):
+        self.settings["projects_dir"] = d
+        save_settings(self.settings)
+
+    def scan_projects(self):
+        pattern = os.path.join(glob.escape(self.projects_dir()), "*" + PROJECT_EXT)
+        items = [i for i in map(read_project_info, glob.glob(pattern)) if i]
+        return sorted(items, key=lambda i: i["mtime"], reverse=True)
+
+    def _unique_project_path(self, name):
+        stem = re.sub(r'[\\/:*?"<>|]+', "", name).strip().rstrip(".") or "Untitled"
+        base = self.projects_dir()
+        path, n = os.path.join(base, stem + PROJECT_EXT), 2
+        while os.path.exists(path):
+            path = os.path.join(base, f"{stem} {n}{PROJECT_EXT}")
+            n += 1
+        return path
+
+    def open_path(self, path):
+        if self._load_from(path):
+            self._show("editor")
+
     # ---- UI --------------------------------------------------------------
     def _build_ui(self):
+        host = self.editor
         # status bar first so it claims the bottom edge
-        status = tk.Frame(self, bg=CARD)
+        status = tk.Frame(host, bg=CARD)
         status.pack(side="bottom", fill="x")
-        tk.Frame(self, bg=BORDER, height=1).pack(side="bottom", fill="x")
+        tk.Frame(host, bg=BORDER, height=1).pack(side="bottom", fill="x")
         self.status_lbl = tk.Label(status, bg=CARD, fg=MUTED, anchor="w", padx=14, pady=6,
                                    font=(self.base_font[0], 9))
         self.status_lbl.pack(side="left")
         tk.Label(status, bg=CARD, fg=MUTED, padx=14, font=(self.base_font[0], 9),
-                 text=f"{MOD_LABEL}+Z undo  ·  {MOD_LABEL}+S save  ·  {MOD_LABEL}+P print"
+                 text=f"{MOD_LABEL}+Z undo  ·  {MOD_LABEL}+S save  ·  {MOD_LABEL}+H projects"
                  ).pack(side="right")
         self.export_bar = ttk.Progressbar(status, length=160, mode="determinate",
                                           style="Teal.Horizontal.TProgressbar")
 
-        left = ttk.Frame(self, padding=(18, 16, 8, 16))
+        left = ttk.Frame(host, padding=(18, 16, 8, 16))
         left.pack(side="left", fill="y")
-        right = ttk.Frame(self, padding=(8, 16, 18, 16))
+        right = ttk.Frame(host, padding=(8, 16, 18, 16))
         right.pack(side="left", fill="both", expand=True)
 
-        ttk.Label(left, text="Badge Pin Maker", style="Title.TLabel").pack(anchor="w", pady=(0, 14))
+        ttk.Label(left, text="Badge Pin Maker", style="Title.TLabel").pack(anchor="w", pady=(0, 10))
+        nav = ttk.Frame(left)
+        nav.pack(fill="x", pady=(0, 14))
+        ttk.Button(nav, text="← Projects", style="Soft.TButton",
+                   command=self.go_home).pack(side="left", expand=True, fill="x")
+        ttk.Button(nav, text="Save", style="Soft.TButton",
+                   command=self.save_project).pack(side="left", expand=True, fill="x", padx=(8, 0))
 
         f = make_card(left, "1 · Paper size")
         ttk.Combobox(f, textvariable=self.v_paper, values=list(PAPER_SIZES),
@@ -817,8 +1270,13 @@ class BadgeApp(_RootBase):
         ttk.Button(f, text="Clear all", style="Soft.TButton",
                    command=self.clear_all).pack(anchor="w", pady=(8, 0))
 
-        ttk.Checkbutton(left, text="Show safe-area guide", variable=self.v_guides,
-                        style="Card.TCheckbutton").pack(anchor="w", pady=(2, 8), padx=2)
+        f = make_card(left, "Display")
+        for label, var, cmd in (("Safe-area guide", self.v_guides, None),
+                                ("Dark mode", self.v_dark, self.toggle_theme)):
+            r = ttk.Frame(f, style="Card.TFrame")
+            r.pack(fill="x", pady=3)
+            ttk.Label(r, text=label, style="Card.TLabel").pack(side="left")
+            Toggle(r, var, command=cmd, bg=CARD).pack(side="right")
         a = ttk.Frame(left)
         a.pack(fill="x")
         ttk.Button(a, text="Export PDF", style="Accent.TButton",
@@ -912,10 +1370,6 @@ class BadgeApp(_RootBase):
         self.layout = compute_layout(p["pw"], p["ph"], p["d"], PAGE_MARGIN, BADGE_GAP)
         return p
 
-    def _dir(self, key):
-        d = self.settings.get(key)
-        return d if d and os.path.isdir(d) else os.path.expanduser("~")
-
     def _store_settings(self):
         self.settings.update(
             paper=self.v_paper.get(), pw=self.v_pw.get(), ph=self.v_ph.get(),
@@ -923,8 +1377,15 @@ class BadgeApp(_RootBase):
             size=f"{self.winfo_width()}x{self.winfo_height()}")
         save_settings(self.settings)
 
+    def _dir(self, key):
+        d = self.settings.get(key)
+        return d if d and os.path.isdir(d) else os.path.expanduser("~")
+
     # ---- undo / dirty state -------------------------------------------------
     def _update_title(self):
+        if self.screen == "home":
+            self.title("Badge Pin Maker")
+            return
         name = os.path.basename(self.project_path) if self.project_path else "Untitled"
         self.title(f"{name}{'*' if self.dirty else ''} — Badge Pin Maker")
 
@@ -1194,7 +1655,7 @@ class BadgeApp(_RootBase):
         ox, oy = (cw - W * s) / 2, (ch - H * s) / 2
         self.geo = (s, ox, oy, p)
 
-        for off, col in ((6, "#D8C3CD"), (4, SHADOW), (2, "#BFA0B2")):
+        for off, col in ((6, SHADOW_A), (4, SHADOW), (2, SHADOW_C)):
             cv.create_rectangle(ox + off, oy + off, ox + W * s + off, oy + H * s + off,
                                 fill=col, outline="")
         cv.create_rectangle(ox, oy, ox + W * s, oy + H * s, fill="white", outline="#D9C6CF")
@@ -1223,7 +1684,7 @@ class BadgeApp(_RootBase):
                                       (x, y + w / 2 + off, x, y + w / 2 + off + tick),
                                       (x - w / 2 - off, y, x - w / 2 - off - tick, y),
                                       (x + w / 2 + off, y, x + w / 2 + off + tick, y)):
-                cv.create_line(x1, y1, x2, y2, fill=TEXT)
+                cv.create_line(x1, y1, x2, y2, fill="#2C4651")
             if art.ppi(p["d"]) < LOW_PPI:
                 low += 1
                 r = max(6, w * 0.09)
@@ -1235,7 +1696,7 @@ class BadgeApp(_RootBase):
         n, filled = self._n(), self._filled()
         self._update_stats(L, n, filled, low)
         if n == 0:
-            cv.create_text(cw / 2, ch / 2, fill="#a00",
+            cv.create_text(cw / 2, ch / 2, fill="#E06666",
                            text="Pin doesn't fit on this paper — choose a smaller size.")
 
     def _update_stats(self, L, n, filled, low):
@@ -1291,14 +1752,18 @@ class BadgeApp(_RootBase):
     def new_project(self):
         if not self._confirm_discard():
             return
+        name = simpledialog.askstring("New project", "Project name:",
+                                      initialvalue="My pins", parent=self)
+        if not name or not name.strip():
+            return
         self.close_popup()
         self.slots.clear()
         self._undo.clear()
         self._redo.clear()
         self.project_path = None
-        self._mark_clean()
-        self.schedule_redraw()
-        self.set_status("New project")
+        if self._save_to(self._unique_project_path(name)):
+            self._show("editor")
+            self.set_status("New project")
 
     def save_project(self):
         if not self.project_path:
@@ -1310,7 +1775,7 @@ class BadgeApp(_RootBase):
                    else "pins" + PROJECT_EXT)
         path = filedialog.asksaveasfilename(
             defaultextension=PROJECT_EXT, filetypes=[("Pin project", f"*{PROJECT_EXT}")],
-            initialdir=self._dir("project_dir"), initialfile=initial, title="Save project")
+            initialdir=self.projects_dir(), initialfile=initial, title="Save project")
         if not path:
             return False
         return self._save_to(path)
@@ -1344,19 +1809,19 @@ class BadgeApp(_RootBase):
             messagebox.showerror("Save project", f"Could not save:\n{ex}")
             return False
         self.project_path = path
-        self.settings["project_dir"] = base
         self._mark_clean()
         self.set_status(f"Saved {os.path.basename(path)}")
         return True
 
     def open_project(self):
+        """Browse for a project file anywhere on disk."""
         if not self._confirm_discard():
             return
         path = filedialog.askopenfilename(
-            title="Open project", initialdir=self._dir("project_dir"),
+            title="Open project", initialdir=self.projects_dir(),
             filetypes=[("Pin project", f"*{PROJECT_EXT}"), ("All files", "*.*")])
-        if path:
-            self._load_from(path)
+        if path and self._load_from(path):
+            self._show("editor")
 
     def _load_from(self, path):
         try:
@@ -1366,7 +1831,7 @@ class BadgeApp(_RootBase):
                 raise ValueError("This is not a Badge Pin Maker project.")
         except (OSError, ValueError) as ex:
             messagebox.showerror("Open project", f"Could not open project:\n{ex}")
-            return
+            return False
         base = os.path.dirname(os.path.abspath(path))
 
         sources, missing = [], []
@@ -1416,7 +1881,6 @@ class BadgeApp(_RootBase):
         self._undo.clear()
         self._redo.clear()
         self.project_path = path
-        self.settings["project_dir"] = base
         self._loading = False
         self._mark_clean()
         self.redraw()
@@ -1426,6 +1890,7 @@ class BadgeApp(_RootBase):
                 "Missing photos",
                 "These photos could not be found and were left empty:\n\n"
                 + "\n".join(missing[:10]) + ("\n…" if len(missing) > 10 else ""))
+        return True
 
     def on_close(self):
         if not self._confirm_discard():

@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# Packaging
+*.egg
+*.whl
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# App data / user files
+*.pinproj
+*.log
+pin_sheet.pdf
+
+# Keep the icons tracked (remove these lines if you prefer not to commit them)
+!icon.ico
+!icon.icns
