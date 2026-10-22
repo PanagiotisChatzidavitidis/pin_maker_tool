@@ -35,6 +35,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import tkinter as tk
@@ -63,6 +64,13 @@ SETTINGS_PATH = os.path.join(os.path.expanduser("~"), ".badge_pin_maker.json")
 IS_MAC = platform.system() == "Darwin"
 MOD = "Command" if IS_MAC else "Control"
 MOD_LABEL = "Cmd" if IS_MAC else "Ctrl"
+
+
+def resource_path(name):
+    """Find a bundled file both when running from source and from the built exe."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, name)
+
 
 # --------------------------------------------------------------------------
 # Themes. apply_theme() rebinds these names as module globals; every function
@@ -809,6 +817,21 @@ def make_icon(art, size=56):
     return ImageTk.PhotoImage(im)
 
 
+def load_logo(size):
+    """Use logo.png as the app logo, else fall back to the default pin icon."""
+    p = resource_path("logo.png")
+    if os.path.isfile(p):
+        try:
+            im = Image.open(p).convert("RGBA")
+            im = ImageOps.fit(im, (size, size), Image.LANCZOS)
+            # For a round logo like the original, uncomment the next line:
+            # im.putalpha(_circle_alpha(size))
+            return ImageTk.PhotoImage(im)
+        except Exception:  # noqa: BLE001
+            pass
+    return make_icon(None, size)
+
+
 class Toggle(tk.Canvas):
     """A small on/off pill switch bound to a BooleanVar (reads cleanly in both themes)."""
     W, H = 44, 24
@@ -873,7 +896,7 @@ class HomeScreen(tk.Frame):
 
         brand = ttk.Frame(pad, style="Card.TFrame")
         brand.pack(fill="x")
-        self._logo = make_icon(None, 46)
+        self._logo = load_logo(46)
         tk.Label(brand, image=self._logo, bg=CARD).pack(side="left", padx=(0, 12))
         names = ttk.Frame(brand, style="Card.TFrame")
         names.pack(side="left")
@@ -963,7 +986,7 @@ class HomeScreen(tk.Frame):
         if not items:
             box = tk.Frame(self.list, bg=BG)
             box.pack(fill="x", pady=(70, 0))
-            self._empty_icon = make_icon(None, 96)
+            self._empty_icon = load_logo(96)
             tk.Label(box, image=self._empty_icon, bg=BG).pack()
             tk.Label(box, text="No projects yet", bg=BG, fg=PETROL,
                      font=("Georgia", 18, "bold")).pack(pady=(16, 4))
@@ -1068,6 +1091,11 @@ class BadgeApp(_RootBase):
         self.screen = "home"
 
         self.title("Badge Pin Maker")
+        try:
+            if platform.system() == "Windows":
+                self.iconbitmap(resource_path("icon.ico"))
+        except tk.TclError:
+            pass
         geo = self.settings.get("size")
         if not (isinstance(geo, str) and re.fullmatch(r"\d{3,4}x\d{3,4}", geo)):
             geo = "1220x820"

@@ -31,6 +31,6 @@ desktop.ini
 *.log
 pin_sheet.pdf
 
-# Keep the icons tracked (remove these lines if you prefer not to commit them)
-!icon.ico
-!icon.icns
+
+*.ico
+*.png
