@@ -41,7 +41,7 @@ import sys
 import tempfile
 import time
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import ttk, filedialog
 
 from PIL import Image, ImageDraw, ImageOps, ImageTk
 from reportlab.pdfgen import canvas as pdfcanvas
@@ -89,30 +89,38 @@ THEMES = {
         PETROL="#005F73", TEAL="#008080", TEAL_HOVER="#1A9696", TEAL_DARK="#006767",
         SAND="#EACDB2", SAND_HOVER="#E2C3A4", SAND_PRESS="#D6B391",
         ORCHID="#BB76A3", PLUM="#7A5677", WARN="#C9772B",
+        # sheet highlights: hovered circle, selected circle, border of the Clear/Modify box
+        HOVER_RING="#BB76A3", SELECT_RING="#7A5677", POPUP_EDGE="#7A5677",
         BG="#F6EADD", CARD="#FCF6EE", BORDER="#E3C9AE", TEXT="#2C4651", MUTED="#80787A",
         BLUSH="#E4D1D9", SHADOW_A="#D8C3CD", SHADOW="#CDB2C0", SHADOW_C="#BFA0B2",
         FIELD="white", HOVER="#F3E4D2",
         # sheet preview
         PAPER="white", PAPER_EDGE="#D9C6CF", EMPTY_FILL="#FDF8FB", EMPTY_LINE="#D7B0CA",
         EMPTY_PLUS="#CF9BBB", PIN_EDGE="#6B5666", TICK="#2C4651", GUIDE="#FFFFFF",
-        ERR="#E06666"),
+        ERR="#E06666",
+        # crop window: colour the photo fades to outside the pin, and the pin outline
+        CROP_DIM=(243, 231, 218), CROP_LINE="#2C4651", CROP_HALO="#FFFFFF"),
     # lo-fi night: deep petrol-slate surfaces, warm sand text, brighter accents
     "dark": dict(
         PETROL="#8FD3D6", TEAL="#2B9A9A", TEAL_HOVER="#3AB0B0", TEAL_DARK="#217878",
         SAND="#33494F", SAND_HOVER="#3A535B", SAND_PRESS="#3F5A62",
         ORCHID="#D08BBB", PLUM="#B98AB5", WARN="#E8A15A",
+        HOVER_RING="#3AB0B0", SELECT_RING="#8FD3D6", POPUP_EDGE="#3AB0B0",
         BG="#182329", CARD="#223139", BORDER="#33474F", TEXT="#EADFD2", MUTED="#93A3A6",
         BLUSH="#121B20", SHADOW_A="#161F25", SHADOW="#10181D", SHADOW_C="#0B1216",
         FIELD="#2C3F48", HOVER="#2B3D46",
         # sheet preview
         PAPER="#223139", PAPER_EDGE="#3F5A62", EMPTY_FILL="#2B3E47", EMPTY_LINE="#587480",
         EMPTY_PLUS="#8FB0B8", PIN_EDGE="#EADFD2", TICK="#C9BBAA", GUIDE="#FFE2C4",
-        ERR="#E8A15A"),
+        ERR="#E8A15A",
+        CROP_DIM=(18, 27, 32), CROP_LINE="#FFFFFF", CROP_HALO="#121B20"),
 }
 
 
 def apply_theme(name):
-    globals().update(THEMES.get(name, THEMES["light"]))
+    name = name if name in THEMES else "light"
+    globals().update(THEMES[name])
+    globals()["THEME_NAME"] = name
 
 
 apply_theme("light")
@@ -493,19 +501,37 @@ def setup_style(root):
            bordercolor=[("active", TEAL), ("pressed", TEAL)],
            lightcolor=[("active", HOVER), ("pressed", HOVER)],
            darkcolor=[("active", HOVER), ("pressed", HOVER)])
-    st.configure("Horizontal.TScale", background=CARD, troughcolor=BORDER)
+    st.configure("Horizontal.TScale", background=TEAL, troughcolor=BORDER, bordercolor=BORDER,
+                 lightcolor=TEAL, darkcolor=TEAL)
+    st.map("Horizontal.TScale",
+           background=[("pressed", TEAL_DARK), ("active", TEAL_HOVER)],
+           lightcolor=[("pressed", TEAL_DARK), ("active", TEAL_HOVER)],
+           darkcolor=[("pressed", TEAL_DARK), ("active", TEAL_HOVER)])
     st.configure("Teal.Horizontal.TProgressbar", troughcolor=BORDER, background=TEAL,
                  bordercolor=BG, lightcolor=TEAL, darkcolor=TEAL, thickness=6)
-    st.configure("TCombobox", fieldbackground=FIELD, background=SAND, bordercolor=BORDER,
-                 arrowcolor=TEAL, padding=4, foreground=TEXT)
+    # clam draws bevelled borders with light/dark edge colours (white/grey by default,
+    # which glows in dark mode), so every field gets a themed edge and a teal focus ring.
+    edge = dict(bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER)
+    focus = dict(bordercolor=[("focus", TEAL), ("active", TEAL)],
+                 lightcolor=[("focus", TEAL)], darkcolor=[("focus", TEAL)])
+    sel = dict(selectbackground=TEAL, selectforeground="white")
+    st.configure("TCombobox", fieldbackground=FIELD, background=SAND, arrowcolor=TEAL,
+                 padding=4, foreground=TEXT, **edge, **sel)
     st.map("TCombobox", fieldbackground=[("readonly", FIELD)],
-           foreground=[("readonly", TEXT)])
-    st.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, bordercolor=BORDER, padding=3)
-    st.configure("TSpinbox", fieldbackground=FIELD, foreground=TEXT, bordercolor=BORDER,
-                 arrowcolor=TEAL)
-    st.configure("Vertical.TScrollbar", background=SAND, troughcolor=BG,
-                 bordercolor=BG, arrowcolor=TEXT)
+           foreground=[("readonly", TEXT)],
+           selectbackground=[("readonly", FIELD)], selectforeground=[("readonly", TEXT)],
+           background=[("pressed", SAND_PRESS), ("active", SAND_HOVER)], **focus)
+    st.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, padding=3,
+                 insertcolor=TEXT, **edge, **sel)
+    st.map("TEntry", **focus)
+    st.configure("TSpinbox", fieldbackground=FIELD, foreground=TEXT, background=SAND,
+                 arrowcolor=TEAL, insertcolor=TEXT, **edge, **sel)
+    st.map("TSpinbox", background=[("pressed", SAND_PRESS), ("active", SAND_HOVER)], **focus)
+    st.configure("Vertical.TScrollbar", background=SAND, troughcolor=BG, bordercolor=BG,
+                 lightcolor=SAND, darkcolor=SAND, arrowcolor=TEXT)
+    st.map("Vertical.TScrollbar", background=[("pressed", SAND_PRESS), ("active", SAND_HOVER)])
     root.option_add("*TCombobox*Listbox.selectBackground", TEAL)
+    root.option_add("*TCombobox*Listbox.selectForeground", "white")
     root.option_add("*TCombobox*Listbox.background", FIELD)
     root.option_add("*TCombobox*Listbox.foreground", TEXT)
     return base
@@ -540,6 +566,212 @@ class StatTile(tk.Frame):
 
 
 # --------------------------------------------------------------------------
+# Themed dialogs. The system message boxes always look light, so the app uses
+# its own with the same function names (messagebox.askyesno etc.).
+# --------------------------------------------------------------------------
+def set_window_icon(win):
+    """Use the app icon in a window's title bar instead of the default Tk feather."""
+    try:
+        if platform.system() == "Windows":
+            win.iconbitmap(asset_path("icon.ico"))
+    except tk.TclError:
+        pass
+
+
+def set_titlebar(win):
+    """Match the Windows title bar to the current theme (does nothing elsewhere)."""
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+        win.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
+        val = ctypes.c_int(1 if THEME_NAME == "dark" else 0)
+        for attr in (20, 19):    # 20 = Windows 11 / 10 20H1+, 19 = older Windows 10
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attr, ctypes.byref(val), ctypes.sizeof(val)) == 0:
+                break
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def round_rect(canvas, x0, y0, x1, y1, r, **kw):
+    """Rounded rectangle on a canvas."""
+    pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1,
+           x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
+    return canvas.create_polygon(pts, smooth=True, **kw)
+
+
+class ThemedDialog(tk.Toplevel):
+    """Small modal window: icon + message (+ optional text field) + buttons.
+    result = the value of the button pressed (or the typed text for a text dialog)."""
+    def __init__(self, parent, title, message, kind="info",
+                 buttons=(("OK", True, "Accent.TButton"),), default=True, cancel=None,
+                 entry=None):
+        super().__init__(parent)
+        self.withdraw()                      # build off-screen, then show centred
+        self.configure(bg=BG)
+        self.title(title)
+        self.resizable(False, False)
+        set_window_icon(self)
+        try:
+            if parent is not None and parent.winfo_viewable():
+                self.transient(parent)
+        except tk.TclError:
+            pass
+        self.result = cancel
+        self._default, self._cancel = default, cancel
+        self._var = tk.StringVar(value=entry) if entry is not None else None
+
+        body = ttk.Frame(self, style="Card.TFrame", padding=(20, 22, 24, 16))
+        body.pack(fill="both", expand=True)
+
+        # the hamster (does a little hop when the window opens)
+        self._logo = load_logo(52)
+        self._mascot = tk.Canvas(body, width=60, height=66, bg=CARD, highlightthickness=0)
+        self._mimg = self._mascot.create_image(30, 36, image=self._logo)
+        self._mascot.pack(side="left", anchor="s")
+        self._anim = None
+
+        # speech bubble: rounded box with a small tail pointing at the hamster
+        TAIL, TEXT_W, PX, PY = 12, 330, 16, 12
+        bub = tk.Canvas(body, bg=CARD, highlightthickness=0)
+        txt = bub.create_text(0, 0, text=message, anchor="nw", width=TEXT_W, fill=TEXT,
+                              font="TkDefaultFont", justify="left")
+        bx0, by0, bx1, by1 = bub.bbox(txt)
+        text_h = by1 - by0
+        inner_w = max(bx1 - bx0, TEXT_W if self._var is not None else 0)
+        bub.move(txt, TAIL + 2 + PX - bx0, PY + 1 - by0)
+        box_h = text_h + 2 * PY + (40 if self._var is not None else 0)
+        W, H = TAIL + inner_w + 2 * PX + 3, box_h + 2
+        bub.config(width=W, height=H)
+        if self._var is not None:
+            ent = ttk.Entry(bub, textvariable=self._var)
+            bub.create_window(TAIL + 2 + PX, PY + 1 + text_h + 12, anchor="nw",
+                              window=ent, width=inner_w)
+            ent.focus_set()
+            ent.selection_range(0, "end")
+        round_rect(bub, TAIL + 1, 1, W - 2, H - 2, 14, fill=HOVER, outline=TEAL, width=2,
+                   tags="bubble")
+        cy = min(max(20, H - 30), H - 16)                       # tail sits level with the hamster
+        bub.create_polygon(TAIL + 1, cy - 9, 1, cy, TAIL + 1, cy + 9, fill=HOVER,
+                           outline=TEAL, width=2, tags="bubble")
+        bub.create_line(TAIL + 1, cy - 7, TAIL + 1, cy + 7, fill=HOVER, width=4, tags="bubble")
+        bub.tag_lower("bubble")                                 # shapes behind the text
+        bub.pack(side="left", anchor="s", padx=(2, 0))
+
+        tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
+        foot = ttk.Frame(self, padding=(16, 12))
+        foot.pack(fill="x")
+        for label, value, style in reversed(buttons):   # buttons are given left to right
+            ttk.Button(foot, text=label, style=style,
+                       command=lambda v=value: self._done(v)).pack(side="right", padx=(8, 0))
+
+        self.bind("<Return>", lambda e: self._done(self._default))
+        self.bind("<Escape>", lambda e: self._done(self._cancel))
+        self.protocol("WM_DELETE_WINDOW", lambda: self._done(self._cancel))
+
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        if parent is not None:
+            x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+            y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+        else:
+            x, y = (self.winfo_screenwidth() - w) // 2, (self.winfo_screenheight() - h) // 3
+        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        set_titlebar(self)
+        self.deiconify()
+        try:
+            self.wait_visibility()
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.focus_force()
+        self._bounce()
+
+    def _bounce(self, step=0):
+        hops = (0, -9, 0, -5, 0, -2, 0)
+        if step >= len(hops):
+            self._anim = None
+            return
+        try:
+            self._mascot.coords(self._mimg, 30, 36 + hops[step])
+        except tk.TclError:
+            return
+        self._anim = self.after(70, self._bounce, step + 1)
+
+    def _done(self, value):
+        if self._anim is not None:
+            self.after_cancel(self._anim)
+            self._anim = None
+        if value is True and self._var is not None:
+            value = self._var.get()
+        self.result = value
+        self.destroy()
+
+
+class _ThemedMessageBox:
+    """Drop-in for tkinter.messagebox (plus askstring) that follows the theme."""
+    OK = ("Okay!", True, "Accent.TButton")
+    CANCEL = ("Cancel", None, "Soft.TButton")
+
+    def _run(self, parent, title, message, **kw):
+        root = parent or getattr(tk, "_default_root", None)
+        if root is None:
+            return None
+        try:
+            prev = root.grab_current()       # e.g. the crop window, so we can give it back
+        except tk.TclError:
+            prev = None
+        dlg = ThemedDialog(root, title, message, **kw)
+        dlg.wait_window()
+        if prev is not None:
+            try:
+                prev.grab_set()
+            except tk.TclError:
+                pass
+        return dlg.result
+
+    def showinfo(self, title, message, parent=None, **kw):
+        self._run(parent, title, message, kind="info")
+
+    def showwarning(self, title, message, parent=None, **kw):
+        self._run(parent, title, message, kind="warning")
+
+    def showerror(self, title, message, parent=None, **kw):
+        self._run(parent, title, message, kind="error")
+
+    # yes= / no= / ok= / cancel= let a call word its buttons ("Save" / "Don't save"...)
+    def askyesno(self, title, message, parent=None, icon="question",
+                 yes="Yes", no="No", **kw):
+        return bool(self._run(
+            parent, title, message, kind="warning" if icon == "warning" else "question",
+            buttons=((no, False, "Soft.TButton"), (yes, True, "Accent.TButton")),
+            default=True, cancel=False))
+
+    def askokcancel(self, title, message, parent=None, ok="Okay!", cancel="Cancel", **kw):
+        return bool(self._run(
+            parent, title, message, kind="question",
+            buttons=((cancel, False, "Soft.TButton"), (ok, True, "Accent.TButton")),
+            default=True, cancel=False))
+
+    def askyesnocancel(self, title, message, parent=None, yes="Yes", no="No",
+                       cancel="Cancel", **kw):
+        return self._run(
+            parent, title, message, kind="question",
+            buttons=((cancel, None, "Soft.TButton"), (no, False, "Soft.TButton"),
+                     (yes, True, "Accent.TButton")), default=True, cancel=None)
+
+    def askstring(self, title, prompt, initialvalue="", parent=None, **kw):
+        return self._run(parent, title, prompt, kind="question",
+                         buttons=(self.CANCEL, self.OK), default=True, cancel=None,
+                         entry=initialvalue)
+
+
+messagebox = _ThemedMessageBox()
+
+
+# --------------------------------------------------------------------------
 # Crop dialog
 # --------------------------------------------------------------------------
 class CropDialog(tk.Toplevel):
@@ -555,6 +787,7 @@ class CropDialog(tk.Toplevel):
         super().__init__(parent)
         self.configure(bg=BG)
         self.title(title)
+        set_window_icon(self)
         self.transient(parent)
         self.resizable(False, False)
         self.result = None
@@ -572,7 +805,7 @@ class CropDialog(tk.Toplevel):
         self.vx0, self.vy0 = (self.CW - self.vw) / 2, (self.CH - self.vw) / 2
         self.cut_mask = self._circle_mask(0)
         self.safe_mask = self._circle_mask(self.inset)
-        self.black = Image.new("RGB", (self.CW, self.CH), (6, 34, 42))
+        self.black = Image.new("RGB", (self.CW, self.CH), CROP_DIM)
 
         self.cx = art.cx if art else 0.5
         self.cy = art.cy if art else 0.5
@@ -580,7 +813,7 @@ class CropDialog(tk.Toplevel):
         self.v_angle = tk.DoubleVar(value=art.angle if art else 0.0)
         self.v_copies = tk.IntVar(value=1)
 
-        self.cv = tk.Canvas(self, width=self.CW, height=self.CH, bg="#0B2E37",
+        self.cv = tk.Canvas(self, width=self.CW, height=self.CH, bg=BG,
                             highlightthickness=0, cursor="fleur")
         self.cv.pack(padx=14, pady=(14, 8))
 
@@ -645,6 +878,7 @@ class CropDialog(tk.Toplevel):
         self.v_angle.trace_add("write", lambda *_: self.update_view())
 
         self.update_view()
+        set_titlebar(self)
         try:
             self.wait_visibility()
             self.grab_set()
@@ -725,7 +959,8 @@ class CropDialog(tk.Toplevel):
         x0, y0 = self.vx0, self.vy0
         x1, y1 = x0 + self.vw, y0 + self.vw
         i = self.inset
-        self.cv.create_oval(x0, y0, x1, y1, outline="white", width=2)
+        self.cv.create_oval(x0, y0, x1, y1, outline=CROP_HALO, width=5)   # readable on any photo
+        self.cv.create_oval(x0, y0, x1, y1, outline=CROP_LINE, width=2)
         if self.vw - 2 * i > 2:
             self.cv.create_oval(x0 + i, y0 + i, x1 - i, y1 - i, outline="#FFE2C4",
                                 width=2, dash=(5, 4))
@@ -742,10 +977,11 @@ class CropDialog(tk.Toplevel):
         if self.max_copies > 0 and copies > self.max_copies:
             free = self.max_copies
             if not messagebox.askokcancel(
-                    "Not enough free circles",
-                    f"You asked for {copies} copies but only {free} circle"
+                    "Squeak! Too many copies",
+                    f"Squeak! You asked for {copies} copies but only {free} circle"
                     f"{' is' if free == 1 else 's are'} free.\n\n"
-                    f"Only {free} will be added.", parent=self):
+                    f"Is it okay if I only add {free}?", parent=self,
+                    ok="Okay, add them", cancel="Go back"):
                 return
         copies = max(1, min(self.max_copies, copies)) if self.max_copies > 0 else 1
         self.result = (self.zoom, self.cx, self.cy, self.v_angle.get(), copies)
@@ -820,7 +1056,7 @@ def make_icon(art, size=56):
             im = None
     if im is None:
         S = size * 4
-        im = Image.new("RGB", (S, S), ORCHID)
+        im = Image.new("RGB", (S, S), HOVER_RING)
         dr = ImageDraw.Draw(im)
         m, a, c = S * 0.14, S * 0.14, S / 2
         dr.ellipse((m, m, S - m, S - m), outline="white", width=max(2, S // 32))
@@ -1082,14 +1318,15 @@ class HomeScreen(tk.Frame):
 
     def delete(self, info):
         if not messagebox.askyesno(
-                "Delete project",
-                f"Delete “{info['name']}”?\n\nOnly the project file is removed; "
-                "your photos are not touched.", icon="warning", parent=self.app):
+                "Delete project?",
+                f"Do you really want me to delete “{info['name']}”?\n\n"
+                "Only the project file goes away. Your photos stay safe, I promise!",
+                icon="warning", parent=self.app, yes="Delete it", no="Keep it"):
             return
         try:
             os.remove(info["path"])
         except OSError as ex:
-            messagebox.showerror("Delete project", f"Could not delete:\n{ex}")
+            messagebox.showerror("Oh no!", f"I couldn't delete that project:\n{ex}")
         self.refresh()
 
     def change_folder(self):
@@ -1164,6 +1401,7 @@ class BadgeApp(_RootBase):
         self._loading = False
         self.set_status()
         self._show("home")
+        self.after_idle(lambda: set_titlebar(self))
 
     # ---- shortcuts (no menu bar; the buttons cover everything) -------------
     def _bind_shortcuts(self):
@@ -1230,6 +1468,7 @@ class BadgeApp(_RootBase):
         self._pin_changed()
         self.home = HomeScreen(self)
         self._show(showing)
+        set_titlebar(self)
 
     def projects_dir(self):
         d = self.settings.get("projects_dir") or default_projects_dir()
@@ -1256,6 +1495,14 @@ class BadgeApp(_RootBase):
             path = os.path.join(base, f"{stem} {n}{PROJECT_EXT}")
             n += 1
         return path
+
+    def _suggest_name(self, base="My pins"):
+        """'My pins', or 'My pins 2', 'My pins 3'... when that name is already taken."""
+        n, name = 2, base
+        while os.path.exists(os.path.join(self.projects_dir(), name + PROJECT_EXT)):
+            name = f"{base} {n}"
+            n += 1
+        return name
 
     def open_path(self, path):
         if self._load_from(path):
@@ -1526,9 +1773,9 @@ class BadgeApp(_RootBase):
 
         # highlight the selected circle
         self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
-                            outline=PLUM, width=3, tags="selected")
+                            outline=SELECT_RING, width=3, tags="selected")
 
-        frame = tk.Frame(self.cv, bg=PLUM)
+        frame = tk.Frame(self.cv, bg=POPUP_EDGE)
         inner = ttk.Frame(frame, style="Card.TFrame", padding=(8, 8))
         inner.pack(padx=1, pady=1)
         ttk.Button(inner, text="Clear", style="Soft.TButton",
@@ -1588,16 +1835,17 @@ class BadgeApp(_RootBase):
         free_now = n - sum(1 for k in self.slots if k < n)
         if free_now <= 0:
             messagebox.showinfo(
-                "Sheet is full",
-                "There are no free circles left.\n\nClear a circle, or choose a "
+                "The sheet is full!",
+                "Every circle is taken, I looked everywhere!\n\nClear a circle, or pick a "
                 "different paper or pin size.")
             return
         if len(paths) > free_now:
             if not messagebox.askokcancel(
-                    "Not enough free circles",
-                    f"You selected {len(paths)} photos but only {free_now} circle"
+                    "Squeak! Too many photos",
+                    f"You picked {len(paths)} photos but only {free_now} circle"
                     f"{' is' if free_now == 1 else 's are'} free.\n\n"
-                    f"Only the first {free_now} will be added."):
+                    f"Is it okay if I only add the first {free_now}?",
+                    ok="Okay, add them", cancel="Go back"):
                 return
             paths = paths[:free_now]
         pushed = False
@@ -1609,14 +1857,16 @@ class BadgeApp(_RootBase):
             if free <= 0:
                 left = total - j + 1
                 messagebox.showinfo(
-                    "Sheet is full",
-                    f"The sheet is full. {left} photo{'s were' if left != 1 else ' was'} "
-                    f"not added.")
+                    "The sheet is full!",
+                    f"Oh no, the sheet got full! {left} photo"
+                    f"{'s' if left != 1 else ''} didn't fit.")
                 break
             try:
                 source = load_source(path)
             except Exception as ex:  # noqa: BLE001
-                messagebox.showerror("Error", f"Could not open image:\n{os.path.basename(path)}\n{ex}")
+                messagebox.showerror(
+                    "Hmm, I can't read that",
+                    f"I couldn't open this picture:\n{os.path.basename(path)}\n\n{ex}")
                 continue
             title = f"Crop photo {j} of {total}" if total > 1 else "Crop photo"
             dlg = CropDialog(self, source, p["d"], max_copies=free, title=title,
@@ -1782,15 +2032,17 @@ class BadgeApp(_RootBase):
         cx, cy = self.layout["points"][idx]
         x, y, w = ox + cx * s, oy + cy * s, p["d"] * s
         self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
-                            outline=ORCHID, width=3, tags="hover")
+                            outline=HOVER_RING, width=3, tags="hover")
 
     # ---- projects ----------------------------------------------------------
     def _confirm_discard(self):
         """True when it is fine to replace/close the current sheet."""
         if not (self.dirty and self.slots):
             return True
-        ans = messagebox.askyesnocancel("Unsaved changes",
-                                        "Save changes to this project first?")
+        ans = messagebox.askyesnocancel(
+            "Wait a second!",
+            "Psst... you have unsaved changes.\n\nShall I save this project first?",
+            yes="Save it", no="Don't save", cancel="Stay here")
         if ans is None:
             return False
         if ans:
@@ -1800,8 +2052,8 @@ class BadgeApp(_RootBase):
     def new_project(self):
         if not self._confirm_discard():
             return
-        name = simpledialog.askstring("New project", "Project name:",
-                                      initialvalue="My pins", parent=self)
+        name = messagebox.askstring("New project", "Yay, a new project! What shall we call it?",
+                                    initialvalue=self._suggest_name(), parent=self)
         if not name or not name.strip():
             return
         self.close_popup()
@@ -1854,7 +2106,7 @@ class BadgeApp(_RootBase):
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except OSError as ex:
-            messagebox.showerror("Save project", f"Could not save:\n{ex}")
+            messagebox.showerror("Oh no!", f"I couldn't save your project:\n{ex}")
             return False
         self.project_path = path
         self._mark_clean()
@@ -1878,7 +2130,7 @@ class BadgeApp(_RootBase):
             if not isinstance(data, dict) or data.get("app") != "badge-pin-maker":
                 raise ValueError("This is not a Badge Pin Maker project.")
         except (OSError, ValueError) as ex:
-            messagebox.showerror("Open project", f"Could not open project:\n{ex}")
+            messagebox.showerror("Oh no!", f"I couldn't open that project:\n{ex}")
             return False
         base = os.path.dirname(os.path.abspath(path))
 
@@ -1935,8 +2187,9 @@ class BadgeApp(_RootBase):
         self.set_status(f"Opened {os.path.basename(path)}")
         if missing:
             messagebox.showwarning(
-                "Missing photos",
-                "These photos could not be found and were left empty:\n\n"
+                "Where did they go?",
+                "I looked everywhere but couldn't find these photos, so their circles "
+                "are empty:\n\n"
                 + "\n".join(missing[:10]) + ("\n…" if len(missing) > 10 else ""))
         return True
 
@@ -1952,13 +2205,15 @@ class BadgeApp(_RootBase):
         n = self._n()
         active = {i: a for i, a in self.slots.items() if i < n}
         if not active:
-            messagebox.showwarning("Nothing to export", "Add at least one photo first.")
+            messagebox.showwarning("Nothing to print yet",
+                                   "The sheet is empty! Add at least one photo first.")
             return None
         low = sum(1 for a in active.values() if a.ppi(p["d"]) < LOW_PPI)
         if low and not messagebox.askyesno(
-                "Low resolution",
+                "These look a bit fuzzy",
                 f"{low} pin{'s use' if low != 1 else ' uses'} a photo that will print below "
-                f"{LOW_PPI} dpi and may look soft.\n\nContinue anyway?"):
+                f"{LOW_PPI} dpi and may look soft.\n\nDo you want to continue anyway?",
+                yes="Continue", no="Go back"):
             return None
         return p, active
 
@@ -1977,7 +2232,7 @@ class BadgeApp(_RootBase):
                       dpi=EXPORT_DPI, progress=self._progress)
             return True
         except Exception as ex:  # noqa: BLE001
-            messagebox.showerror("Export error", str(ex))
+            messagebox.showerror("Oh no!", f"Something went wrong while making the PDF:\n{ex}")
             return False
         finally:
             self.export_bar.pack_forget()
@@ -2010,7 +2265,7 @@ class BadgeApp(_RootBase):
             print_pdf(tmp)
             self.set_status("Print job started")
         except Exception as ex:  # noqa: BLE001
-            messagebox.showerror("Print error", str(ex))
+            messagebox.showerror("Oh no!", f"I couldn't start the print job:\n{ex}")
 
 
 if __name__ == "__main__":
