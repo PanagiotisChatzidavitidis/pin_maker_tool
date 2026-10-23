@@ -20,6 +20,8 @@ Optional (drag and drop of image files):
 Run:
     python badge_maker.py
 
+Images (icon.ico, logo.png) live in the "assets" folder next to this file.
+
 Shortcuts:  Ctrl+N new   Ctrl+O browse   Ctrl+S save   Ctrl+Shift+S save as
             Ctrl+H projects home   Ctrl+E export PDF   Ctrl+P print
             Ctrl+Z undo   Ctrl+Y redo
@@ -70,6 +72,11 @@ def resource_path(name):
     """Find a bundled file both when running from source and from the built exe."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, name)
+
+
+def asset_path(name):
+    """Find a file inside the assets/ folder (icon.ico, logo.png, ...)."""
+    return resource_path(os.path.join("assets", name))
 
 
 # --------------------------------------------------------------------------
@@ -818,15 +825,20 @@ def make_icon(art, size=56):
 
 
 def load_logo(size):
-    """Use logo.png as the app logo, else fall back to the default pin icon."""
-    p = resource_path("logo.png")
+    """Use assets/logo.png as the app logo, else fall back to the default pin icon."""
+    p = asset_path("logo.png")
     if os.path.isfile(p):
         try:
             im = Image.open(p).convert("RGBA")
-            im = ImageOps.fit(im, (size, size), Image.LANCZOS)
-            # For a round logo like the original, uncomment the next line:
-            # im.putalpha(_circle_alpha(size))
-            return ImageTk.PhotoImage(im)
+            # trim empty transparent borders so the logo uses the full space
+            bbox = im.getchannel("A").getbbox()
+            if bbox:
+                im = im.crop(bbox)
+            # scale to fit inside a square WITHOUT cropping, then centre it
+            im = ImageOps.contain(im, (size, size), Image.LANCZOS)
+            canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2), im)
+            return ImageTk.PhotoImage(canvas)
         except Exception:  # noqa: BLE001
             pass
     return make_icon(None, size)
@@ -1093,7 +1105,7 @@ class BadgeApp(_RootBase):
         self.title("Badge Pin Maker")
         try:
             if platform.system() == "Windows":
-                self.iconbitmap(resource_path("icon.ico"))
+                self.iconbitmap(asset_path("icon.ico"))
         except tk.TclError:
             pass
         geo = self.settings.get("size")
