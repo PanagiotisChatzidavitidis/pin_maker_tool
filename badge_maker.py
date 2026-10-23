@@ -91,7 +91,11 @@ THEMES = {
         ORCHID="#BB76A3", PLUM="#7A5677", WARN="#C9772B",
         BG="#F6EADD", CARD="#FCF6EE", BORDER="#E3C9AE", TEXT="#2C4651", MUTED="#80787A",
         BLUSH="#E4D1D9", SHADOW_A="#D8C3CD", SHADOW="#CDB2C0", SHADOW_C="#BFA0B2",
-        FIELD="white", HOVER="#F3E4D2"),
+        FIELD="white", HOVER="#F3E4D2",
+        # sheet preview
+        PAPER="white", PAPER_EDGE="#D9C6CF", EMPTY_FILL="#FDF8FB", EMPTY_LINE="#D7B0CA",
+        EMPTY_PLUS="#CF9BBB", PIN_EDGE="#6B5666", TICK="#2C4651", GUIDE="#FFFFFF",
+        ERR="#E06666"),
     # lo-fi night: deep petrol-slate surfaces, warm sand text, brighter accents
     "dark": dict(
         PETROL="#8FD3D6", TEAL="#2B9A9A", TEAL_HOVER="#3AB0B0", TEAL_DARK="#217878",
@@ -99,7 +103,11 @@ THEMES = {
         ORCHID="#D08BBB", PLUM="#B98AB5", WARN="#E8A15A",
         BG="#182329", CARD="#223139", BORDER="#33474F", TEXT="#EADFD2", MUTED="#93A3A6",
         BLUSH="#121B20", SHADOW_A="#161F25", SHADOW="#10181D", SHADOW_C="#0B1216",
-        FIELD="#2C3F48", HOVER="#2B3D46"),
+        FIELD="#2C3F48", HOVER="#2B3D46",
+        # sheet preview
+        PAPER="#223139", PAPER_EDGE="#3F5A62", EMPTY_FILL="#2B3E47", EMPTY_LINE="#587480",
+        EMPTY_PLUS="#8FB0B8", PIN_EDGE="#EADFD2", TICK="#C9BBAA", GUIDE="#FFE2C4",
+        ERR="#E8A15A"),
 }
 
 
@@ -1698,7 +1706,7 @@ class BadgeApp(_RootBase):
         for off, col in ((6, SHADOW_A), (4, SHADOW), (2, SHADOW_C)):
             cv.create_rectangle(ox + off, oy + off, ox + W * s + off, oy + H * s + off,
                                 fill=col, outline="")
-        cv.create_rectangle(ox, oy, ox + W * s, oy + H * s, fill="white", outline="#D9C6CF")
+        cv.create_rectangle(ox, oy, ox + W * s, oy + H * s, fill=PAPER, outline=PAPER_EDGE)
 
         w = p["d"] * s
         ins = SAFE_INSET * s
@@ -1710,21 +1718,21 @@ class BadgeApp(_RootBase):
             art = self.slots.get(i)
             if art is None:
                 cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
-                               outline="#D7B0CA", dash=(4, 4), fill="#FDF8FB")
+                               outline=EMPTY_LINE, dash=(4, 4), fill=EMPTY_FILL)
                 a = w * 0.10
-                cv.create_line(x - a, y, x + a, y, fill="#CF9BBB", width=2, capstyle="round")
-                cv.create_line(x, y - a, x, y + a, fill="#CF9BBB", width=2, capstyle="round")
+                cv.create_line(x - a, y, x + a, y, fill=EMPTY_PLUS, width=2, capstyle="round")
+                cv.create_line(x, y - a, x, y + a, fill=EMPTY_PLUS, width=2, capstyle="round")
                 continue
             cv.create_image(x, y, image=self._preview_photo(art, p, s))
-            cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, outline="#6B5666")
+            cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, outline=PIN_EDGE)
             if guides and w / 2 - ins > 1:
                 cv.create_oval(x - w / 2 + ins, y - w / 2 + ins, x + w / 2 - ins,
-                               y + w / 2 - ins, outline="#FFFFFF", dash=(3, 3))
+                               y + w / 2 - ins, outline=GUIDE, dash=(3, 3))
             for (x1, y1, x2, y2) in ((x, y - w / 2 - off, x, y - w / 2 - off - tick),
                                       (x, y + w / 2 + off, x, y + w / 2 + off + tick),
                                       (x - w / 2 - off, y, x - w / 2 - off - tick, y),
                                       (x + w / 2 + off, y, x + w / 2 + off + tick, y)):
-                cv.create_line(x1, y1, x2, y2, fill="#2C4651")
+                cv.create_line(x1, y1, x2, y2, fill=TICK)
             if art.ppi(p["d"]) < LOW_PPI:
                 low += 1
                 r = max(6, w * 0.09)
@@ -1736,7 +1744,7 @@ class BadgeApp(_RootBase):
         n, filled = self._n(), self._filled()
         self._update_stats(L, n, filled, low)
         if n == 0:
-            cv.create_text(cw / 2, ch / 2, fill="#E06666",
+            cv.create_text(cw / 2, ch / 2, fill=ERR,
                            text="Pin doesn't fit on this paper — choose a smaller size.")
 
     def _update_stats(self, L, n, filled, low):
