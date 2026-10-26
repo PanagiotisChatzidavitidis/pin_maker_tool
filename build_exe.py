@@ -7,8 +7,10 @@ Build a standalone app (no Python needed to run it) with PyInstaller.
 
 Run it on the system you are building for (build on Windows for a Windows .exe,
 on macOS for a .app). The result is in the "dist" folder.
-Optional: put an icon.ico (Windows) or icon.icns (macOS) next to this file.
-Optional: put a logo.png next to this file to replace the in-app logo.
+
+Put your images in an "assets" folder next to this file:
+    assets/icon.ico   (Windows)  or  assets/icon.icns  (macOS)
+    assets/logo.png   (optional: replaces the in-app logo)
 """
 
 import importlib.util
@@ -17,6 +19,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ASSETS = os.path.join(HERE, "assets")
 NAME = "Badge Pin Maker"
 
 
@@ -31,18 +34,16 @@ def main():
     if importlib.util.find_spec("tkinterdnd2") is not None:
         cmd += ["--collect-all", "tkinterdnd2"]
 
-    icon = os.path.join(HERE, "icon.icns" if sys.platform == "darwin" else "icon.ico")
+    icon = os.path.join(ASSETS, "icon.icns" if sys.platform == "darwin" else "icon.ico")
     print("Icon path:", icon, "| exists:", os.path.isfile(icon))
     if os.path.isfile(icon):
-        cmd += ["--icon", icon]
-        if sys.platform == "win32":
-            # bundle it so the running window can use it too (iconbitmap)
-            cmd += ["--add-data", f"{icon}{os.pathsep}."]
+        cmd += ["--icon", icon]          # the icon of the .exe / .app file itself
 
-    logo = os.path.join(HERE, "logo.png")
-    print("Logo path:", logo, "| exists:", os.path.isfile(logo))
-    if os.path.isfile(logo):
-        cmd += ["--add-data", f"{logo}{os.pathsep}."]
+    # Bundle the whole assets folder. The destination name "assets" must match
+    # asset_path() in badge_maker.py, so the running app finds icon.ico and logo.png.
+    print("Assets folder:", ASSETS, "| exists:", os.path.isdir(ASSETS))
+    if os.path.isdir(ASSETS):
+        cmd += ["--add-data", f"{ASSETS}{os.pathsep}assets"]
 
     cmd.append(os.path.join(HERE, "badge_maker.py"))
 
