@@ -15,11 +15,11 @@ BADGE_GAP = 3.0
 SAFE_INSET = 3.0   # the ring that folds behind the pin; outside it is not visible
 
 # Print quality
-EXPORT_DPI = 600   # resolution of the photos inside the exported PDF
-LOW_PPI = 200      # below this a photo is flagged as low resolution
+EXPORT_DPI = 600   # resolution of the images inside the exported PDF
+LOW_PPI = 200      # below this an image is flagged as low resolution
 
 IMG_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff")
-PROJECT_EXT = ".pinproj"
+CANVAS_EXT = ".pinproj"
 
 IS_MAC = platform.system() == "Darwin"
 MOD = "Command" if IS_MAC else "Control"

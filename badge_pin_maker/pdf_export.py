@@ -1,6 +1,6 @@
 """Writing the printable PDF sheet.
 
-Only pins that have a photo are drawn. For each one the photo is clipped to a circle, then a
+Only pins that have an image are drawn. For each one the image is clipped to a circle, then a
 thin cut line, the optional safe-area ring and four small crop ticks are added. Empty
 circles stay blank so they don't waste ink.
 """
@@ -29,7 +29,7 @@ def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None
 
     layout comes from compute_layout(), d is the pin diameter in mm and slots maps a circle
     number to its Art. guides draws the dotted safe-area ring, dpi is the resolution of the
-    embedded photos, and progress (optional) is called as progress(done, total) after each
+    embedded images, and progress (optional) is called as progress(done, total) after each
     pin.
     """
     W, H = layout["page_w"], layout["page_h"]
@@ -45,7 +45,7 @@ def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None
         art = slots.get(idx)
         if art is None:
             continue
-        # A photo + view that is used on several pins is rendered only once.
+        # An image + view that is used on several pins is rendered only once.
         k = art.key()
         if k not in cache:
             cache[k] = _pdf_image(art, d, dpi)
@@ -53,7 +53,7 @@ def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None
         # Flip y.
         x, y = cx * MM, (H - cy) * MM
 
-        # Clip to the pin circle so the square photo can't spill outside it.
+        # Clip to the pin circle so the square image can't spill outside it.
         c.saveState()
         p = c.beginPath()
         p.circle(x, y, r)

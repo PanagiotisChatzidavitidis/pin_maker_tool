@@ -26,7 +26,7 @@ THEMES = {
         PAPER="white", PAPER_EDGE="#D9C6CF", EMPTY_FILL="#FDF8FB", EMPTY_LINE="#D7B0CA",
         EMPTY_PLUS="#CF9BBB", PIN_EDGE="#6B5666", TICK="#2C4651", GUIDE="#FFFFFF",
         ERR="#E06666",
-        # crop window: colour the photo fades to outside the pin, and the pin outline
+        # crop window: colour the image fades to outside the pin, and the pin outline
         CROP_DIM=(243, 231, 218), CROP_LINE="#2C4651", CROP_HALO="#FFFFFF"),
     # lo-fi night: deep petrol-slate surfaces, warm sand text, brighter accents
     "dark": dict(

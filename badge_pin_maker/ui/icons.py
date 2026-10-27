@@ -1,4 +1,4 @@
-"""Round project thumbnails and the app logo, as images ready for Tk."""
+"""Round canvas thumbnails and the app logo, as images ready for Tk."""
 
 import os
 
@@ -19,7 +19,7 @@ def _circle_alpha(size):
 
 
 def make_icon(art, size=56):
-    """Round thumbnail of the project's first pin, or a generic pin icon."""
+    """Round thumbnail of the canvas's first pin, or a generic pin icon."""
     im = None
     if art:
         path, zoom, cx, cy, angle = art

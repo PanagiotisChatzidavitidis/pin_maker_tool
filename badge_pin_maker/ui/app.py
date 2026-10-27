@@ -2,22 +2,22 @@
 
 How the app is used
   1. Pick a paper size and a pin size; the sheet is laid out automatically.
-  2. Click a circle (or drop image files onto the sheet) to add photos, then
-     position / zoom / rotate each photo under the pin shape.
+  2. Click a circle (or drop image files onto the sheet) to add images, then
+     position / zoom / rotate each image under the pin shape.
   3. Export a PDF or print directly. Empty circles print blank.
-  4. Projects are saved as .pinproj files in your projects folder, so you can
+  4. Canvases are saved as .pinproj files in your canvases folder, so you can
      reopen and edit them later.
 
 Shortcuts:  Ctrl+N new   Ctrl+O browse   Ctrl+S save   Ctrl+Shift+S save as
-            Ctrl+H projects home   Ctrl+E export PDF   Ctrl+P print
+            Ctrl+H canvases home   Ctrl+E export PDF   Ctrl+P print
             Ctrl+Z undo   Ctrl+Y redo
             Delete  clear the circle under the mouse
 (On macOS use Cmd instead of Ctrl.)
 
 How this file is organised
   BadgeApp is one class, written in sections: start-up and screens, building the editor,
-  settings and status bar, undo, slots (clicks, popup, adding photos), drawing the sheet,
-  projects (save / load) and finally export / print. The maths lives in layout.py and
+  settings and status bar, undo, slots (clicks, popup, adding images), drawing the sheet,
+  canvases (save / load) and finally export / print. The maths lives in layout.py and
   imaging.py; the other windows live in their own files next to this one.
 """
 
@@ -32,12 +32,12 @@ from tkinter import filedialog, ttk
 from PIL import Image, ImageDraw, ImageTk
 
 from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABEL,
-                         PAGE_MARGIN, PAPER_SIZES, PIN_SIZES, PROJECT_EXT, SAFE_INSET)
+                         PAGE_MARGIN, PAPER_SIZES, PIN_SIZES, CANVAS_EXT, SAFE_INSET)
 from ..imaging import Art, load_source, render_art
 from ..layout import compute_layout, fill_order, first_free
 from ..pdf_export import build_pdf
-from ..project_files import read_project_info
-from ..settings import default_projects_dir, load_settings, save_settings
+from ..canvas_files import read_canvas_info
+from ..settings import default_canvases_dir, load_settings, save_settings
 from ..system_actions import print_pdf
 from . import theme as T
 from .crop_dialog import CropDialog
@@ -48,7 +48,7 @@ from .widgets import StatTile, Toggle, make_card
 
 
 class BadgeApp(RootBase):
-    """The main window. It owns the project state (photo placements, undo history, settings)
+    """The main window. It owns the canvas state (image placements, undo history, settings)
     and switches between the start screen and the editor.
     """
     def __init__(self):
@@ -77,18 +77,18 @@ class BadgeApp(RootBase):
         self.v_dark = tk.BooleanVar(value=(theme == "dark"))
         self.editor = tk.Frame(self, bg=T.BG)
 
-        # ---- the project in memory ----
+        # ---- the canvas in memory ----
         self.slots = {}          # slot index -> Art
         self.layout = None
         self.geo = None          # (scale, ox, oy, params)
         self.hover = None
         self.selected = None
         self.popup = None
-        self._photo_cache = {}
+        self._image_cache = {}
         self._after = None
         self._status_after = None
         self._undo, self._redo = [], []
-        self.project_path = None
+        self.canvas_path = None
         self.dirty = False
 
         # ---- the settings boxes, restored from last time ----
@@ -128,8 +128,8 @@ class BadgeApp(RootBase):
                     fn()
                 return "break"
             return run
-        table = [("n", self.new_project, True), ("o", self.open_project, True),
-                 ("s", self.save_project, False), ("Shift-S", self.save_project_as, False),
+        table = [("n", self.new_canvas, True), ("o", self.open_canvas, True),
+                 ("s", self.save_canvas, False), ("Shift-S", self.save_canvas_as, False),
                  ("e", self.export_pdf, False), ("p", self.print_now, False),
                  ("z", self.undo, False), ("y", self.redo, False),
                  ("Shift-Z", self.redo, False), ("h", self.go_home, False)]
@@ -140,7 +140,7 @@ class BadgeApp(RootBase):
         self.bind("<Delete>", self.delete_selected)
         self.bind("<Escape>", lambda e: self.close_popup())
 
-    # ---- screens / theme / projects folder ---------------------------------
+    # ---- screens / theme / canvases folder ---------------------------------
     def _show(self, name):
         """Switch between the "home" and "editor" screens."""
         self.screen = name
@@ -164,7 +164,7 @@ class BadgeApp(RootBase):
         self.slots.clear()
         self._undo.clear()
         self._redo.clear()
-        self.project_path = None
+        self.canvas_path = None
         self.dirty = False
         self._show("home")
 
@@ -195,50 +195,51 @@ class BadgeApp(RootBase):
         self._show(showing)
         set_titlebar(self)
 
-    def projects_dir(self):
-        """The folder projects are kept in. It is created if needed, with the home folder as a
+    def canvases_dir(self):
+        """The folder canvases are kept in. It is created if needed, with the home folder as a
         fallback.
         """
-        d = self.settings.get("projects_dir") or default_projects_dir()
+        d = (self.settings.get("canvases_dir") or self.settings.get("projects_dir")
+             or default_canvases_dir())
         try:
             os.makedirs(d, exist_ok=True)
         except OSError:
             d = os.path.expanduser("~")
         return d
 
-    def set_projects_dir(self, d):
-        """Remember a new projects folder."""
-        self.settings["projects_dir"] = d
+    def set_canvases_dir(self, d):
+        """Remember a new canvases folder."""
+        self.settings["canvases_dir"] = d
         save_settings(self.settings)
 
-    def scan_projects(self):
-        """Every project in the projects folder, newest first."""
-        pattern = os.path.join(glob.escape(self.projects_dir()), "*" + PROJECT_EXT)
-        items = [i for i in map(read_project_info, glob.glob(pattern)) if i]
+    def scan_canvases(self):
+        """Every canvas in the canvases folder, newest first."""
+        pattern = os.path.join(glob.escape(self.canvases_dir()), "*" + CANVAS_EXT)
+        items = [i for i in map(read_canvas_info, glob.glob(pattern)) if i]
         return sorted(items, key=lambda i: i["mtime"], reverse=True)
 
-    def _unique_project_path(self, name):
-        """A file path for a new project called ``name`` that doesn't overwrite another one
+    def _unique_canvas_path(self, name):
+        """A file path for a new canvas called ``name`` that doesn't overwrite another one
         ("My pins 2", ...). Characters Windows doesn't allow in file names are removed.
         """
         stem = re.sub(r'[\\/:*?"<>|]+', "", name).strip().rstrip(".") or "Untitled"
-        base = self.projects_dir()
-        path, n = os.path.join(base, stem + PROJECT_EXT), 2
+        base = self.canvases_dir()
+        path, n = os.path.join(base, stem + CANVAS_EXT), 2
         while os.path.exists(path):
-            path = os.path.join(base, f"{stem} {n}{PROJECT_EXT}")
+            path = os.path.join(base, f"{stem} {n}{CANVAS_EXT}")
             n += 1
         return path
 
     def _suggest_name(self, base="My pins"):
         """'My pins', or 'My pins 2', 'My pins 3'... when that name is already taken."""
         n, name = 2, base
-        while os.path.exists(os.path.join(self.projects_dir(), name + PROJECT_EXT)):
+        while os.path.exists(os.path.join(self.canvases_dir(), name + CANVAS_EXT)):
             name = f"{base} {n}"
             n += 1
         return name
 
     def open_path(self, path):
-        """Open a project chosen from the list on the start screen."""
+        """Open a canvas chosen from the list on the start screen."""
         if self._load_from(path):
             self._show("editor")
 
@@ -256,7 +257,7 @@ class BadgeApp(RootBase):
                                    font=(self.base_font[0], 9))
         self.status_lbl.pack(side="left")
         tk.Label(status, bg=T.CARD, fg=T.MUTED, padx=14, font=(self.base_font[0], 9),
-                 text=f"{MOD_LABEL}+Z undo  ·  {MOD_LABEL}+S save  ·  {MOD_LABEL}+H projects"
+                 text=f"{MOD_LABEL}+Z undo  ·  {MOD_LABEL}+S save  ·  {MOD_LABEL}+H canvases"
                  ).pack(side="right")
         self.export_bar = ttk.Progressbar(status, length=160, mode="determinate",
                                           style="Teal.Horizontal.TProgressbar")
@@ -269,10 +270,10 @@ class BadgeApp(RootBase):
         ttk.Label(left, text="Badge Pin Maker", style="Title.TLabel").pack(anchor="w", pady=(0, 10))
         nav = ttk.Frame(left)
         nav.pack(fill="x", pady=(0, 14))
-        ttk.Button(nav, text="← Projects", style="Soft.TButton",
+        ttk.Button(nav, text="← Canvases", style="Soft.TButton",
                    command=self.go_home).pack(side="left", expand=True, fill="x")
         ttk.Button(nav, text="Save", style="Soft.TButton",
-                   command=self.save_project).pack(side="left", expand=True, fill="x", padx=(8, 0))
+                   command=self.save_canvas).pack(side="left", expand=True, fill="x", padx=(8, 0))
 
         f = make_card(left, "1 · Paper size")
         ttk.Combobox(f, textvariable=self.v_paper, values=list(PAPER_SIZES),
@@ -293,8 +294,8 @@ class BadgeApp(RootBase):
         self.pin_note = ttk.Label(f, style="Muted.TLabel")
         self.pin_note.pack(anchor="w", pady=(6, 0))
 
-        f = make_card(left, "3 · Photos")
-        tip = "Click a circle to add photos. Select several files to fill many circles at once."
+        f = make_card(left, "3 · Images")
+        tip = "Click a circle to add images. Select several files to fill many circles at once."
         if DND_FILES:
             tip += " You can also drop image files onto the sheet."
         ttk.Label(f, style="Muted.TLabel", justify="left", wraplength=250,
@@ -344,7 +345,7 @@ class BadgeApp(RootBase):
     # ---- status bar -----------------------------------------------------------
     def _idle_text(self):
         """The status bar's resting hint."""
-        t = "Click a circle to add photos"
+        t = "Click a circle to add images"
         if DND_FILES:
             t += "  ·  or drop image files onto the sheet"
         return t
@@ -377,7 +378,7 @@ class BadgeApp(RootBase):
             return default
 
     def _on_setting(self, *_):
-        """A setting changed: redraw the sheet and mark the project as having unsaved changes.
+        """A setting changed: redraw the sheet and mark the canvas as having unsaved changes.
         """
         self.schedule_redraw()
         if not self._loading:
@@ -433,7 +434,7 @@ class BadgeApp(RootBase):
         save_settings(self.settings)
 
     def _dir(self, key):
-        """The folder last used for ``key`` ("photo_dir" or "export_dir") if it still exists,
+        """The folder last used for ``key`` ("image_dir" or "export_dir") if it still exists,
         otherwise the home folder.
         """
         d = self.settings.get(key)
@@ -441,31 +442,31 @@ class BadgeApp(RootBase):
 
     # ---- undo / dirty state -------------------------------------------------
     def _update_title(self):
-        """Window title: the project name, with a * when there are unsaved changes."""
+        """Window title: the canvas name, with a * when there are unsaved changes."""
         if self.screen == "home":
             self.title("Badge Pin Maker")
             return
-        name = os.path.basename(self.project_path) if self.project_path else "Untitled"
+        name = os.path.basename(self.canvas_path) if self.canvas_path else "Untitled"
         self.title(f"{name}{'*' if self.dirty else ''} — Badge Pin Maker")
 
     def _mark_dirty(self):
-        """Note that the project has unsaved changes."""
+        """Note that the canvas has unsaved changes."""
         if not self.dirty:
             self.dirty = True
             self._update_title()
 
     def _mark_clean(self):
-        """Note that the project was just saved."""
+        """Note that the canvas was just saved."""
         self.dirty = False
         self._update_title()
 
     def _snapshot(self):
-        """A copy of every photo placement, for undo / redo."""
+        """A copy of every image placement, for undo / redo."""
         return {i: a.copy() for i, a in self.slots.items()}
 
     def _push_undo(self):
         """Call this right before changing anything. It remembers the current state (up to 60
-        steps) and marks the project as changed.
+        steps) and marks the canvas as changed.
         """
         self._undo.append(self._snapshot())
         del self._undo[:-60]
@@ -502,7 +503,7 @@ class BadgeApp(RootBase):
         return len(self.layout["points"]) if self.layout else 0
 
     def _filled(self):
-        """How many of those circles have a photo."""
+        """How many of those circles have an image."""
         n = self._n()
         return sum(1 for i in self.slots if i < n)
 
@@ -519,7 +520,7 @@ class BadgeApp(RootBase):
         return None
 
     def on_click(self, e):
-        """Click on an empty circle: add photos. Click on a filled one: show the Clear / Modify
+        """Click on an empty circle: add images. Click on a filled one: show the Clear / Modify
         box.
         """
         self.close_popup()
@@ -529,7 +530,7 @@ class BadgeApp(RootBase):
         if idx in self.slots:
             self.show_popup(idx)
         else:
-            self.choose_photos(idx)
+            self.choose_images(idx)
 
     def delete_selected(self, event=None):
         """Delete key: clear the circle under the mouse (or the selected one), unless the user
@@ -591,19 +592,19 @@ class BadgeApp(RootBase):
         self.close_popup()
         fn(idx)
 
-    # ---- adding photos ------------------------------------------------------
-    def choose_photos(self, start=None):
+    # ---- adding images ------------------------------------------------------
+    def choose_images(self, start=None):
         """Open the file picker (several files allowed) and add what was chosen, starting at
         circle ``start``.
         """
         paths = filedialog.askopenfilenames(
-            title="Choose photos", initialdir=self._dir("photo_dir"),
+            title="Choose images", initialdir=self._dir("image_dir"),
             filetypes=[("Images", " ".join(f"*{e}" for e in IMG_EXTS)), ("All files", "*.*")])
         if not paths:
             return
         paths = list(self.tk.splitlist(paths))
-        self.settings["photo_dir"] = os.path.dirname(paths[0])
-        self.add_photos(paths, start)
+        self.settings["image_dir"] = os.path.dirname(paths[0])
+        self.add_images(paths, start)
 
     def on_drop(self, event):
         """Image files were dropped onto the sheet: add them, starting at the circle they
@@ -613,10 +614,10 @@ class BadgeApp(RootBase):
         x = event.x_root - self.cv.winfo_rootx()
         y = event.y_root - self.cv.winfo_rooty()
         self.close_popup()
-        self.add_photos(paths, self.hit(x, y))
+        self.add_images(paths, self.hit(x, y))
 
-    def add_photos(self, paths, start=None):
-        """Crop each photo in turn and place it on the next free circles."""
+    def add_images(self, paths, start=None):
+        """Crop each image in turn and place it on the next free circles."""
         paths = [p for p in paths if p.lower().endswith(IMG_EXTS)]
         if not paths:
             self.set_status("No image files found")
@@ -632,8 +633,8 @@ class BadgeApp(RootBase):
             return
         if len(paths) > free_now:
             if not messagebox.askokcancel(
-                    "Squeak! Too many photos",
-                    f"You picked {len(paths)} photos but only {free_now} circle"
+                    "Squeak! Too many images",
+                    f"You picked {len(paths)} images but only {free_now} circle"
                     f"{' is' if free_now == 1 else 's are'} free.\n\n"
                     f"Is it okay if I only add the first {free_now}?",
                     ok="Okay, add them", cancel="Go back"):
@@ -642,7 +643,7 @@ class BadgeApp(RootBase):
         pushed = False
         placed = 0
         total = len(paths)
-        # Crop the photos one at a time. The first goes on the circle that was clicked, the
+        # Crop the images one at a time. The first goes on the circle that was clicked, the
         # following ones on the next free circles in reading order.
         for j, path in enumerate(paths, 1):
             occupied = {k for k in self.slots if k < n}
@@ -651,7 +652,7 @@ class BadgeApp(RootBase):
                 left = total - j + 1
                 messagebox.showinfo(
                     "The sheet is full!",
-                    f"Oh no, the sheet got full! {left} photo"
+                    f"Oh no, the sheet got full! {left} image"
                     f"{'s' if left != 1 else ''} didn't fit.")
                 break
             try:
@@ -661,7 +662,7 @@ class BadgeApp(RootBase):
                     "Hmm, I can't read that",
                     f"I couldn't open this picture:\n{os.path.basename(path)}\n\n{ex}")
                 continue
-            title = f"Crop photo {j} of {total}" if total > 1 else "Crop photo"
+            title = f"Crop image {j} of {total}" if total > 1 else "Crop image"
             dlg = CropDialog(self, source, p["d"], max_copies=free, title=title,
                              batch=(j, total))
             self.wait_window(dlg)
@@ -674,7 +675,7 @@ class BadgeApp(RootBase):
                 s, start = start, None
             else:
                 s = first_free(n, occupied)
-            # One undo step for the whole batch, no matter how many photos were added.
+            # One undo step for the whole batch, no matter how many images were added.
             if not pushed:
                 self._push_undo()
                 pushed = True
@@ -686,7 +687,7 @@ class BadgeApp(RootBase):
             self.set_status(f"Added {placed} pin{'s' if placed != 1 else ''}")
 
     def modify_slot(self, idx):
-        """Re-open the crop window for a photo that is already on the sheet."""
+        """Re-open the crop window for an image that is already on the sheet."""
         art = self.slots.get(idx)
         if art is None:
             return
@@ -699,20 +700,20 @@ class BadgeApp(RootBase):
             self.schedule_redraw()
 
     def clear_slot(self, idx):
-        """Remove the photo from one circle (can be undone)."""
+        """Remove the image from one circle (can be undone)."""
         if idx in self.slots:
             self._push_undo()
             del self.slots[idx]
             self.schedule_redraw()
 
     def clear_all(self):
-        """Remove every photo (can be undone)."""
+        """Remove every image (can be undone)."""
         if self._filled():
             self.close_popup()
             self._push_undo()
             self.slots.clear()
             self.schedule_redraw()
-            self.set_status(f"Cleared all photos — {MOD_LABEL}+Z to undo")
+            self.set_status(f"Cleared all images — {MOD_LABEL}+Z to undo")
 
     # ---- drawing -----------------------------------------------------------
     def schedule_redraw(self):
@@ -723,25 +724,25 @@ class BadgeApp(RootBase):
             self.after_cancel(self._after)
         self._after = self.after(50, self.redraw)
 
-    def _preview_photo(self, art, p, s):
+    def _preview_image(self, art, p, s):
         """The round preview picture for one pin. Cached, because making it is the slow part of
         drawing the sheet.
         """
         key = (art.key(), round(p["d"], 2), round(s, 3))
-        ph = self._photo_cache.get(key)
+        ph = self._image_cache.get(key)
         if ph is None:
-            if len(self._photo_cache) > 400:
-                self._photo_cache.clear()
+            if len(self._image_cache) > 400:
+                self._image_cache.clear()
             im = render_art(art, p["d"], s, small=True).convert("RGBA")
             big = Image.new("L", (im.size[0] * 3, im.size[1] * 3), 0)
             ImageDraw.Draw(big).ellipse((0, 0, big.size[0] - 1, big.size[1] - 1), fill=255)
             im.putalpha(big.resize(im.size, Image.LANCZOS))
             ph = ImageTk.PhotoImage(im)
-            self._photo_cache[key] = ph
+            self._image_cache[key] = ph
         return ph
 
     def redraw(self):
-        """Draw the whole sheet preview: paper, empty circles, photos, guides, crop ticks and
+        """Draw the whole sheet preview: paper, empty circles, images, guides, crop ticks and
         low-resolution warnings.
         """
         if self._after:
@@ -783,9 +784,9 @@ class BadgeApp(RootBase):
                 cv.create_line(x - a, y, x + a, y, fill=T.EMPTY_PLUS, width=2, capstyle="round")
                 cv.create_line(x, y - a, x, y + a, fill=T.EMPTY_PLUS, width=2, capstyle="round")
                 continue
-            # A filled circle: the photo, its outline, the safe-area ring, then four crop
+            # A filled circle: the image, its outline, the safe-area ring, then four crop
             # ticks.
-            cv.create_image(x, y, image=self._preview_photo(art, p, s))
+            cv.create_image(x, y, image=self._preview_image(art, p, s))
             cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, outline=T.PIN_EDGE)
             if guides and w / 2 - ins > 1:
                 cv.create_oval(x - w / 2 + ins, y - w / 2 + ins, x + w / 2 - ins,
@@ -795,7 +796,7 @@ class BadgeApp(RootBase):
                                       (x - w / 2 - off, y, x - w / 2 - off - tick, y),
                                       (x + w / 2 + off, y, x + w / 2 + off + tick, y)):
                 cv.create_line(x1, y1, x2, y2, fill=T.TICK)
-            # A small orange "!" in the corner of photos that would print soft.
+            # A small orange "!" in the corner of images that would print soft.
             if art.ppi(p["d"]) < LOW_PPI:
                 low += 1
                 r = max(6, w * 0.09)
@@ -845,33 +846,33 @@ class BadgeApp(RootBase):
             return
         self.status_lbl.config(
             text="Click to modify or clear" if idx in self.slots
-            else "Click to add photos")
+            else "Click to add images")
         s, ox, oy, p = self.geo
         cx, cy = self.layout["points"][idx]
         x, y, w = ox + cx * s, oy + cy * s, p["d"] * s
         self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
                             outline=T.HOVER_RING, width=3, tags="hover")
 
-    # ---- projects ----------------------------------------------------------
+    # ---- canvases ----------------------------------------------------------
     def _confirm_discard(self):
         """True when it is fine to replace/close the current sheet."""
         if not (self.dirty and self.slots):
             return True
         ans = messagebox.askyesnocancel(
             "Wait a second!",
-            "Psst... you have unsaved changes.\n\nShall I save this project first?",
+            "Psst... you have unsaved changes.\n\nShall I save this canvas first?",
             yes="Save it", no="Don't save", cancel="Stay here")
         if ans is None:
             return False
         if ans:
-            return self.save_project()
+            return self.save_canvas()
         return True
 
-    def new_project(self):
-        """Ask for a name, create an empty project file with it and open the editor."""
+    def new_canvas(self):
+        """Ask for a name, create an empty canvas file with it and open the editor."""
         if not self._confirm_discard():
             return
-        name = messagebox.askstring("New project", "Yay, a new project! What shall we call it?",
+        name = messagebox.askstring("New canvas", "Yay, a new canvas! What shall we call it?",
                                     initialvalue=self._suggest_name(), parent=self)
         if not name or not name.strip():
             return
@@ -879,36 +880,36 @@ class BadgeApp(RootBase):
         self.slots.clear()
         self._undo.clear()
         self._redo.clear()
-        self.project_path = None
-        if self._save_to(self._unique_project_path(name)):
+        self.canvas_path = None
+        if self._save_to(self._unique_canvas_path(name)):
             self._show("editor")
-            self.set_status("New project")
+            self.set_status("New canvas")
 
-    def save_project(self):
-        """Save. If the project has no file yet, ask for a name first."""
-        if not self.project_path:
-            return self.save_project_as()
-        return self._save_to(self.project_path)
+    def save_canvas(self):
+        """Save. If the canvas has no file yet, ask for a name first."""
+        if not self.canvas_path:
+            return self.save_canvas_as()
+        return self._save_to(self.canvas_path)
 
-    def save_project_as(self):
+    def save_canvas_as(self):
         """Save under a name chosen in a file dialog."""
-        initial = (os.path.basename(self.project_path) if self.project_path
-                   else "pins" + PROJECT_EXT)
+        initial = (os.path.basename(self.canvas_path) if self.canvas_path
+                   else "pins" + CANVAS_EXT)
         path = filedialog.asksaveasfilename(
-            defaultextension=PROJECT_EXT, filetypes=[("Pin project", f"*{PROJECT_EXT}")],
-            initialdir=self.projects_dir(), initialfile=initial, title="Save project")
+            defaultextension=CANVAS_EXT, filetypes=[("Pin canvas", f"*{CANVAS_EXT}")],
+            initialdir=self.canvases_dir(), initialfile=initial, title="Save canvas")
         if not path:
             return False
         return self._save_to(path)
 
     def _save_to(self, path):
-        """Write the project to ``path`` as JSON: the settings, the list of photo files and
-        where each pin's photo sits. The photos themselves are not copied, only their
+        """Write the canvas to ``path`` as JSON: the settings, the list of image files and
+        where each pin's image sits. The images themselves are not copied, only their
         locations. Returns True on success.
         """
         base = os.path.dirname(os.path.abspath(path))
-        photos, index = [], {}
-        # List each distinct photo once; the slots below refer to a photo by its number in
+        images, index = [], {}
+        # List each distinct image once; the slots below refer to an image by its number in
         # this list.
         for a in self.slots.values():
             sp = a.source.path
@@ -917,14 +918,14 @@ class BadgeApp(RootBase):
                     rel = os.path.relpath(sp, base)
                 except ValueError:
                     rel = ""
-                index[sp] = len(photos)
-                photos.append({"path": sp, "rel": rel})
+                index[sp] = len(images)
+                images.append({"path": sp, "rel": rel})
         data = {
             "app": "badge-pin-maker", "version": 1,
             "paper": self.v_paper.get(), "paper_w": self.v_pw.get(), "paper_h": self.v_ph.get(),
             "pin": self.v_pin.get(), "diameter": self.v_d.get(),
             "guides": bool(self.v_guides.get()),
-            "photos": photos,
+            "photos": images,  # key name kept so older saves still open
             "slots": [{"slot": i, "photo": index[a.source.path], "zoom": a.zoom,
                        "cx": a.cx, "cy": a.cy, "angle": a.angle}
                       for i, a in sorted(self.slots.items())],
@@ -933,26 +934,26 @@ class BadgeApp(RootBase):
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except OSError as ex:
-            messagebox.showerror("Oh no!", f"I couldn't save your project:\n{ex}")
+            messagebox.showerror("Oh no!", f"I couldn't save your canvas:\n{ex}")
             return False
-        self.project_path = path
+        self.canvas_path = path
         self._mark_clean()
         self.set_status(f"Saved {os.path.basename(path)}")
         return True
 
-    def open_project(self):
-        """Browse for a project file anywhere on disk."""
+    def open_canvas(self):
+        """Browse for a canvas file anywhere on disk."""
         if not self._confirm_discard():
             return
         path = filedialog.askopenfilename(
-            title="Open project", initialdir=self.projects_dir(),
-            filetypes=[("Pin project", f"*{PROJECT_EXT}"), ("All files", "*.*")])
+            title="Open canvas", initialdir=self.canvases_dir(),
+            filetypes=[("Pin canvas", f"*{CANVAS_EXT}"), ("All files", "*.*")])
         if path and self._load_from(path):
             self._show("editor")
 
     def _load_from(self, path):
-        """Read a project file and rebuild the sheet from it. Each photo is looked for at its
-        saved path, then relative to the project file, then next to it. Photos that can't be
+        """Read a canvas file and rebuild the sheet from it. Each image is looked for at its
+        saved path, then relative to the canvas file, then next to it. Images that can't be
         found leave their circles empty and are reported to the user. Returns True on
         success.
         """
@@ -960,9 +961,9 @@ class BadgeApp(RootBase):
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, dict) or data.get("app") != "badge-pin-maker":
-                raise ValueError("This is not a Badge Pin Maker project.")
+                raise ValueError("This is not a Badge Pin Maker canvas.")
         except (OSError, ValueError) as ex:
-            messagebox.showerror("Oh no!", f"I couldn't open that project:\n{ex}")
+            messagebox.showerror("Oh no!", f"I couldn't open that canvas:\n{ex}")
             return False
         base = os.path.dirname(os.path.abspath(path))
 
@@ -1014,7 +1015,7 @@ class BadgeApp(RootBase):
         self.slots = slots
         self._undo.clear()
         self._redo.clear()
-        self.project_path = path
+        self.canvas_path = path
         self._loading = False
         self._mark_clean()
         self.redraw()
@@ -1022,7 +1023,7 @@ class BadgeApp(RootBase):
         if missing:
             messagebox.showwarning(
                 "Where did they go?",
-                "I looked everywhere but couldn't find these photos, so their circles "
+                "I looked everywhere but couldn't find these images, so their circles "
                 "are empty:\n\n"
                 + "\n".join(missing[:10]) + ("\n…" if len(missing) > 10 else ""))
         return True
@@ -1038,7 +1039,7 @@ class BadgeApp(RootBase):
 
     # ---- output ------------------------------------------------------------
     def _prepare_export(self):
-        """Check that there is something to export and warn about low-resolution photos.
+        """Check that there is something to export and warn about low-resolution images.
         Returns (params, filled circles), or None if the user backed out.
         """
         p = self.compute()
@@ -1046,12 +1047,12 @@ class BadgeApp(RootBase):
         active = {i: a for i, a in self.slots.items() if i < n}
         if not active:
             messagebox.showwarning("Nothing to print yet",
-                                   "The sheet is empty! Add at least one photo first.")
+                                   "The sheet is empty! Add at least one image first.")
             return None
         low = sum(1 for a in active.values() if a.ppi(p["d"]) < LOW_PPI)
         if low and not messagebox.askyesno(
                 "These look a bit fuzzy",
-                f"{low} pin{'s use' if low != 1 else ' uses'} a photo that will print below "
+                f"{low} pin{'s use' if low != 1 else ' uses'} an image that will print below "
                 f"{LOW_PPI} dpi and may look soft.\n\nDo you want to continue anyway?",
                 yes="Continue", no="Go back"):
             return None
@@ -1088,7 +1089,7 @@ class BadgeApp(RootBase):
         prep = self._prepare_export()
         if not prep:
             return
-        stem = os.path.splitext(os.path.basename(self.project_path))[0] if self.project_path else "pins"
+        stem = os.path.splitext(os.path.basename(self.canvas_path))[0] if self.canvas_path else "pins"
         path = filedialog.asksaveasfilename(
             defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
             initialdir=self._dir("export_dir"), initialfile=f"{stem}.pdf",

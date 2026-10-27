@@ -1,4 +1,4 @@
-"""The window where you position a photo under the pin circle."""
+"""The window where you position an image under the pin circle."""
 
 import math
 import tkinter as tk
@@ -13,16 +13,16 @@ from .dialogs import messagebox, set_titlebar, set_window_icon
 
 
 class CropDialog(tk.Toplevel):
-    """The pin circle stays fixed; the photo moves/zooms/rotates underneath it.
+    """The pin circle stays fixed; the image moves/zooms/rotates underneath it.
     result = (zoom, cx, cy, angle, copies) after Continue, or None after Skip/Cancel.
-    stop   = True when the user ended a multi-photo batch."""
+    stop   = True when the user ended a multi-image batch."""
     CW, CH = 680, 470
     VW = 330
     ZMIN, ZMAX = 0.3, 6.0
 
-    def __init__(self, parent, source, d, max_copies=0, art=None, title="Crop photo",
+    def __init__(self, parent, source, d, max_copies=0, art=None, title="Crop image",
                  batch=None):
-        """Build the window: the photo canvas, the zoom / rotate controls and the buttons.
+        """Build the window: the image canvas, the zoom / rotate controls and the buttons.
         """
         super().__init__(parent)
         self.configure(bg=T.BG)
@@ -37,7 +37,7 @@ class CropDialog(tk.Toplevel):
         self.max_copies = max_copies
         self._cache = {}
         self._last = None
-        self._photo = None
+        self._image = None
 
         # fixed viewport (the pin) in the middle of the canvas
         self.vw = self.VW
@@ -129,7 +129,7 @@ class CropDialog(tk.Toplevel):
     # ---- helpers
     def _circle_mask(self, inset):
         """A mask of the pin circle shrunk by ``inset`` pixels. Used to light up the part of
-        the photo that stays visible.
+        the image that stays visible.
         """
         s = 2  # supersample for smooth edges
         m = Image.new("L", (self.CW * s, self.CH * s), 0)
@@ -152,7 +152,7 @@ class CropDialog(tk.Toplevel):
         self.v_zoom.set(math.log(z))
 
     def rotate_by(self, deg):
-        """Turn the photo by ``deg`` degrees, wrapping around so the angle stays between -180
+        """Turn the image by ``deg`` degrees, wrapping around so the angle stays between -180
         and 180.
         """
         a = self.v_angle.get() + deg
@@ -169,7 +169,7 @@ class CropDialog(tk.Toplevel):
         self._last = (e.x, e.y)
 
     def on_drag(self, e):
-        """Dragging moves the photo underneath the (fixed) pin circle."""
+        """Dragging moves the image underneath the (fixed) pin circle."""
         if self._last is None:
             return
         dx, dy = e.x - self._last[0], e.y - self._last[1]
@@ -177,7 +177,7 @@ class CropDialog(tk.Toplevel):
         img = self.src.small
         iw, ih = img.size
         # k = source pixels per screen pixel. The sine / cosine turn a mouse move into a
-        # move across the (possibly rotated) photo.
+        # move across the (possibly rotated) image.
         k = base_crop(img.size) / self.zoom / self.vw
         t = math.radians(self.v_angle.get())
         cs, sn = math.cos(t), math.sin(t)
@@ -187,7 +187,7 @@ class CropDialog(tk.Toplevel):
         self.update_view()
 
     def update_view(self):
-        """Redraw the photo and the pin outline, and refresh the zoom, rotation and sharpness
+        """Redraw the image and the pin outline, and refresh the zoom, rotation and sharpness
         labels.
         """
         zoom, angle = self.zoom, self.v_angle.get()
@@ -205,7 +205,7 @@ class CropDialog(tk.Toplevel):
         img = self.src.small
         iw, ih = img.size
         k = base_crop(img.size) / zoom / self.vw
-        # Render the photo for the whole canvas, then darken it in two steps so it is easy
+        # Render the image for the whole canvas, then darken it in two steps so it is easy
         # to see what ends up on the pin.
         bright = render_transform(img, self.CW, self.CH, k, self.cx * iw, self.cy * ih,
                                   angle, self._cache)
@@ -213,20 +213,20 @@ class CropDialog(tk.Toplevel):
         dim = Image.blend(bright, self.black, 0.74)       # outside the pin
         layer = Image.composite(mid, dim, self.cut_mask)
         final = Image.composite(bright, layer, self.safe_mask)
-        self._photo = ImageTk.PhotoImage(final)
+        self._image = ImageTk.PhotoImage(final)
         self.cv.delete("all")
-        self.cv.create_image(0, 0, anchor="nw", image=self._photo)
+        self.cv.create_image(0, 0, anchor="nw", image=self._image)
         x0, y0 = self.vx0, self.vy0
         x1, y1 = x0 + self.vw, y0 + self.vw
         i = self.inset
-        self.cv.create_oval(x0, y0, x1, y1, outline=T.CROP_HALO, width=5)   # readable on any photo
+        self.cv.create_oval(x0, y0, x1, y1, outline=T.CROP_HALO, width=5)   # readable on any image
         self.cv.create_oval(x0, y0, x1, y1, outline=T.CROP_LINE, width=2)
         if self.vw - 2 * i > 2:
             self.cv.create_oval(x0 + i, y0 + i, x1 - i, y1 - i, outline="#FFE2C4",
                                 width=2, dash=(5, 4))
 
     def on_stop(self):
-        """End a multi-photo batch: nothing more will be cropped."""
+        """End a multi-image batch: nothing more will be cropped."""
         self.stop = True
         self.destroy()
 

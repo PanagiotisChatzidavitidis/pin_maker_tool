@@ -1,4 +1,4 @@
-"""Photos, and the maths that places them inside a pin circle.
+"""Images, and the maths that places them inside a pin circle.
 
 A Source is a loaded picture. An Art is one pin's view of a Source (zoom, centre point,
 rotation). render_art() turns an Art into the finished square image for a pin of a given
@@ -20,14 +20,14 @@ def base_crop(size):
 
 
 def ppi_for(size, zoom, d_mm):
-    """Effective print resolution (pixels per inch) of a photo of ``size`` pixels, at ``zoom``,
+    """Effective print resolution (pixels per inch) of an image of ``size`` pixels, at ``zoom``,
     on a pin ``d_mm`` wide.
     """
     return base_crop(size) / zoom / (d_mm / 25.4)
 
 
 class Source:
-    """A loaded photo: full-res for the PDF, small copy for fast previews."""
+    """A loaded image: full-res for the PDF, small copy for fast previews."""
     def __init__(self, img, path=""):
         """Keep the full-size picture (for printing) plus a small copy that keeps previews
         fast.
@@ -39,16 +39,16 @@ class Source:
 
 
 class Art:
-    """One pin's photo + view: zoom, normalised centre (cx, cy), rotation."""
+    """One pin's image + view: zoom, normalised centre (cx, cy), rotation."""
     def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0):
-        """zoom 1.0 = the photo just covers the pin. cx / cy = the point of the photo that sits
+        """zoom 1.0 = the image just covers the pin. cx / cy = the point of the image that sits
         in the middle of the pin, as a fraction (0 to 1) of its width and height. angle is
         in degrees, clockwise.
         """
         self.source, self.zoom, self.cx, self.cy, self.angle = source, zoom, cx, cy, angle
 
     def copy(self):
-        """A separate copy of the view (used for undo snapshots). The photo itself is shared,
+        """A separate copy of the view (used for undo snapshots). The image itself is shared,
         not duplicated.
         """
         return Art(self.source, self.zoom, self.cx, self.cy, self.angle)
@@ -61,13 +61,13 @@ class Art:
                 round(self.cy, 4), round(self.angle, 2))
 
     def ppi(self, d_mm):
-        """Effective print resolution of the photo on a pin of d_mm."""
+        """Effective print resolution of the image on a pin of d_mm."""
         return ppi_for(self.source.full.size, self.zoom, d_mm)
 
 
 def load_source(path):
     """Open an image file ready for use: fix phone-camera rotation, flatten transparency onto
-    white and cap huge photos at 4000 px.
+    white and cap huge images at 4000 px.
     """
     img = Image.open(path)
     img = ImageOps.exif_transpose(img) or img
@@ -85,10 +85,10 @@ def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None):
     k   = source pixels per output pixel (bigger = more zoomed out)
     cxp, cyp = source pixel shown at the output centre
     angle = clockwise rotation in degrees
-    Areas the photo doesn't reach are white.
+    Areas the image doesn't reach are white.
     """
     iw, ih = img.size
-    # When zoomed far out, shrink the photo in one clean step first. Shrinking by a big
+    # When zoomed far out, shrink the image in one clean step first. Shrinking by a big
     # factor inside the transform itself would look jagged.
     m = max(1.0, k)                      # pre-shrink for clean downsampling
     if m > 1.0:
@@ -118,7 +118,7 @@ def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None):
 
 def render_art(art, d_mm, px_per_mm, small=False):
     """Render one pin's picture as a square, ``d_mm`` millimetres wide at ``px_per_mm`` pixels
-    per mm. ``small=True`` uses the small preview copy of the photo.
+    per mm. ``small=True`` uses the small preview copy of the image.
     """
     img = art.source.small if small else art.source.full
     iw, ih = img.size

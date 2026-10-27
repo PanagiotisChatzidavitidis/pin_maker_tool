@@ -75,7 +75,7 @@ def compute_layout(paper_w, paper_h, d, margin, gap):
 
 
 def first_free(n_slots, occupied):
-    """Index of the first circle that has no photo yet, or None when they are all used."""
+    """Index of the first circle that has no image yet, or None when they are all used."""
     return next((i for i in range(n_slots) if i not in occupied), None)
 
 

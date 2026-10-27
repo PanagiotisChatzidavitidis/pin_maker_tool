@@ -1,4 +1,4 @@
-"""The start screen: a sidebar with the main actions and the list of saved projects."""
+"""The start screen: a sidebar with the main actions and the list of saved canvases."""
 
 import os
 import time
@@ -13,12 +13,12 @@ from .widgets import Toggle
 
 
 class HomeScreen(tk.Frame):
-    """Start screen: sidebar (brand, actions, options, exit) + projects list."""
+    """Start screen: sidebar (brand, actions, options, exit) + canvases list."""
     ICON = 56
     SIDE_W = 320
 
     def __init__(self, app):
-        """Build the sidebar (brand, actions, options) and the empty, scrollable project list.
+        """Build the sidebar (brand, actions, options) and the empty, scrollable canvas list.
         """
         super().__init__(app, bg=T.BG)
         self.app = app
@@ -42,13 +42,13 @@ class HomeScreen(tk.Frame):
         names.pack(side="left")
         ttk.Label(names, text="Badge Pin", style="Hero.TLabel").pack(anchor="w")
         ttk.Label(names, text="Maker", style="Hero.TLabel").pack(anchor="w")
-        ttk.Label(pad, text="Photo sheets for your pin badges",
+        ttk.Label(pad, text="Image sheets for your pin badges",
                   style="Muted.TLabel").pack(anchor="w", pady=(14, 22))
 
-        ttk.Button(pad, text="+  New project", style="Hero.TButton",
-                   command=app.new_project).pack(fill="x")
-        ttk.Button(pad, text="Browse for a project…", style="Ghost.TButton",
-                   command=app.open_project).pack(fill="x", pady=(10, 0))
+        ttk.Button(pad, text="+  New canvas", style="Hero.TButton",
+                   command=app.new_canvas).pack(fill="x")
+        ttk.Button(pad, text="Browse for a canvas…", style="Ghost.TButton",
+                   command=app.open_canvas).pack(fill="x", pady=(10, 0))
 
         ttk.Label(pad, text="OPTIONS", style="Section.TLabel").pack(anchor="w", pady=(34, 10))
         row = ttk.Frame(pad, style="Card.TFrame")
@@ -56,7 +56,7 @@ class HomeScreen(tk.Frame):
         ttk.Label(row, text="Dark mode", style="Card.TLabel").pack(side="left")
         Toggle(row, app.v_dark, command=app.toggle_theme, bg=T.CARD).pack(side="right")
 
-        ttk.Label(pad, text="Projects folder", style="Card.TLabel").pack(anchor="w", pady=(18, 0))
+        ttk.Label(pad, text="Canvases folder", style="Card.TLabel").pack(anchor="w", pady=(18, 0))
         self.folder_lbl = ttk.Label(pad, style="Muted.TLabel", justify="left",
                                     wraplength=self.SIDE_W - 60)
         self.folder_lbl.pack(anchor="w", pady=(2, 0))
@@ -71,9 +71,9 @@ class HomeScreen(tk.Frame):
         main.pack(side="left", fill="both", expand=True)
         top = ttk.Frame(main)
         top.pack(fill="x")
-        ttk.Label(top, text="Your projects", style="Page.TLabel").pack(side="left")
+        ttk.Label(top, text="Your canvases", style="Page.TLabel").pack(side="left")
         ttk.Button(top, text="Open folder", style="Ghost.TButton",
-                   command=lambda: reveal_folder(app.projects_dir())).pack(side="right")
+                   command=lambda: reveal_folder(app.canvases_dir())).pack(side="right")
         self.count_lbl = ttk.Label(main, style="Hint.TLabel")
         self.count_lbl.pack(anchor="w", pady=(2, 0))
 
@@ -122,25 +122,25 @@ class HomeScreen(tk.Frame):
             pass
 
     def refresh(self):
-        """Look at the projects folder again and redraw the list (or the "No projects yet"
+        """Look at the canvases folder again and redraw the list (or the "No canvases yet"
         message).
         """
-        self.folder_lbl.config(text=self.app.projects_dir())
+        self.folder_lbl.config(text=self.app.canvases_dir())
         for w in self.list.winfo_children():
             w.destroy()
-        items = self.app.scan_projects()
-        self.count_lbl.config(text=f"{len(items)} project{'s' if len(items) != 1 else ''}")
+        items = self.app.scan_canvases()
+        self.count_lbl.config(text=f"{len(items)} canvas{'s' if len(items) != 1 else ''}")
         if not items:
             box = tk.Frame(self.list, bg=T.BG)
             box.pack(fill="x", pady=(70, 0))
             self._empty_icon = load_logo(96)
             tk.Label(box, image=self._empty_icon, bg=T.BG).pack()
-            tk.Label(box, text="No projects yet", bg=T.BG, fg=T.PETROL,
+            tk.Label(box, text="No canvases yet", bg=T.BG, fg=T.PETROL,
                      font=("Georgia", 18, "bold")).pack(pady=(16, 4))
             tk.Label(box, text="Create your first sheet and it will show up here.",
                      bg=T.BG, fg=T.MUTED, font=(self._fam, 10)).pack()
-            ttk.Button(box, text="+  New project", style="Hero.TButton",
-                       command=self.app.new_project).pack(pady=(18, 0))
+            ttk.Button(box, text="+  New canvas", style="Hero.TButton",
+                       command=self.app.new_canvas).pack(pady=(18, 0))
             self.cv.yview_moveto(0)
             return
         for info in items:
@@ -148,8 +148,8 @@ class HomeScreen(tk.Frame):
         self.cv.yview_moveto(0)
 
     def _row(self, info):
-        """One project card: thumbnail, name, details, date and a Delete link. Clicking the
-        card opens the project.
+        """One canvas card: thumbnail, name, details, date and a Delete link. Clicking the
+        card opens the canvas.
         """
         fam = self._fam
         outer = tk.Frame(self.list, bg=T.BORDER)          # 1px border that lights up on hover
@@ -211,23 +211,23 @@ class HomeScreen(tk.Frame):
                 w.bind("<Button-1>", lambda e, p=info["path"]: self.app.open_path(p))
 
     def delete(self, info):
-        """Ask first, then remove the project file. The photos are never touched."""
+        """Ask first, then remove the canvas file. The images are never touched."""
         if not messagebox.askyesno(
-                "Delete project?",
+                "Delete canvas?",
                 f"Do you really want me to delete “{info['name']}”?\n\n"
-                "Only the project file goes away. Your photos stay safe, I promise!",
+                "Only the canvas file goes away. Your images stay safe, I promise!",
                 icon="warning", parent=self.app, yes="Delete it", no="Keep it"):
             return
         try:
             os.remove(info["path"])
         except OSError as ex:
-            messagebox.showerror("Oh no!", f"I couldn't delete that project:\n{ex}")
+            messagebox.showerror("Oh no!", f"I couldn't delete that canvas:\n{ex}")
         self.refresh()
 
     def change_folder(self):
-        """Let the user pick a different projects folder."""
-        d = filedialog.askdirectory(title="Choose projects folder",
-                                    initialdir=self.app.projects_dir())
+        """Let the user pick a different canvases folder."""
+        d = filedialog.askdirectory(title="Choose canvases folder",
+                                    initialdir=self.app.canvases_dir())
         if d:
-            self.app.set_projects_dir(d)
+            self.app.set_canvases_dir(d)
             self.refresh()
