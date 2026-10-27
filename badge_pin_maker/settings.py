@@ -32,6 +32,10 @@ def save_settings(data):
         pass
 
 
-def default_projects_dir():
-    """Where projects are kept unless the user picks another folder."""
-    return os.path.join(os.path.expanduser("~"), "Badge Pin Maker Projects")
+def default_canvases_dir():
+    """Where canvases are kept unless the user picks another folder. If you already have the
+    older "Badge Pin Maker Projects" folder and no new one yet, that keeps being used."""
+    home = os.path.expanduser("~")
+    new = os.path.join(home, "Badge Pin Maker Canvases")
+    old = os.path.join(home, "Badge Pin Maker Projects")
+    return old if os.path.isdir(old) and not os.path.isdir(new) else new

@@ -1,15 +1,15 @@
-"""Peeking into saved project (.pinproj) files for the start screen's list.
+"""Peeking into saved canvas (.pinproj) files for the start screen's list.
 
-This is deliberately cheap: it reads names, sizes and where the first photo sits, but never
-loads a full-size photo, so listing many projects stays fast.
+This is deliberately cheap: it reads names, sizes and where the first image sits, but never
+loads a full-size image, so listing many canvases stays fast.
 """
 
 import json
 import os
 
 
-def _resolve_photo(ph, base):
-    """Find a photo referenced by a project (absolute path, relative path, same folder)."""
+def _resolve_image(ph, base):
+    """Find an image referenced by a canvas (absolute path, relative path, same folder)."""
     orig = ph.get("path") or ""
     rel = ph.get("rel") or ""
     for cand in (orig, os.path.join(base, rel) if rel else "",
@@ -19,8 +19,8 @@ def _resolve_photo(ph, base):
     return None
 
 
-def read_project_info(path):
-    """Cheap summary of a .pinproj for the list (no full-res photo loading)."""
+def read_canvas_info(path):
+    """Cheap summary of a .pinproj for the list (no full-res image loading)."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -38,12 +38,12 @@ def read_project_info(path):
     slots = [s for s in data.get("slots", []) if isinstance(s, dict)]
     info["pins"] = len(slots)
     base = os.path.dirname(os.path.abspath(path))
-    photos = data.get("photos", [])
+    images = data.get("photos", [])
     for sl in sorted(slots, key=lambda s: s.get("slot", 0)):
         try:
-            photo = _resolve_photo(photos[int(sl["photo"])], base)
-            if photo:
-                info["art"] = (photo, float(sl.get("zoom", 1.0)), float(sl.get("cx", 0.5)),
+            image = _resolve_image(images[int(sl["photo"])], base)
+            if image:
+                info["art"] = (image, float(sl.get("zoom", 1.0)), float(sl.get("cx", 0.5)),
                                float(sl.get("cy", 0.5)), float(sl.get("angle", 0.0)))
                 break
         except (KeyError, ValueError, TypeError, IndexError, AttributeError):
