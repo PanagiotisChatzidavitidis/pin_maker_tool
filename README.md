@@ -2,14 +2,14 @@
 
 A small desktop app for making printable sheets of round badge-pin artwork. Pick a paper
 size and a pin size, drop in your images, position each one under the pin circle, then
-export a PDF (or print straight away) ready to cut out.
+export a PDF (or print straight away) ready to cut out and press into your badges.
 
 ## What it does
 
 - **Automatic layout.** Choose a paper size (A3 to A6, Letter, Legal, Tabloid, photo-paper sizes
-  or your own) and a pin size (25 to 75 mm or your own). The app tries a plain grid and a
+  or your own) and a pin size (25 to 75 mm or your own, see "Pin sizes" below). The app tries a plain grid and a
   staggered "honeycomb" packing, in portrait and landscape, and keeps whichever fits the
-  most pins.
+  most pins. The space between the circles can be changed, which helps when you cut by hand.
 - **Crop under the pin.** Drag to move, scroll to zoom, rotate in 90° steps or freely. The
   part that folds behind the pin is shaded, so you can see what will actually show.
 - **Quality warnings.** Images that would print below 200 dpi get a small "!" on the sheet
@@ -18,9 +18,36 @@ export a PDF (or print straight away) ready to cut out.
   (drag and drop needs the optional `tkinterdnd2` package). One image can be copied onto
   several circles.
 - **PDF export and printing.** Images are embedded at 600 dpi, with a thin cut line, crop
-  ticks and an optional safe-area ring. Empty circles print blank.
+  ticks and an optional ring that marks the visible edge of the badge. Empty circles print
+  blank. Print at 100% ("Actual size"), not "fit to page", or the pins come out the wrong size.
 - **Canvases.** Everything is saved as a `.pinproj` file so you can come back and edit it.
   Undo / redo, a light and a dark theme, and your last settings are remembered.
+
+## Pin sizes
+
+A pin badge has two sizes that matter when you cut your own artwork:
+
+- **Visible badge** is the finished size people mean by "a 58 mm pin".
+- **Cut circle** is the paper circle you cut out. It is bigger, because the rim of the paper
+  wraps around the shell and folds behind the pin.
+
+The app lays out the cut circles, draws the visible edge as a dotted ring, and shades the
+folded-away part in the crop window. These are the typical values it starts with:
+
+| Pin size | Visible badge | Cut circle |
+| --- | --- | --- |
+| 25 mm | 25 mm | 35 mm |
+| 32 mm | 32 mm | 42 mm |
+| 37 mm | 37 mm | 48 mm |
+| 38 mm (1½ in) | 38 mm | 48 mm |
+| 44 mm | 44 mm | 54 mm |
+| 50 mm | 50 mm | 60 mm |
+| 58 mm | 58 mm | 68 mm |
+| 75 mm | 75 mm | 87 mm |
+
+Presses differ by a millimetre or two. Print one test sheet, check that the paper fits
+your press, and type your own number into **Cut circle** if it needs adjusting. The app
+remembers it. Canvases saved by older versions open exactly as they were.
 
 ## Getting started
 

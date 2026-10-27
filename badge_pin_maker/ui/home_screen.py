@@ -42,7 +42,7 @@ class HomeScreen(tk.Frame):
         names.pack(side="left")
         ttk.Label(names, text="Badge Pin", style="Hero.TLabel").pack(anchor="w")
         ttk.Label(names, text="Maker", style="Hero.TLabel").pack(anchor="w")
-        ttk.Label(pad, text="Image sheets for your pin badges",
+        ttk.Label(pad, text="Print-ready sheets for your pin badges",
                   style="Muted.TLabel").pack(anchor="w", pady=(14, 22))
 
         ttk.Button(pad, text="+  New canvas", style="Hero.TButton",
@@ -129,7 +129,7 @@ class HomeScreen(tk.Frame):
         for w in self.list.winfo_children():
             w.destroy()
         items = self.app.scan_canvases()
-        self.count_lbl.config(text=f"{len(items)} canvas{'s' if len(items) != 1 else ''}")
+        self.count_lbl.config(text=f"{len(items)} {'canvas' if len(items) == 1 else 'canvases'}")
         if not items:
             box = tk.Frame(self.list, bg=T.BG)
             box.pack(fill="x", pady=(70, 0))

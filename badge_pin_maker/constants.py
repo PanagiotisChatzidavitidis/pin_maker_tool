@@ -9,10 +9,13 @@ import platform
 
 MM = 72.0 / 25.4  # points per millimetre
 
-# Fixed layout settings (millimetres)
+# Layout settings (millimetres)
 PAGE_MARGIN = 5.0
-BADGE_GAP = 3.0
-SAFE_INSET = 3.0   # the ring that folds behind the pin; outside it is not visible
+BADGE_GAP = 3.0    # default space between two cut circles (can be changed in the app)
+MAX_GAP = 20.0
+# Canvases saved before badge sizes had a separate "visible" and "cut" diameter treated the
+# outer 3 mm of every circle as the part that folds behind the pin.
+LEGACY_FOLD = 3.0
 
 # Print quality
 EXPORT_DPI = 600   # resolution of the images inside the exported PDF
@@ -42,14 +45,22 @@ PAPER_SIZES = {
     "Custom...": None,
 }
 
-# name -> (diameter, caption)
+# Pin sizes. A pin badge has two diameters that matter when you cut your own artwork:
+#   face - the finished, visible badge (this is the size people call "a 58 mm pin")
+#   cut  - the paper circle you cut out. It is bigger, because the rim of the paper wraps
+#          around the edge of the shell and folds behind the pin.
+# The cut sizes are typical values for round pin-badge presses (about 5 mm of paper on each
+# side, a little more on the biggest badges). Presses differ by a millimetre or two, so
+# the app lets you change the cut diameter to match your own press and paper.
+# name -> (face diameter, cut diameter, caption)
 PIN_SIZES = {
-    "25 mm pin": (25, "Small pin"),
-    "32 mm pin": (32, "Pin badge"),
-    "38 mm pin": (38, "Medium"),
-    "44 mm pin": (44, "Classic"),
-    "50 mm pin": (50, "Large"),
-    "58 mm pin": (58, "Most popular"),
-    "75 mm pin": (75, "Extra large"),
+    "25 mm pin": (25, 35, "Mini"),
+    "32 mm pin": (32, 42, "Small"),
+    "37 mm pin": (37, 48, "Classic"),
+    "38 mm pin": (38, 48, "1½ inch"),
+    "44 mm pin": (44, 54, "Medium"),
+    "50 mm pin": (50, 60, "Large"),
+    "58 mm pin": (58, 68, "Most popular"),
+    "75 mm pin": (75, 87, "Extra large"),
     "Custom...": None,
 }

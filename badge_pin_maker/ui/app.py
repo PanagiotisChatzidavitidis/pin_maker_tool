@@ -31,8 +31,8 @@ from tkinter import filedialog, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
-from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABEL,
-                         PAGE_MARGIN, PAPER_SIZES, PIN_SIZES, CANVAS_EXT, SAFE_INSET)
+from ..constants import (BADGE_GAP, CANVAS_EXT, EXPORT_DPI, IMG_EXTS, LEGACY_FOLD, LOW_PPI,
+                         MAX_GAP, MOD, MOD_LABEL, PAGE_MARGIN, PAPER_SIZES, PIN_SIZES)
 from ..imaging import Art, load_source, render_art
 from ..layout import compute_layout, fill_order, first_free
 from ..pdf_export import build_pdf
@@ -44,7 +44,7 @@ from .crop_dialog import CropDialog
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
-from .widgets import StatTile, Toggle, make_card
+from .widgets import PinDiagram, StatTile, Toggle, make_card
 
 
 class BadgeApp(RootBase):
@@ -67,7 +67,7 @@ class BadgeApp(RootBase):
         if not (isinstance(geo, str) and re.fullmatch(r"\d{3,4}x\d{3,4}", geo)):
             geo = "1220x820"
         self.geometry(geo)
-        self.minsize(1020, 720)
+        self.minsize(1020, 740)
 
         # ---- theme and fonts (the theme must be applied before the styles are set up) ----
         s = self.settings
@@ -94,21 +94,27 @@ class BadgeApp(RootBase):
         # ---- the settings boxes, restored from last time ----
         paper = s.get("paper") if s.get("paper") in PAPER_SIZES else "A4"
         pin = s.get("pin") if s.get("pin") in PIN_SIZES else "32 mm pin"
+        face, cut = self._pin_dims_from(s, pin, "d", legacy=False)
         self.v_paper = tk.StringVar(value=paper)
         self.v_pw = tk.StringVar(value=str(s.get("pw", "210")))
         self.v_ph = tk.StringVar(value=str(s.get("ph", "297")))
         self.v_pin = tk.StringVar(value=pin)
-        self.v_d = tk.StringVar(value=str(s.get("d", "32")))
+        self.v_face = tk.StringVar(value=face)   # the visible badge
+        self.v_d = tk.StringVar(value=cut)       # the circle that is cut out
+        self.v_gap = tk.StringVar(value=str(s.get("gap", BADGE_GAP)))
         self.v_guides = tk.BooleanVar(value=bool(s.get("guides", True)))
 
         # ---- build the screens and connect the events ----
         self._build_ui()
         self.home = HomeScreen(self)
         self._bind_shortcuts()
-        for v in (self.v_paper, self.v_pw, self.v_ph, self.v_pin, self.v_d, self.v_guides):
+        for v in (self.v_paper, self.v_pw, self.v_ph, self.v_pin, self.v_face, self.v_d,
+                  self.v_gap, self.v_guides):
             v.trace_add("write", self._on_setting)
         self.v_paper.trace_add("write", lambda *_: self._paper_changed())
         self.v_pin.trace_add("write", lambda *_: self._pin_changed())
+        for v in (self.v_face, self.v_d):
+            v.trace_add("write", lambda *_: self._update_pin_info())
         self._paper_changed()
         self._pin_changed()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -283,28 +289,44 @@ class BadgeApp(RootBase):
             ttk.Label(self.paper_custom, text=lbl, style="Card.TLabel").pack(side="left")
             ttk.Entry(self.paper_custom, textvariable=var, width=6).pack(side="left", padx=4)
         ttk.Label(self.paper_custom, text="mm", style="Muted.TLabel").pack(side="left")
+        gap_row = ttk.Frame(f, style="Card.TFrame")
+        gap_row.pack(fill="x", pady=(8, 0))
+        ttk.Label(gap_row, text="Space between circles", style="Card.TLabel").pack(side="left")
+        ttk.Label(gap_row, text="mm", style="Muted.TLabel").pack(side="right")
+        ttk.Entry(gap_row, textvariable=self.v_gap, width=5).pack(side="right", padx=4)
 
         f = make_card(left, "2 · Pin size")
         ttk.Combobox(f, textvariable=self.v_pin, values=list(PIN_SIZES),
                      state="readonly", width=30).pack(fill="x")
-        self.pin_custom = ttk.Frame(f, style="Card.TFrame")
-        ttk.Label(self.pin_custom, text="Diameter", style="Card.TLabel").pack(side="left")
-        ttk.Entry(self.pin_custom, textvariable=self.v_d, width=6).pack(side="left", padx=4)
-        ttk.Label(self.pin_custom, text="mm", style="Muted.TLabel").pack(side="left")
-        self.pin_note = ttk.Label(f, style="Muted.TLabel")
-        self.pin_note.pack(anchor="w", pady=(6, 0))
+        row = ttk.Frame(f, style="Card.TFrame")
+        row.pack(fill="x", pady=(10, 0))
+        self.pin_diagram = PinDiagram(row, self.base_font[0])
+        self.pin_diagram.pack(side="left")
+        fields = ttk.Frame(row, style="Card.TFrame")
+        fields.pack(side="left", padx=(14, 0))
+        for r, (label, var, colour) in enumerate((("Visible badge", self.v_face, T.TEAL),
+                                                  ("Cut circle", self.v_d, T.PLUM))):
+            tk.Label(fields, text=label, bg=T.CARD, fg=colour, anchor="w",
+                     font=(self.base_font[0], 9, "bold")).grid(row=2 * r, column=0,
+                                                              columnspan=2, sticky="w")
+            ttk.Entry(fields, textvariable=var, width=7).grid(row=2 * r + 1, column=0,
+                                                              sticky="w", pady=(0, 6))
+            ttk.Label(fields, text="mm", style="Muted.TLabel").grid(row=2 * r + 1, column=1,
+                                                                    sticky="w", padx=4)
+        self.pin_note = ttk.Label(f, style="Muted.TLabel", justify="left", wraplength=250)
+        self.pin_note.pack(anchor="w", pady=(4, 0))
 
         f = make_card(left, "3 · Images")
-        tip = "Click a circle to add images. Select several files to fill many circles at once."
+        tip = "Click a circle to add images; pick several files to fill many at once."
         if DND_FILES:
-            tip += " You can also drop image files onto the sheet."
-        ttk.Label(f, style="Muted.TLabel", justify="left", wraplength=250,
+            tip += " You can also drop files onto the sheet."
+        ttk.Label(f, style="Muted.TLabel", justify="left", wraplength=262,
                   text=tip).pack(anchor="w")
         ttk.Button(f, text="Clear all", style="Soft.TButton",
                    command=self.clear_all).pack(anchor="w", pady=(8, 0))
 
         f = make_card(left, "Display")
-        for label, var, cmd in (("Safe-area guide", self.v_guides, None),
+        for label, var, cmd in (("Show visible-edge ring", self.v_guides, None),
                                 ("Dark mode", self.v_dark, self.toggle_theme)):
             r = ttk.Frame(f, style="Card.TFrame")
             r.pack(fill="x", pady=3)
@@ -332,6 +354,10 @@ class BadgeApp(RootBase):
                                         style="Teal.Horizontal.TProgressbar")
         self.fill_bar.pack(fill="x", pady=(10, 10))
 
+        ttk.Label(right, style="Hint.TLabel", anchor="w",
+                  text="Cut along the outer line  ·  the dotted ring is the visible edge of "
+                       "the badge  ·  print at 100% (Actual size)"
+                  ).pack(side="bottom", fill="x", pady=(8, 0))
         self.cv = tk.Canvas(right, bg=T.BLUSH, highlightthickness=0)
         self.cv.pack(fill="both", expand=True)
         self.cv.bind("<Configure>", lambda e: self.schedule_redraw())
@@ -396,32 +422,73 @@ class BadgeApp(RootBase):
             self.v_pw.set(f"{dims[0]:g}")
             self.v_ph.set(f"{dims[1]:g}")
 
+    @staticmethod
+    def _fmt(x):
+        """A number for a text field: 58.0 becomes "58"."""
+        return f"{x:g}"
+
+    def _pin_dims_from(self, data, pin, cut_key, legacy):
+        """(visible, cut) diameters as text, from saved ``data``. Values the user saved are
+        used as they are. Older saves only knew one diameter, the circle that was cut out,
+        with the outer 3 mm folding behind: ``legacy=True`` keeps those sheets exactly as they
+        were, otherwise the pin size's current numbers are used. Without anything saved the
+        pin size's own numbers are used.
+        """
+        preset = PIN_SIZES.get(pin)
+        if data.get("face") is not None and data.get(cut_key) is not None:
+            return str(data["face"]), str(data[cut_key])
+        if preset is not None and not (legacy and data.get(cut_key) is not None):
+            return self._fmt(preset[0]), self._fmt(preset[1])
+        try:
+            cut = float(str(data.get(cut_key, "42")).replace(",", "."))
+        except ValueError:
+            cut = 42.0
+        return self._fmt(max(1.0, cut - 2 * LEGACY_FOLD)), self._fmt(cut)
+
     def _pin_changed(self):
-        """Show the diameter box only for "Custom..." pins. For a standard size, fill it in and
-        show that size's caption.
+        """A pin size was picked: fill in its visible and cut diameters (they can be changed
+        afterwards to match your own press).
         """
         data = PIN_SIZES.get(self.v_pin.get())
-        if data is None:
-            self.pin_custom.pack(anchor="w", pady=(8, 0))
-            self.pin_note.config(text="Enter the cut diameter of your pin.")
-        else:
-            self.pin_custom.pack_forget()
-            self.v_d.set(str(data[0]))
-            self.pin_note.config(text=data[1])
+        if data is not None and not self._loading:
+            self.v_face.set(self._fmt(data[0]))
+            self.v_d.set(self._fmt(data[1]))
+        self._update_pin_info()
+
+    def _update_pin_info(self):
+        """Redraw the little pin diagram and the sentence under it."""
+        p = self._params()
+        face, cut = p["face"], p["d"]
+        self.pin_diagram.set(face, cut)
+        want = self._num(self.v_face, face)
+        if want >= cut:
+            self.pin_note.config(text="The cut circle has to be bigger than the visible badge.",
+                                 foreground=T.WARN)
+            return
+        data = PIN_SIZES.get(self.v_pin.get())
+        same = data is not None and abs(data[0] - face) < 0.01 and abs(data[1] - cut) < 0.01
+        lead = f"{data[2]} · " if same else "Custom sizes · "
+        fold = (cut - face) / 2
+        self.pin_note.config(
+            text=f"{lead}cut {cut:g} mm circles; the outer {round(fold, 1):g} mm folds "
+                 "behind the pin.", foreground=T.MUTED)
 
     def _params(self):
-        """Paper width / height and pin diameter in mm, with sensible minimums so a typo can't
-        break the layout.
+        """Paper size, visible badge diameter, cut diameter and the space between circles, all
+        in mm, with sensible limits so a typo can't break the layout.
         """
+        d = max(1.0, self._num(self.v_d, 42))
+        face = min(max(1.0, self._num(self.v_face, 32)), d)
         return dict(pw=max(10.0, self._num(self.v_pw, 210)),
                     ph=max(10.0, self._num(self.v_ph, 297)),
-                    d=max(1.0, self._num(self.v_d, 32)))
+                    d=d, face=face,
+                    gap=min(max(0.0, self._num(self.v_gap, BADGE_GAP)), MAX_GAP))
 
     def compute(self):
         """Work out the layout for the current settings. Returns the parameters that were used.
         """
         p = self._params()
-        self.layout = compute_layout(p["pw"], p["ph"], p["d"], PAGE_MARGIN, BADGE_GAP)
+        self.layout = compute_layout(p["pw"], p["ph"], p["d"], PAGE_MARGIN, p["gap"])
         return p
 
     def _store_settings(self):
@@ -429,7 +496,8 @@ class BadgeApp(RootBase):
         """
         self.settings.update(
             paper=self.v_paper.get(), pw=self.v_pw.get(), ph=self.v_ph.get(),
-            pin=self.v_pin.get(), d=self.v_d.get(), guides=bool(self.v_guides.get()),
+            pin=self.v_pin.get(), face=self.v_face.get(), d=self.v_d.get(),
+            gap=self.v_gap.get(), guides=bool(self.v_guides.get()),
             size=f"{self.winfo_width()}x{self.winfo_height()}")
         save_settings(self.settings)
 
@@ -663,7 +731,7 @@ class BadgeApp(RootBase):
                     f"I couldn't open this picture:\n{os.path.basename(path)}\n\n{ex}")
                 continue
             title = f"Crop image {j} of {total}" if total > 1 else "Crop image"
-            dlg = CropDialog(self, source, p["d"], max_copies=free, title=title,
+            dlg = CropDialog(self, source, p["d"], face=p["face"], max_copies=free, title=title,
                              batch=(j, total))
             self.wait_window(dlg)
             if dlg.stop:
@@ -692,7 +760,8 @@ class BadgeApp(RootBase):
         if art is None:
             return
         p = self._params()
-        dlg = CropDialog(self, art.source, p["d"], max_copies=0, art=art, title="Modify crop")
+        dlg = CropDialog(self, art.source, p["d"], face=p["face"], max_copies=0, art=art,
+                         title="Modify crop")
         self.wait_window(dlg)
         if dlg.result is not None:
             self._push_undo()
@@ -769,8 +838,8 @@ class BadgeApp(RootBase):
         cv.create_rectangle(ox, oy, ox + W * s, oy + H * s, fill=T.PAPER, outline=T.PAPER_EDGE)
 
         w = p["d"] * s
-        ins = SAFE_INSET * s
-        tick, off = min(2.0, BADGE_GAP * 0.6) * s, 0.4 * s
+        ins = (p["d"] - p["face"]) / 2 * s        # the paper that folds behind the pin
+        tick, off = min(2.0, p["gap"] * 0.6) * s, 0.4 * s
         guides = self.v_guides.get()
         low = 0
         for i, (cx, cy) in enumerate(L["points"]):
@@ -780,15 +849,18 @@ class BadgeApp(RootBase):
             if art is None:
                 cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
                                outline=T.EMPTY_LINE, dash=(4, 4), fill=T.EMPTY_FILL)
+                if guides and ins > 1 and w / 2 - ins > 1:
+                    cv.create_oval(x - w / 2 + ins, y - w / 2 + ins, x + w / 2 - ins,
+                                   y + w / 2 - ins, outline=T.EMPTY_LINE, dash=(2, 4))
                 a = w * 0.10
                 cv.create_line(x - a, y, x + a, y, fill=T.EMPTY_PLUS, width=2, capstyle="round")
                 cv.create_line(x, y - a, x, y + a, fill=T.EMPTY_PLUS, width=2, capstyle="round")
                 continue
-            # A filled circle: the image, its outline, the safe-area ring, then four crop
-            # ticks.
+            # A filled circle: the image, its outline, the ring marking the visible edge of
+            # the badge, then four crop ticks.
             cv.create_image(x, y, image=self._preview_image(art, p, s))
             cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, outline=T.PIN_EDGE)
-            if guides and w / 2 - ins > 1:
+            if guides and ins > 1 and w / 2 - ins > 1:
                 cv.create_oval(x - w / 2 + ins, y - w / 2 + ins, x + w / 2 - ins,
                                y + w / 2 - ins, outline=T.GUIDE, dash=(3, 3))
             for (x1, y1, x2, y2) in ((x, y - w / 2 - off, x, y - w / 2 - off - tick),
@@ -806,12 +878,12 @@ class BadgeApp(RootBase):
                                font=(self.base_font[0], max(7, int(r * 1.2)), "bold"))
 
         n, filled = self._n(), self._filled()
-        self._update_stats(L, n, filled, low)
+        self._update_stats(L, n, filled, low, p)
         if n == 0:
             cv.create_text(cw / 2, ch / 2, fill=T.ERR,
                            text="Pin doesn't fit on this paper — choose a smaller size.")
 
-    def _update_stats(self, L, n, filled, low):
+    def _update_stats(self, L, n, filled, low, p):
         """Refresh the four tiles above the preview and the progress bar."""
         W, H = L["page_w"], L["page_h"]
         short = self.v_paper.get().split(" (")[0].replace("Custom...", "Custom")
@@ -820,7 +892,7 @@ class BadgeApp(RootBase):
             self.t_layout.set("Staggered", "Honeycomb packing")
         else:
             self.t_layout.set("Grid", "Straight rows")
-        self.t_pins.set(str(n), f"pin{'s' if n != 1 else ''} per sheet")
+        self.t_pins.set(str(n), f"{p['face']:g} mm pin{'s' if n != 1 else ''} per sheet")
         if low:
             self.t_filled.set(str(filled), f"of {n} filled · {low} low-res", warn=True)
         else:
@@ -923,7 +995,8 @@ class BadgeApp(RootBase):
         data = {
             "app": "badge-pin-maker", "version": 1,
             "paper": self.v_paper.get(), "paper_w": self.v_pw.get(), "paper_h": self.v_ph.get(),
-            "pin": self.v_pin.get(), "diameter": self.v_d.get(),
+            "pin": self.v_pin.get(), "diameter": self.v_d.get(), "face": self.v_face.get(),
+            "gap": self.v_gap.get(),
             "guides": bool(self.v_guides.get()),
             "photos": images,  # key name kept so older saves still open
             "slots": [{"slot": i, "photo": index[a.source.path], "zoom": a.zoom,
@@ -1009,8 +1082,10 @@ class BadgeApp(RootBase):
         pin = data.get("pin")
         pin = pin if pin in PIN_SIZES else "Custom..."
         self.v_pin.set(pin)
-        if PIN_SIZES[pin] is None:
-            self.v_d.set(str(data.get("diameter", "32")))
+        face, cut = self._pin_dims_from(data, pin, "diameter", legacy=True)
+        self.v_face.set(face)
+        self.v_d.set(cut)
+        self.v_gap.set(str(data.get("gap", BADGE_GAP)))
         self.v_guides.set(bool(data.get("guides", True)))
         self.slots = slots
         self._undo.clear()
@@ -1074,7 +1149,7 @@ class BadgeApp(RootBase):
         self.update_idletasks()
         try:
             build_pdf(path, self.layout, p["d"], active, guides=self.v_guides.get(),
-                      dpi=EXPORT_DPI, progress=self._progress)
+                      dpi=EXPORT_DPI, progress=self._progress, face=p["face"], gap=p["gap"])
             return True
         except Exception as ex:  # noqa: BLE001
             messagebox.showerror("Oh no!", f"Something went wrong while making the PDF:\n{ex}")
@@ -1098,7 +1173,8 @@ class BadgeApp(RootBase):
             return
         self.settings["export_dir"] = os.path.dirname(path)
         if self._write_pdf(path, *prep):
-            self.set_status(f"Exported {os.path.basename(path)}")
+            self.set_status(f"Exported {os.path.basename(path)}  ·  print at 100% (Actual "
+                            "size) so the pins come out the right size", hold=9000)
 
     def print_now(self):
         """Build a temporary PDF and send it to the printer."""
@@ -1110,7 +1186,8 @@ class BadgeApp(RootBase):
             return
         try:
             print_pdf(tmp)
-            self.set_status("Print job started")
+            self.set_status("Print job started  ·  make sure the printer is set to 100% "
+                            "(Actual size)", hold=9000)
         except Exception as ex:  # noqa: BLE001
             messagebox.showerror("Oh no!", f"I couldn't start the print job:\n{ex}")
 

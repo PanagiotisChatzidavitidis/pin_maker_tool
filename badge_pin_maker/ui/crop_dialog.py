@@ -6,7 +6,7 @@ from tkinter import ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
-from ..constants import LOW_PPI, SAFE_INSET
+from ..constants import LEGACY_FOLD, LOW_PPI
 from ..imaging import base_crop, ppi_for, render_transform
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
@@ -20,9 +20,11 @@ class CropDialog(tk.Toplevel):
     VW = 330
     ZMIN, ZMAX = 0.3, 6.0
 
-    def __init__(self, parent, source, d, max_copies=0, art=None, title="Crop image",
-                 batch=None):
+    def __init__(self, parent, source, d, face=None, max_copies=0, art=None,
+                 title="Crop image", batch=None):
         """Build the window: the image canvas, the zoom / rotate controls and the buttons.
+        ``d`` is the diameter of the circle that gets cut out and ``face`` the diameter of
+        the visible badge inside it (the rest of the paper folds behind the pin).
         """
         super().__init__(parent)
         self.configure(bg=T.BG)
@@ -34,6 +36,7 @@ class CropDialog(tk.Toplevel):
         self.stop = False
         self.src = source
         self.d = d
+        self.face = min(face, d) if face else max(0.0, d - 2 * LEGACY_FOLD)
         self.max_copies = max_copies
         self._cache = {}
         self._last = None
@@ -41,7 +44,7 @@ class CropDialog(tk.Toplevel):
 
         # fixed viewport (the pin) in the middle of the canvas
         self.vw = self.VW
-        self.inset = SAFE_INSET * (self.vw / d)
+        self.inset = (d - self.face) / 2 * (self.vw / d)
         self.vx0, self.vy0 = (self.CW - self.vw) / 2, (self.CH - self.vw) / 2
         self.cut_mask = self._circle_mask(0)
         self.safe_mask = self._circle_mask(self.inset)
@@ -104,8 +107,8 @@ class CropDialog(tk.Toplevel):
             ttk.Button(foot, text="Cancel", style="Soft.TButton",
                        command=self.destroy).pack(side="right", padx=8)
         ttk.Label(foot, style="Hint.TLabel", justify="left",
-                  text="Drag to move · scroll to zoom\nBright = visible on the pin · "
-                       "shaded ring = folds behind").pack(side="left")
+                  text=f"Drag to move · scroll to zoom\nBright = the visible {self.face:g} mm badge · "
+                       f"shaded ring = folds behind").pack(side="left")
 
         self.cv.bind("<ButtonPress-1>", self.on_press)
         self.cv.bind("<B1-Motion>", self.on_drag)

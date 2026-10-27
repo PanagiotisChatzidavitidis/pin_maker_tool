@@ -32,7 +32,10 @@ def read_canvas_info(path):
     paper = str(data.get("paper", ""))
     pin = str(data.get("pin", ""))
     paper = "Custom paper" if paper.startswith("Custom") else paper.split(" (")[0]
-    pin = f"{data.get('diameter', '?')} mm pin" if pin.startswith("Custom") else pin
+    if pin.startswith("Custom"):
+        # Custom sizes show the visible badge (older saves only know the cut circle).
+        size = data.get("face", data.get("diameter", "?"))
+        pin = f"{size} mm pin"
     info = dict(path=path, name=os.path.splitext(os.path.basename(path))[0],
                 mtime=mtime, paper=paper, pin=pin, pins=0, art=None)
     slots = [s for s in data.get("slots", []) if isinstance(s, dict)]

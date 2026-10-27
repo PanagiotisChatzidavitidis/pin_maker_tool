@@ -1,5 +1,5 @@
-"""Small reusable interface pieces: cards, statistic tiles, the on/off switch and a rounded-
-rectangle helper.
+"""Small reusable interface pieces: cards, statistic tiles, the on/off switch, the pin-size
+diagram and a rounded-rectangle helper.
 """
 
 import tkinter as tk
@@ -92,3 +92,30 @@ class Toggle(tk.Canvas):
         pad = 3
         x0 = w - h + pad if on else pad
         self.create_oval(x0, pad, x0 + h - 2 * pad, h - pad, fill="white", outline="")
+
+
+class PinDiagram(tk.Canvas):
+    """A little picture of one pin badge to scale: the circle you cut out (solid line) with
+    the visible badge inside it (dashed line). The paper between the two folds behind the pin.
+    """
+    SIZE = 92
+
+    def __init__(self, parent, font_family, bg=None):
+        """Build an empty diagram; draw it with set()."""
+        super().__init__(parent, width=self.SIZE, height=self.SIZE, bg=bg or T.CARD,
+                         highlightthickness=0)
+        self.family = font_family
+
+    def set(self, face, cut):
+        """Redraw for a visible diameter ``face`` and a cut diameter ``cut`` (both in mm)."""
+        self.delete("all")
+        c, big = self.SIZE / 2, self.SIZE / 2 - 3
+        ok = cut > 0 and 0 < face < cut
+        inner = big * (face / cut) if ok else big * 0.8
+        self.create_oval(c - big, c - big, c + big, c + big, fill=T.SAND, outline=T.PLUM,
+                         width=2)
+        self.create_oval(c - inner, c - inner, c + inner, c + inner, fill=T.FIELD,
+                         outline=T.TEAL, width=2, dash=(4, 3))
+        text, colour = (f"{face:g}", T.PETROL) if ok else ("?", T.WARN)
+        self.create_text(c, c - 6, text=text, fill=colour, font=("Georgia", 15, "bold"))
+        self.create_text(c, c + 11, text="mm", fill=T.MUTED, font=(self.family, 8))

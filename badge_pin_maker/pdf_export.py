@@ -1,7 +1,8 @@
 """Writing the printable PDF sheet.
 
 Only pins that have an image are drawn. For each one the image is clipped to a circle, then a
-thin cut line, the optional safe-area ring and four small crop ticks are added. Empty
+thin cut line, the optional ring that marks the visible edge of the badge and four small
+crop ticks are added. Empty
 circles stay blank so they don't waste ink.
 """
 
@@ -11,7 +12,7 @@ from reportlab.lib.colors import Color
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as pdfcanvas
 
-from .constants import BADGE_GAP, EXPORT_DPI, MM, SAFE_INSET
+from .constants import BADGE_GAP, EXPORT_DPI, MM
 from .imaging import render_art
 
 
@@ -24,13 +25,16 @@ def _pdf_image(art, d, dpi):
     return ImageReader(buf)
 
 
-def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None):
+def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None,
+              face=None, gap=BADGE_GAP):
     """Write the sheet to ``path`` as a PDF.
 
     layout comes from compute_layout(), d is the pin diameter in mm and slots maps a circle
-    number to its Art. guides draws the dotted safe-area ring, dpi is the resolution of the
-    embedded images, and progress (optional) is called as progress(done, total) after each
-    pin.
+    number to its Art. d is the diameter of the circle that gets cut out. face is the
+    diameter of the visible badge: guides draws a dotted ring that size, so you can see what
+    stays in view and what folds behind. gap is the space between circles (it sets the
+    length of the crop ticks), dpi is the resolution of the embedded images, and progress
+    (optional) is called as progress(done, total) after each pin.
     """
     W, H = layout["page_w"], layout["page_h"]
     c = pdfcanvas.Canvas(path, pagesize=(W * MM, H * MM))
@@ -66,18 +70,16 @@ def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None
         c.setLineWidth(0.25)
         c.circle(x, y, r, stroke=1, fill=0)
 
-        # safe-area ring (optional)
-        if guides:
-            ins = SAFE_INSET * MM
-            if r - ins > 0:
-                c.setStrokeColor(Color(0.75, 0.75, 0.75))
-                c.setLineWidth(0.2)
-                c.setDash(1, 1.5)
-                c.circle(x, y, r - ins, stroke=1, fill=0)
-                c.setDash()
+        # ring marking the visible edge of the badge (optional)
+        if guides and face and face < d - 0.2:
+            c.setStrokeColor(Color(0.75, 0.75, 0.75))
+            c.setLineWidth(0.2)
+            c.setDash(1, 1.5)
+            c.circle(x, y, face / 2 * MM, stroke=1, fill=0)
+            c.setDash()
 
         # crop ticks
-        tick, off = min(2.0, BADGE_GAP * 0.6) * MM, 0.4 * MM
+        tick, off = min(2.0, gap * 0.6) * MM, 0.4 * MM
         c.setStrokeColor(Color(0.2, 0.2, 0.2))
         c.setLineWidth(0.25)
         c.line(x, y + r + off, x, y + r + off + tick)
