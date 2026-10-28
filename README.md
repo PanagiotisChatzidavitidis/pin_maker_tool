@@ -10,7 +10,9 @@ export a PDF (or print straight away) ready to cut out.
   or your own) and a pin size (25 to 75 mm or your own). The app tries a plain grid and a
   staggered "honeycomb" packing, in portrait and landscape, and keeps whichever fits the
   most pins.
-- **Crop under the pin.** Drag to move, scroll to zoom, rotate in 90° steps or freely. The
+- **Crop under the pin.** Drag to move, scroll to zoom (it zooms toward the cursor), rotate in
+  90° steps or freely. *Fill* covers the pin, *Fit* shows the whole picture, double-click
+  toggles between them, and the arrow keys nudge. The crop window can be resized, and the
   part that folds behind the pin is shaded, so you can see what will actually show.
 - **Quality warnings.** Images that would print below 200 dpi get a small "!" on the sheet
   and a warning before export.
