@@ -79,12 +79,14 @@ def load_source(path):
     return Source(img, os.path.abspath(path))
 
 
-def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None):
+def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None,
+                     resample=Image.BICUBIC):
     """
     Render `img` into an out_w x out_h picture.
     k   = source pixels per output pixel (bigger = more zoomed out)
     cxp, cyp = source pixel shown at the output centre
     angle = clockwise rotation in degrees
+    resample = Pillow filter; the crop window passes a cheaper one while you drag
     Areas the image doesn't reach are white.
     """
     iw, ih = img.size
@@ -113,7 +115,7 @@ def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None):
     c = cxp - (a * out_w / 2 + b * out_h / 2)
     f = cyp - (d * out_w / 2 + e * out_h / 2)
     return img.transform((out_w, out_h), AFFINE, (a, b, c, d, e, f),
-                         resample=Image.BICUBIC, fillcolor=(255, 255, 255))
+                         resample=resample, fillcolor=(255, 255, 255))
 
 
 def render_art(art, d_mm, px_per_mm, small=False):
