@@ -21,6 +21,8 @@ export a PDF (or print straight away) ready to cut out.
   ticks and an optional safe-area ring. Empty circles print blank.
 - **Canvases.** Everything is saved as a `.pinproj` file so you can come back and edit it.
   Undo / redo, a light and a dark theme, and your last settings are remembered.
+- **Options in one place.** The **Options** button (start screen and editor) holds full
+  screen / windowed (full screen is the default), dark mode and the canvases folder.
 
 ## Getting started
 
@@ -48,6 +50,8 @@ On macOS use Cmd instead of Ctrl.
 | Ctrl+P | Print |
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
 | Delete | Clear the circle under the mouse |
+| F11 | Switch between full screen and windowed |
+| Esc | Close the popup, or leave full screen |
 
 ## Building a standalone app
 
@@ -82,6 +86,7 @@ badge_pin_maker/          The program itself
   ui/                     Everything you see on screen
     app.py                The main window (editor, canvases, export)
     home_screen.py        The start screen with the canvas list
+    options_dialog.py     The Options window (display mode, dark mode, canvases folder)
     crop_dialog.py        The window for positioning an image under the pin
     dialogs.py            Message boxes in the app's own style
     widgets.py            Cards, stat tiles, the on / off switch

@@ -3,13 +3,12 @@
 import os
 import time
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import ttk
 
 from ..system_actions import reveal_folder
 from . import theme as T
 from .dialogs import messagebox
 from .icons import load_logo, make_icon
-from .widgets import Toggle
 
 
 class HomeScreen(tk.Frame):
@@ -50,18 +49,8 @@ class HomeScreen(tk.Frame):
         ttk.Button(pad, text="Browse for a canvas…", style="Ghost.TButton",
                    command=app.open_canvas).pack(fill="x", pady=(10, 0))
 
-        ttk.Label(pad, text="OPTIONS", style="Section.TLabel").pack(anchor="w", pady=(34, 10))
-        row = ttk.Frame(pad, style="Card.TFrame")
-        row.pack(fill="x")
-        ttk.Label(row, text="Dark mode", style="Card.TLabel").pack(side="left")
-        Toggle(row, app.v_dark, command=app.toggle_theme, bg=T.CARD).pack(side="right")
-
-        ttk.Label(pad, text="Canvases folder", style="Card.TLabel").pack(anchor="w", pady=(18, 0))
-        self.folder_lbl = ttk.Label(pad, style="Muted.TLabel", justify="left",
-                                    wraplength=self.SIDE_W - 60)
-        self.folder_lbl.pack(anchor="w", pady=(2, 0))
-        ttk.Button(pad, text="Change folder…", style="Ghost.TButton",
-                   command=self.change_folder).pack(anchor="w", pady=(10, 0))
+        ttk.Button(pad, text="Options", style="Ghost.TButton",
+                   command=app.open_options).pack(fill="x", pady=(10, 0))
 
         ttk.Button(pad, text="Exit", style="Ghost.TButton",
                    command=app.on_close).pack(side="bottom", fill="x")
@@ -125,7 +114,6 @@ class HomeScreen(tk.Frame):
         """Look at the canvases folder again and redraw the list (or the "No canvases yet"
         message).
         """
-        self.folder_lbl.config(text=self.app.canvases_dir())
         for w in self.list.winfo_children():
             w.destroy()
         items = self.app.scan_canvases()
@@ -223,11 +211,3 @@ class HomeScreen(tk.Frame):
         except OSError as ex:
             messagebox.showerror("Oh no!", f"I couldn't delete that canvas:\n{ex}")
         self.refresh()
-
-    def change_folder(self):
-        """Let the user pick a different canvases folder."""
-        d = filedialog.askdirectory(title="Choose canvases folder",
-                                    initialdir=self.app.canvases_dir())
-        if d:
-            self.app.set_canvases_dir(d)
-            self.refresh()

@@ -92,3 +92,56 @@ class Toggle(tk.Canvas):
         pad = 3
         x0 = w - h + pad if on else pad
         self.create_oval(x0, pad, x0 + h - 2 * pad, h - pad, fill="white", outline="")
+
+
+class Segmented(tk.Frame):
+    """A row of side-by-side choices where exactly one is selected (like "Full screen |
+    Windowed"), bound to a StringVar."""
+    def __init__(self, parent, variable, options, command=None, bg=None):
+        """``options`` is a list of (value, label) pairs. ``command`` (optional) runs after the
+        person picks one.
+        """
+        super().__init__(parent, bg=T.BORDER)
+        self.var, self.command = variable, command
+        self._labels = {}
+        font = ttk.Style().lookup("TLabel", "font") or "TkDefaultFont"   # same font as the app
+        for col, (value, text) in enumerate(options):
+            lbl = tk.Label(self, text=text, padx=18, pady=8, cursor="hand2", bg=T.CARD,
+                           font=font)
+            lbl.grid(row=0, column=col, sticky="nsew", padx=1, pady=1)
+            self.columnconfigure(col, weight=1, uniform="segments")
+            lbl.bind("<Button-1>", lambda e, v=value: self._pick(v))
+            lbl.bind("<Enter>", lambda e, v=value: self._paint(hover=v))
+            lbl.bind("<Leave>", lambda e: self._paint())
+            self._labels[value] = lbl
+        self._tid = variable.trace_add("write", lambda *_: self._paint())
+        self.bind("<Destroy>", self._on_destroy)
+        self._paint()
+
+    def _on_destroy(self, e):
+        """Stop listening to the variable once the control has been destroyed."""
+        if e.widget is self:
+            try:
+                self.var.trace_remove("write", self._tid)
+            except (tk.TclError, ValueError):
+                pass
+
+    def _pick(self, value):
+        """Select a choice."""
+        self.var.set(value)
+        if self.command:
+            self.command()
+
+    def _paint(self, hover=None):
+        """Colour the selected choice teal and the others plain (a hovered one lightly
+        highlighted).
+        """
+        try:
+            current = self.var.get()
+        except tk.TclError:
+            return
+        for value, lbl in self._labels.items():
+            if value == current:
+                lbl.config(bg=T.TEAL, fg="white")
+            else:
+                lbl.config(bg=T.HOVER if value == hover else T.CARD, fg=T.TEXT)

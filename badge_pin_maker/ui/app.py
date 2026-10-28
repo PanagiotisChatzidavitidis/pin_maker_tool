@@ -44,6 +44,7 @@ from .crop_dialog import CropDialog
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
+from .options_dialog import OptionsDialog
 from .widgets import StatTile, Toggle, make_card
 
 
@@ -68,9 +69,15 @@ class BadgeApp(RootBase):
             geo = "1220x820"
         self.geometry(geo)
         self.minsize(1020, 720)
+        s = self.settings
+        # Full screen is the default. The windowed size is remembered separately so it can be
+        # restored when leaving full screen.
+        self._windowed_size = geo
+        self._is_full = False
+        self.v_window = tk.StringVar(
+            value="windowed" if s.get("fullscreen") is False else "fullscreen")
 
         # ---- theme and fonts (the theme must be applied before the styles are set up) ----
-        s = self.settings
         theme = s.get("theme") if s.get("theme") in T.THEMES else "light"
         T.apply_theme(theme)                       # must come before setup_style
         self.base_font = T.setup_style(self)
@@ -116,6 +123,8 @@ class BadgeApp(RootBase):
         self.set_status()
         self._show("home")
         self.after_idle(lambda: set_titlebar(self))
+        if self.v_window.get() == "fullscreen":
+            self.set_fullscreen(True, save=False)
 
     # ---- shortcuts (no menu bar; the buttons cover everything) -------------
     def _bind_shortcuts(self):
@@ -138,7 +147,53 @@ class BadgeApp(RootBase):
             if len(key) == 1:
                 self.bind(f"<{MOD}-{key.upper()}>", handler(fn, home_ok))
         self.bind("<Delete>", self.delete_selected)
-        self.bind("<Escape>", lambda e: self.close_popup())
+        self.bind("<Escape>", self._on_escape)
+        self.bind("<F11>", lambda e: self.toggle_fullscreen())
+
+    def _on_escape(self, _e=None):
+        """Esc closes the click popup; with no popup open it leaves full screen."""
+        if self.popup is not None:
+            self.close_popup()
+        elif self._is_full:
+            self.set_fullscreen(False)
+
+    # ---- window mode / options ---------------------------------------------
+    def set_fullscreen(self, full, save=True):
+        """Switch between full screen and a normal window (and remember the choice)."""
+        full = bool(full)
+        if full and not self._is_full and self.winfo_ismapped():
+            self._windowed_size = f"{self.winfo_width()}x{self.winfo_height()}"
+        was_full, self._is_full = self._is_full, full
+        self.attributes("-fullscreen", full)
+        if was_full and not full:
+            # give the window manager a moment, then bring back the old window size
+            self.after(120, lambda: self.geometry(self._windowed_size))
+        self.v_window.set("fullscreen" if full else "windowed")
+        if save:
+            self.settings["fullscreen"] = full
+            save_settings(self.settings)
+        self.after_idle(lambda: set_titlebar(self))
+
+    def toggle_fullscreen(self):
+        """F11: flip between full screen and windowed."""
+        self.set_fullscreen(not self._is_full)
+
+    def open_options(self):
+        """Show the Options window (display mode, dark mode, canvases folder)."""
+        self.close_popup()
+        dlg = OptionsDialog(self)
+        self.wait_window(dlg)
+
+    def choose_canvases_folder(self, parent=None):
+        """Let the user pick a different canvases folder. Returns True if one was chosen."""
+        d = filedialog.askdirectory(title="Choose canvases folder",
+                                    initialdir=self.canvases_dir(), parent=parent or self)
+        if not d:
+            return False
+        self.set_canvases_dir(d)
+        if self.screen == "home":
+            self.home.refresh()
+        return True
 
     # ---- screens / theme / canvases folder ---------------------------------
     def _show(self, name):
@@ -274,6 +329,8 @@ class BadgeApp(RootBase):
                    command=self.go_home).pack(side="left", expand=True, fill="x")
         ttk.Button(nav, text="Save", style="Soft.TButton",
                    command=self.save_canvas).pack(side="left", expand=True, fill="x", padx=(8, 0))
+        ttk.Button(nav, text="Options", style="Soft.TButton",
+                   command=self.open_options).pack(side="left", expand=True, fill="x", padx=(8, 0))
 
         f = make_card(left, "1 · Paper size")
         ttk.Combobox(f, textvariable=self.v_paper, values=list(PAPER_SIZES),
@@ -304,12 +361,10 @@ class BadgeApp(RootBase):
                    command=self.clear_all).pack(anchor="w", pady=(8, 0))
 
         f = make_card(left, "Display")
-        for label, var, cmd in (("Safe-area guide", self.v_guides, None),
-                                ("Dark mode", self.v_dark, self.toggle_theme)):
-            r = ttk.Frame(f, style="Card.TFrame")
-            r.pack(fill="x", pady=3)
-            ttk.Label(r, text=label, style="Card.TLabel").pack(side="left")
-            Toggle(r, var, command=cmd, bg=T.CARD).pack(side="right")
+        r = ttk.Frame(f, style="Card.TFrame")
+        r.pack(fill="x", pady=3)
+        ttk.Label(r, text="Safe-area guide", style="Card.TLabel").pack(side="left")
+        Toggle(r, self.v_guides, bg=T.CARD).pack(side="right")
         a = ttk.Frame(left)
         a.pack(fill="x")
         ttk.Button(a, text="Export PDF", style="Accent.TButton",
@@ -430,7 +485,9 @@ class BadgeApp(RootBase):
         self.settings.update(
             paper=self.v_paper.get(), pw=self.v_pw.get(), ph=self.v_ph.get(),
             pin=self.v_pin.get(), d=self.v_d.get(), guides=bool(self.v_guides.get()),
-            size=f"{self.winfo_width()}x{self.winfo_height()}")
+            fullscreen=self._is_full,
+            size=(self._windowed_size if self._is_full
+                  else f"{self.winfo_width()}x{self.winfo_height()}"))
         save_settings(self.settings)
 
     def _dir(self, key):
