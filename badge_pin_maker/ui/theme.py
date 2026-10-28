@@ -78,6 +78,14 @@ def setup_style(root):
                  font=("Georgia", 12, "bold"))
     st.configure("Title.TLabel", background=BG, foreground=PETROL, font=("Georgia", 20, "bold"))
     st.configure("Hint.TLabel", background=BG, foreground=MUTED)
+    st.configure("Heading.TLabel", background=BG, foreground=PETROL, font=("Georgia", 15, "bold"))
+    st.configure("Sub.TLabel", background=BG, foreground=MUTED)
+    st.configure("Value.TLabel", background=CARD, foreground=PETROL,
+                 font=(base[0], 10, "bold"))
+    # small square-ish button for the - / + and rotate steps
+    st.configure("Tool.TButton", background=SAND, foreground=TEXT, padding=(0, 5),
+                 borderwidth=0, focusthickness=0, focuscolor=SAND, font=(base[0], 11))
+    st.map("Tool.TButton", background=[("pressed", SAND_PRESS), ("active", SAND_HOVER)])
     st.configure("Card.TCheckbutton", background=CARD, foreground=TEXT, focuscolor=CARD)
     st.map("Card.TCheckbutton", background=[("active", CARD)],
            indicatorcolor=[("selected", TEAL)])
