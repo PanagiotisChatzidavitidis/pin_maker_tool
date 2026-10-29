@@ -22,7 +22,12 @@ export a PDF (or print straight away) ready to cut out.
 - **Canvases.** Everything is saved as a `.pinproj` file so you can come back and edit it.
   Undo / redo, a light and a dark theme, and your last settings are remembered.
 - **Options in one place.** The **Options** button (start screen and editor) holds full
-  screen / windowed (full screen is the default), dark mode and the canvases folder.
+  screen / windowed (full screen is the default), the themes, dark mode and the canvases
+  folder. **Restore defaults** puts everything back, **Return** closes the window.
+- **Themes.** Three light themes (Cream & Denim, Oat Milk, Strawberry Cream), three dark
+  themes (Carbon Blue, Graphite Mint, Midnight Orchid) and the original Classic pair. Each
+  tile previews its own colours. Oat Milk is the default; the Dark mode switch flips between
+  your chosen light and dark theme.
 
 ## Getting started
 
@@ -86,12 +91,12 @@ badge_pin_maker/          The program itself
   ui/                     Everything you see on screen
     app.py                The main window (editor, canvases, export)
     home_screen.py        The start screen with the canvas list
-    options_dialog.py     The Options window (display mode, dark mode, canvases folder)
+    options_dialog.py     The Options window (display mode, themes, canvases folder)
     crop_dialog.py        The window for positioning an image under the pin
     dialogs.py            Message boxes in the app's own style
     widgets.py            Cards, stat tiles, the on / off switch
     icons.py              Canvas thumbnails and the logo
-    theme.py              Light and dark colours and ttk styling
+    theme.py              The light and dark themes (colours) and ttk styling
     dnd.py                Optional drag and drop support
 ```
 

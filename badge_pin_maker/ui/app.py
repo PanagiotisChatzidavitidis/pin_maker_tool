@@ -78,10 +78,13 @@ class BadgeApp(RootBase):
             value="windowed" if s.get("fullscreen") is False else "fullscreen")
 
         # ---- theme and fonts (the theme must be applied before the styles are set up) ----
-        theme = s.get("theme") if s.get("theme") in T.THEMES else "light"
-        T.apply_theme(theme)                       # must come before setup_style
+        # One light and one dark theme are chosen; the dark-mode switch picks which is shown.
+        # (Older settings files only said "light" or "dark", which gives the default themes.)
+        self.light_theme = T.resolve(s.get("light_theme"), "light")
+        self.dark_theme = T.resolve(s.get("dark_theme"), "dark")
+        self.v_dark = tk.BooleanVar(value=(T.mode_of(s.get("theme")) == "dark"))
+        T.apply_theme(self.current_theme())        # must come before setup_style
         self.base_font = T.setup_style(self)
-        self.v_dark = tk.BooleanVar(value=(theme == "dark"))
         self.editor = tk.Frame(self, bg=T.BG)
 
         # ---- the canvas in memory ----
@@ -179,7 +182,7 @@ class BadgeApp(RootBase):
         self.set_fullscreen(not self._is_full)
 
     def open_options(self):
-        """Show the Options window (display mode, dark mode, canvases folder)."""
+        """Show the Options window (display mode, themes, canvases folder)."""
         self.close_popup()
         dlg = OptionsDialog(self)
         self.wait_window(dlg)
@@ -223,16 +226,48 @@ class BadgeApp(RootBase):
         self.dirty = False
         self._show("home")
 
-    def toggle_theme(self):
-        """Called by the dark-mode switch: apply the theme, remember it and rebuild the
-        screens.
+    def current_theme(self):
+        """The id of the theme in use: the chosen dark theme in dark mode, else the light one.
         """
-        name = "dark" if self.v_dark.get() else "light"
+        return self.dark_theme if self.v_dark.get() else self.light_theme
+
+    def toggle_theme(self):
+        """Called by the dark-mode switch: show the chosen dark or light theme."""
+        self._apply_theme()
+
+    def choose_theme(self, theme_id):
+        """A theme was picked in the Options window. It becomes the light or the dark theme
+        (depending on what kind it is) and is shown straight away.
+        """
+        mode = T.THEMES[theme_id]["MODE"]
+        if mode == "dark":
+            self.dark_theme = theme_id
+        else:
+            self.light_theme = theme_id
+        self.v_dark.set(mode == "dark")
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply the current theme, remember the choice and rebuild the screens."""
+        name = self.current_theme()
         T.apply_theme(name)
-        self.settings["theme"] = name
+        self.settings.update(theme=name, light_theme=self.light_theme,
+                             dark_theme=self.dark_theme)
         save_settings(self.settings)
         self.base_font = T.setup_style(self)
         self.after_idle(self._rebuild_ui)        # don't destroy the widget that fired us
+
+    def restore_defaults(self):
+        """Put every option back to its default: full screen, the Oat Milk theme (with the
+        default dark theme for dark mode) and the standard canvases folder.
+        """
+        self.light_theme, self.dark_theme = T.DEFAULT_LIGHT, T.DEFAULT_DARK
+        self.v_dark.set(False)
+        for key in ("canvases_dir", "projects_dir"):
+            self.settings.pop(key, None)
+        self.set_fullscreen(True)
+        self._apply_theme()
+        self.after_idle(lambda: self.set_status("Options restored to their defaults"))
 
     def _rebuild_ui(self):
         """Throw the old widgets away and build them again, so every widget picks up the new
