@@ -257,6 +257,58 @@ class Segmented(tk.Frame):
             return
         for value, lbl in self._labels.items():
             if value == current:
-                lbl.config(bg=T.TEAL, fg="white")
+                lbl.config(bg=T.TEAL, fg=T.ON_PRIMARY)
             else:
                 lbl.config(bg=T.HOVER if value == hover else T.CARD, fg=T.TEXT)
+
+
+class ThemeTile(tk.Canvas):
+    """A clickable card that previews one theme in its own colours: its background, its
+    title and note, and four colour dots (surface, main, accent, text). The chosen theme
+    gets a thick outline in its main colour and a tick.
+    """
+    W, H = 292, 52
+
+    def __init__(self, parent, colours, title, note, selected, command, font_family, bg=None):
+        """``colours`` is the theme's colour dict (see theme.THEMES). ``command`` runs when
+        the tile is clicked.
+        """
+        super().__init__(parent, width=self.W, height=self.H, bg=bg or T.BG,
+                         highlightthickness=0, cursor="hand2")
+        self.c, self.title, self.note = colours, title, note
+        self.selected, self.command, self.fam = selected, command, font_family
+        self._hover = False
+        self.bind("<Button-1>", lambda e: self.command())
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
+        self._draw()
+
+    def _set_hover(self, on):
+        """Outline the tile lightly while the mouse is over it."""
+        self._hover = on
+        self._draw()
+
+    def _draw(self):
+        """Paint the tile."""
+        c, w, h = self.c, self.W, self.H
+        self.delete("all")
+        if self.selected:
+            edge, width = c["TEAL"], 3
+        else:
+            edge, width = (c["MUTED"] if self._hover else c["BORDER"]), 1
+        round_rect(self, 2, 2, w - 2, h - 2, 12, fill=c["BG"], outline=edge, width=width)
+        self.create_text(18, 19, text=self.title, anchor="w", fill=c["TEXT"],
+                         font=(self.fam, 11, "bold"))
+        self.create_text(18, 36, text=self.note, anchor="w", fill=c["MUTED"],
+                         font=(self.fam, 9))
+        # four colour dots, then the tick circle
+        x = w - 124
+        for key in ("CARD", "TEAL", "ORCHID", "TEXT"):
+            self.create_oval(x - 9, h / 2 - 9, x + 9, h / 2 + 9, fill=c[key],
+                             outline=c["BORDER"] if key == "CARD" else c[key], width=1)
+            x += 22
+        if self.selected:
+            cx, cy = w - 24, h / 2
+            self.create_oval(cx - 10, cy - 10, cx + 10, cy + 10, fill=c["TEAL"], outline="")
+            self.create_line(cx - 5, cy, cx - 1.5, cy + 4, cx + 5, cy - 4,
+                             fill=c["ON_PRIMARY"], width=2, capstyle="round", joinstyle="round")

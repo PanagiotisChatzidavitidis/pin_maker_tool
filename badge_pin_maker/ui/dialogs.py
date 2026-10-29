@@ -32,7 +32,7 @@ def set_titlebar(win):
         import ctypes
         win.update_idletasks()
         hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
-        val = ctypes.c_int(1 if T.THEME_NAME == "dark" else 0)
+        val = ctypes.c_int(1 if T.IS_DARK else 0)
         for attr in (20, 19):    # 20 = Windows 11 / 10 20H1+, 19 = older Windows 10
             if ctypes.windll.dwmapi.DwmSetWindowAttribute(
                     hwnd, attr, ctypes.byref(val), ctypes.sizeof(val)) == 0:
