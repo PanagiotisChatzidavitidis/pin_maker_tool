@@ -764,10 +764,8 @@ class BadgeApp(RootBase):
         self._push_undo()
         if target in self.slots:
             self.slots[src], self.slots[target] = self.slots[target], self.slots[src]
-            self.set_status("Swapped two pins")
         else:
             self.slots[target] = self.slots.pop(src)
-            self.set_status("Pin moved")
         self.schedule_redraw()
 
     def on_click(self, e):
