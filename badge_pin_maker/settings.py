@@ -10,6 +10,9 @@ import os
 
 
 SETTINGS_PATH = os.path.join(os.path.expanduser("~"), ".badge_pin_maker.json")
+# Unsaved work is copied here every few seconds. It is removed again on a normal save or exit,
+# so if it is still there at the next start, the app closed unexpectedly.
+RECOVERY_PATH = os.path.join(os.path.expanduser("~"), ".badge_pin_maker_recovery.pinproj")
 
 
 def load_settings():
