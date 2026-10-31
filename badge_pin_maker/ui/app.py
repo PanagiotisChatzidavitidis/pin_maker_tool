@@ -21,11 +21,14 @@ How this file is organised
   imaging.py; the other windows live in their own files next to this one.
 """
 
+import functools
 import glob
 import json
 import os
 import re
 import tempfile
+import threading
+import time
 import tkinter as tk
 from tkinter import filedialog, ttk
 
@@ -37,15 +40,33 @@ from ..imaging import Art, load_source, render_art
 from ..layout import compute_layout, fill_order, first_free
 from ..pdf_export import build_pdf
 from ..canvas_files import read_canvas_info
-from ..settings import default_canvases_dir, load_settings, save_settings
-from ..system_actions import print_pdf
+from ..settings import RECOVERY_PATH, default_canvases_dir, load_settings, save_settings
+from ..system_actions import print_pdf, reveal_folder
 from . import theme as T
 from .crop_dialog import CropDialog
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
 from .options_dialog import OptionsDialog
+from .toast import Toasts
 from .widgets import StatTile, Toggle, make_card
+
+
+AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
+RECENT_MAX = 20         # how many recently opened canvases are remembered
+
+
+def not_while_busy(fn):
+    """Ignore the call while a picture or canvas is still loading, so a second click can't
+    start a second job in the middle of the first.
+    """
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        if self._busy:
+            self.bell()
+            return None
+        return fn(self, *args, **kwargs)
+    return wrapper
 
 
 class BadgeApp(RootBase):
@@ -100,6 +121,12 @@ class BadgeApp(RootBase):
         self._undo, self._redo = [], []
         self.canvas_path = None
         self.dirty = False
+        self._busy = 0                 # > 0 while a background job is running
+        self._press = None             # (circle, x, y) where the mouse went down on the sheet
+        self._dragging = False         # a pin is being dragged
+        self._drag_src = self._drop = self._grab = self._last_xy = self._ghost = None
+        self._autosave_job = None
+        self.toasts = Toasts(self)
 
         # ---- the settings boxes, restored from last time ----
         paper = s.get("paper") if s.get("paper") in PAPER_SIZES else "A4"
@@ -128,6 +155,8 @@ class BadgeApp(RootBase):
         self.after_idle(lambda: set_titlebar(self))
         if self.v_window.get() == "fullscreen":
             self.set_fullscreen(True, save=False)
+        self._autosave_job = self.after(AUTOSAVE_MS, self._autosave_tick)
+        self.after(600, self._offer_recovery)
 
     # ---- shortcuts (no menu bar; the buttons cover everything) -------------
     def _bind_shortcuts(self):
@@ -136,6 +165,8 @@ class BadgeApp(RootBase):
         """
         def handler(fn, home_ok=False):
             def run(e):
+                if self._busy:
+                    return "break"
                 if home_ok or self.screen == "editor":
                     fn()
                 return "break"
@@ -154,8 +185,12 @@ class BadgeApp(RootBase):
         self.bind("<F11>", lambda e: self.toggle_fullscreen())
 
     def _on_escape(self, _e=None):
-        """Esc closes the click popup; with no popup open it leaves full screen."""
-        if self.popup is not None:
+        """Esc cancels a drag, closes the click popup, or (with nothing open) leaves full
+        screen.
+        """
+        if self._dragging:
+            self._cancel_drag()
+        elif self.popup is not None:
             self.close_popup()
         elif self._is_full:
             self.set_fullscreen(False)
@@ -181,6 +216,7 @@ class BadgeApp(RootBase):
         """F11: flip between full screen and windowed."""
         self.set_fullscreen(not self._is_full)
 
+    @not_while_busy
     def open_options(self):
         """Show the Options window (display mode, themes, canvases folder)."""
         self.close_popup()
@@ -196,6 +232,7 @@ class BadgeApp(RootBase):
         self.set_canvases_dir(d)
         if self.screen == "home":
             self.home.refresh()
+        self.toasts.show("folder", name=os.path.basename(d.rstrip("/\\")) or d)
         return True
 
     # ---- screens / theme / canvases folder ---------------------------------
@@ -213,7 +250,9 @@ class BadgeApp(RootBase):
             self.editor.pack(fill="both", expand=True)
             self.schedule_redraw()
             self.set_status()
+        self.toasts.raise_all()
 
+    @not_while_busy
     def go_home(self):
         """Back to the start screen (asking first if there are unsaved changes)."""
         if self.screen == "home" or not self._confirm_discard():
@@ -224,6 +263,7 @@ class BadgeApp(RootBase):
         self._redo.clear()
         self.canvas_path = None
         self.dirty = False
+        self._clear_recovery()
         self._show("home")
 
     def current_theme(self):
@@ -263,11 +303,11 @@ class BadgeApp(RootBase):
         """
         self.light_theme, self.dark_theme = T.DEFAULT_LIGHT, T.DEFAULT_DARK
         self.v_dark.set(False)
-        for key in ("canvases_dir", "projects_dir"):
+        for key in ("canvases_dir", "projects_dir", "sort"):
             self.settings.pop(key, None)
         self.set_fullscreen(True)
         self._apply_theme()
-        self.after_idle(lambda: self.set_status("Options restored to their defaults"))
+        self.after_idle(lambda: self.toasts.show("defaults"))
 
     def _rebuild_ui(self):
         """Throw the old widgets away and build them again, so every widget picks up the new
@@ -275,6 +315,7 @@ class BadgeApp(RootBase):
         """
         showing = self.screen
         self.close_popup()
+        self.toasts.reset()                      # the old notes have the old colours
         self.home.destroy()
         self.editor.destroy()
         self.editor = tk.Frame(self, bg=T.BG)
@@ -284,6 +325,7 @@ class BadgeApp(RootBase):
         self.home = HomeScreen(self)
         self._show(showing)
         set_titlebar(self)
+        self.toasts.raise_all()
 
     def canvases_dir(self):
         """The folder canvases are kept in. It is created if needed, with the home folder as a
@@ -328,10 +370,12 @@ class BadgeApp(RootBase):
             n += 1
         return name
 
+    @not_while_busy
     def open_path(self, path):
         """Open a canvas chosen from the list on the start screen."""
         if self._load_from(path):
             self._show("editor")
+            self._opened(path)
 
     # ---- UI --------------------------------------------------------------
     def _build_ui(self):
@@ -425,7 +469,9 @@ class BadgeApp(RootBase):
         self.cv = tk.Canvas(right, bg=T.BLUSH, highlightthickness=0)
         self.cv.pack(fill="both", expand=True)
         self.cv.bind("<Configure>", lambda e: self.schedule_redraw())
-        self.cv.bind("<Button-1>", self.on_click)
+        self.cv.bind("<ButtonPress-1>", self.on_press)
+        self.cv.bind("<B1-Motion>", self.on_drag)
+        self.cv.bind("<ButtonRelease-1>", self.on_release)
         self.cv.bind("<Motion>", self.on_motion)
         self.cv.bind("<Leave>", lambda e: self._set_hover(None))
         if DND_FILES:
@@ -550,6 +596,7 @@ class BadgeApp(RootBase):
     def _mark_clean(self):
         """Note that the canvas was just saved."""
         self.dirty = False
+        self._clear_recovery()
         self._update_title()
 
     def _snapshot(self):
@@ -565,6 +612,7 @@ class BadgeApp(RootBase):
         self._redo.clear()
         self._mark_dirty()
 
+    @not_while_busy
     def undo(self):
         """Go back one step."""
         if not self._undo:
@@ -577,6 +625,7 @@ class BadgeApp(RootBase):
         self.schedule_redraw()
         self.set_status("Undone")
 
+    @not_while_busy
     def redo(self):
         """Repeat a step that was undone."""
         if not self._redo:
@@ -610,6 +659,116 @@ class BadgeApp(RootBase):
             if (mx - cx) ** 2 + (my - cy) ** 2 <= (p["d"] / 2) ** 2:
                 return i
         return None
+
+    # ---- press, drag and release on the sheet ---------------------------------
+    DRAG_PX = 7           # the mouse has to move this far before a press becomes a drag
+
+    def on_press(self, e):
+        """The mouse went down on the sheet. Remember where; whether this is a click or the
+        start of a drag is decided as the mouse moves.
+        """
+        self.cv.focus_set()
+        if self._busy:
+            return
+        self.close_popup()
+        self._press = (self.hit(e.x, e.y), e.x, e.y)
+        self._dragging = False
+
+    def on_drag(self, e):
+        """Dragging a filled circle picks its pin up; it follows the mouse and the circle it
+        would land on lights up.
+        """
+        if self._press is None:
+            return
+        src, x0, y0 = self._press
+        if src is None or src not in self.slots or not self.geo:
+            return
+        if not self._dragging:
+            if abs(e.x - x0) < self.DRAG_PX and abs(e.y - y0) < self.DRAG_PX:
+                return
+            self._begin_drag(src, x0, y0)
+        dx, dy = e.x - self._last_xy[0], e.y - self._last_xy[1]
+        self._last_xy = (e.x, e.y)
+        self.cv.move("drag", dx, dy)
+        target = self.hit(e.x, e.y)
+        self._set_drop(target if target != src else None)
+
+    def on_release(self, e):
+        """The mouse went up: finish a drag (swap / move the pin), or treat it as a click."""
+        press, self._press = self._press, None
+        if self._dragging:
+            self._end_drag(e)
+        elif press is not None and not self._busy:
+            self.on_click(e)
+
+    def _circle_box(self, idx):
+        """Centre and diameter, in canvas pixels, of circle ``idx``."""
+        s, ox, oy, p = self.geo
+        cx, cy = self.layout["points"][idx]
+        return ox + cx * s, oy + cy * s, p["d"] * s
+
+    def _begin_drag(self, src, x0, y0):
+        """Pick the pin in circle ``src`` up: a ghost of it follows the mouse, and the circle
+        it came from is shown shaded.
+        """
+        s, ox, oy, p = self.geo
+        x, y, w = self._circle_box(src)
+        self._dragging, self._drag_src, self._drop = True, src, None
+        self._last_xy = (x0, y0)
+        self._set_hover(None)
+        self.cv.config(cursor="fleur")
+        try:
+            self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, fill=T.PAPER,
+                                stipple="gray50", outline=T.SELECT_RING, width=2,
+                                dash=(4, 3), tags="dragsrc")
+        except tk.TclError:                     # a Tk without stipples: just the outline
+            self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
+                                outline=T.SELECT_RING, width=2, dash=(4, 3), tags="dragsrc")
+        self._ghost = self._preview_image(self.slots[src], p, s)      # keep a reference
+        self.cv.create_image(x, y, image=self._ghost, tags="drag")
+        self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
+                            outline=T.HOVER_RING, width=3, tags="drag")
+        # The ghost starts on the circle and moves by how far the mouse has moved since the
+        # press, so the pin stays under the spot where it was grabbed.
+
+    def _set_drop(self, idx):
+        """Light up the circle the dragged pin would land on (None = nowhere)."""
+        if idx == self._drop:
+            return
+        self._drop = idx
+        self.cv.delete("drop")
+        if idx is None:
+            return
+        x, y, w = self._circle_box(idx)
+        self.cv.create_oval(x - w / 2 - 3, y - w / 2 - 3, x + w / 2 + 3, y + w / 2 + 3,
+                            outline=T.HOVER_RING, width=4, tags="drop",
+                            dash=() if idx in self.slots else (6, 4))
+        self.cv.tag_raise("drag")
+
+    def _cancel_drag(self):
+        """Drop whatever is being dragged back where it was."""
+        self.cv.delete("drag", "dragsrc", "drop")
+        self.cv.config(cursor="")
+        self._dragging = False
+        self._press = None
+        self._drop = self._drag_src = self._ghost = None
+
+    def _end_drag(self, e):
+        """Let go of a dragged pin: onto an empty circle it moves there, onto a filled one the
+        two swap, anywhere else it goes back. One undo step either way.
+        """
+        src, target = self._drag_src, self.hit(e.x, e.y)
+        self._cancel_drag()
+        if target is None or target == src or src not in self.slots:
+            return
+        self._push_undo()
+        if target in self.slots:
+            self.slots[src], self.slots[target] = self.slots[target], self.slots[src]
+            self.toasts.show("swapped", duration=2800)
+        else:
+            self.slots[target] = self.slots.pop(src)
+            self.toasts.show("moved", duration=2800)
+        self.schedule_redraw()
 
     def on_click(self, e):
         """Click on an empty circle: add images. Click on a filled one: show the Clear / Modify
@@ -685,6 +844,7 @@ class BadgeApp(RootBase):
         fn(idx)
 
     # ---- adding images ------------------------------------------------------
+    @not_while_busy
     def choose_images(self, start=None):
         """Open the file picker (several files allowed) and add what was chosen, starting at
         circle ``start``.
@@ -708,6 +868,7 @@ class BadgeApp(RootBase):
         self.close_popup()
         self.add_images(paths, self.hit(x, y))
 
+    @not_while_busy
     def add_images(self, paths, start=None):
         """Crop each image in turn and place it on the next free circles."""
         paths = [p for p in paths if p.lower().endswith(IMG_EXTS)]
@@ -748,7 +909,7 @@ class BadgeApp(RootBase):
                     f"{'s' if left != 1 else ''} didn't fit.")
                 break
             try:
-                source = load_source(path)
+                source = self._run_busy(lambda path=path: load_source(path), "loading_image")
             except Exception as ex:  # noqa: BLE001
                 messagebox.showerror(
                     "Hmm, I can't read that",
@@ -777,7 +938,9 @@ class BadgeApp(RootBase):
             self.redraw()
         if placed:
             self.set_status(f"Added {placed} pin{'s' if placed != 1 else ''}")
+            self.toasts.show("added", n=placed, s="s" if placed != 1 else "")
 
+    @not_while_busy
     def modify_slot(self, idx):
         """Re-open the crop window for an image that is already on the sheet."""
         art = self.slots.get(idx)
@@ -797,7 +960,9 @@ class BadgeApp(RootBase):
             self._push_undo()
             del self.slots[idx]
             self.schedule_redraw()
+            self.toasts.show("cleared_one", action=("Undo", self.undo))
 
+    @not_while_busy
     def clear_all(self):
         """Remove every image (can be undone)."""
         if self._filled():
@@ -806,6 +971,7 @@ class BadgeApp(RootBase):
             self.slots.clear()
             self.schedule_redraw()
             self.set_status(f"Cleared all images — {MOD_LABEL}+Z to undo")
+            self.toasts.show("cleared_all", action=("Undo", self.undo))
 
     # ---- drawing -----------------------------------------------------------
     def schedule_redraw(self):
@@ -937,13 +1103,159 @@ class BadgeApp(RootBase):
                 self.set_status()
             return
         self.status_lbl.config(
-            text="Click to modify or clear" if idx in self.slots
+            text="Click to modify or clear  ·  drag to move or swap" if idx in self.slots
             else "Click to add images")
         s, ox, oy, p = self.geo
         cx, cy = self.layout["points"][idx]
         x, y, w = ox + cx * s, oy + cy * s, p["d"] * s
         self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
                             outline=T.HOVER_RING, width=3, tags="hover")
+
+    # ---- slow jobs without freezing the window --------------------------------
+    def _run_busy(self, fn, event=None, delay=0.35, prog=None, on_tick=None, **fmt):
+        """Run ``fn()`` in a background thread and return what it returns (or raise what it
+        raised). The window keeps redrawing meanwhile, buttons are ignored (see
+        not_while_busy), and if the job takes longer than ``delay`` seconds a busy note
+        (``event`` in toast.MESSAGES) appears. ``prog`` is an optional {"done", "total"}
+        dict the job updates; it drives the note's progress bar. ``on_tick`` is called
+        about a hundred times a second while waiting.
+        """
+        box = {}
+
+        def work():
+            try:
+                box["value"] = fn()
+            except BaseException as ex:  # noqa: BLE001
+                box["error"] = ex
+
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
+        note, started = None, time.monotonic()
+        self._busy += 1
+        self.config(cursor="watch")
+        try:
+            while thread.is_alive():
+                if note is None and event and time.monotonic() - started >= delay:
+                    note = self.toasts.busy(event, **fmt)
+                if prog:
+                    if note is not None:
+                        note.set_progress(prog.get("done", 0), prog.get("total", 0))
+                if on_tick:
+                    on_tick()
+                try:
+                    self.update()
+                except tk.TclError:          # the window was closed while we waited
+                    break
+                time.sleep(0.01)
+        finally:
+            self._busy -= 1
+            if note is not None:
+                note.close()
+            try:
+                self.config(cursor="")
+            except tk.TclError:
+                pass
+        if "error" in box:
+            raise box["error"]
+        return box.get("value")
+
+    # ---- recent canvases ---------------------------------------------------------
+    def recent_paths(self):
+        """Canvases opened or saved lately, most recent first."""
+        return [p for p in self.settings.get("recent", []) if isinstance(p, str)]
+
+    def _remember_recent(self, path):
+        """Put ``path`` at the front of the recent list."""
+        path = os.path.abspath(path)
+        key = os.path.normcase(path)
+        recent = [path] + [p for p in self.recent_paths() if os.path.normcase(p) != key]
+        self.settings["recent"] = recent[:RECENT_MAX]
+        save_settings(self.settings)
+
+    def forget_recent(self, path):
+        """Take a canvas out of the recent list (it was deleted)."""
+        key = os.path.normcase(os.path.abspath(path))
+        self.settings["recent"] = [p for p in self.recent_paths()
+                                   if os.path.normcase(p) != key]
+        save_settings(self.settings)
+
+    # ---- autosave and crash recovery -----------------------------------------------
+    def _autosave(self):
+        """Copy the unsaved work to the recovery file. Returns True if something was
+        written. It never touches the real canvas file, the title or the "unsaved" mark.
+        """
+        if not (self.dirty and self.slots):
+            return False
+        data = self._canvas_data(os.path.dirname(RECOVERY_PATH))
+        data["recovery"] = {"canvas_path": self.canvas_path, "time": time.time()}
+        tmp = RECOVERY_PATH + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, RECOVERY_PATH)
+        except OSError:
+            return False
+        return True
+
+    def _autosave_tick(self):
+        """Every few seconds: save unsaved work to the recovery file (quietly)."""
+        self._autosave_job = self.after(AUTOSAVE_MS, self._autosave_tick)
+        if self._busy:
+            return
+        try:
+            self._autosave()
+        except Exception:  # noqa: BLE001 - autosave must never get in the way
+            pass
+
+    def _clear_recovery(self):
+        """Delete the recovery file: everything is saved, or was thrown away on purpose."""
+        for path in (RECOVERY_PATH, RECOVERY_PATH + ".tmp"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    def _offer_recovery(self):
+        """At start-up: if the last session ended without saving (the recovery file is still
+        there), offer to bring that work back.
+        """
+        if not os.path.isfile(RECOVERY_PATH):
+            return
+        try:
+            with open(RECOVERY_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            original = (data.get("recovery") or {}).get("canvas_path")
+            has_work = bool(data.get("slots"))
+        except (OSError, ValueError, AttributeError):
+            has_work, original = False, None
+        if not has_work:
+            self._clear_recovery()
+            return
+        name = os.path.splitext(os.path.basename(original))[0] if original else "your canvas"
+        if not messagebox.askyesno(
+                "Welcome back!",
+                f"Oh dear, the app closed before “{name}” was saved.\n\n"
+                "Shall I bring your work back?",
+                parent=self, yes="Bring it back", no="Start fresh"):
+            self._clear_recovery()
+            return
+        self._restore_recovery(original)
+
+    def _restore_recovery(self, original):
+        """Load the recovered work. It counts as unsaved changes to the canvas it came from
+        (or to a new canvas, if it was never saved).
+        """
+        if not self._load_from(RECOVERY_PATH):
+            self._clear_recovery()
+            return
+        if original and os.path.isdir(os.path.dirname(os.path.abspath(original))):
+            self.canvas_path = original
+        else:
+            self.canvas_path = None
+        self._mark_dirty()
+        self._autosave()                  # the recovery file was cleared while loading
+        self._show("editor")
+        self.toasts.show("recovered")
 
     # ---- canvases ----------------------------------------------------------
     def _confirm_discard(self):
@@ -960,6 +1272,7 @@ class BadgeApp(RootBase):
             return self.save_canvas()
         return True
 
+    @not_while_busy
     def new_canvas(self):
         """Ask for a name, create an empty canvas file with it and open the editor."""
         if not self._confirm_discard():
@@ -973,16 +1286,20 @@ class BadgeApp(RootBase):
         self._undo.clear()
         self._redo.clear()
         self.canvas_path = None
-        if self._save_to(self._unique_canvas_path(name)):
+        path = self._unique_canvas_path(name)
+        if self._save_to(path, quiet=True):
             self._show("editor")
             self.set_status("New canvas")
+            self.toasts.show("created", name=os.path.splitext(os.path.basename(path))[0])
 
+    @not_while_busy
     def save_canvas(self):
         """Save. If the canvas has no file yet, ask for a name first."""
         if not self.canvas_path:
             return self.save_canvas_as()
         return self._save_to(self.canvas_path)
 
+    @not_while_busy
     def save_canvas_as(self):
         """Save under a name chosen in a file dialog."""
         initial = (os.path.basename(self.canvas_path) if self.canvas_path
@@ -994,12 +1311,11 @@ class BadgeApp(RootBase):
             return False
         return self._save_to(path)
 
-    def _save_to(self, path):
-        """Write the canvas to ``path`` as JSON: the settings, the list of image files and
-        where each pin's image sits. The images themselves are not copied, only their
-        locations. Returns True on success.
+    def _canvas_data(self, base):
+        """The canvas as a dict ready to be written as JSON: the settings, the list of image
+        files and where each pin's image sits. ``base`` is the folder the file will be in
+        (image paths are also stored relative to it).
         """
-        base = os.path.dirname(os.path.abspath(path))
         images, index = [], {}
         # List each distinct image once; the slots below refer to an image by its number in
         # this list.
@@ -1022,17 +1338,32 @@ class BadgeApp(RootBase):
                        "cx": a.cx, "cy": a.cy, "angle": a.angle}
                       for i, a in sorted(self.slots.items())],
         }
+        return data
+
+    def _save_to(self, path, quiet=False):
+        """Write the canvas to ``path``. The images themselves are not copied, only their
+        locations. The file is written next to the real one first and then swapped in, so a
+        crash in the middle can't leave a half-written canvas. Returns True on success.
+        ``quiet`` skips the "Saved!" note.
+        """
+        data = self._canvas_data(os.path.dirname(os.path.abspath(path)))
+        tmp = path + ".tmp"
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+            os.replace(tmp, path)
         except OSError as ex:
             messagebox.showerror("Oh no!", f"I couldn't save your canvas:\n{ex}")
             return False
         self.canvas_path = path
         self._mark_clean()
+        self._remember_recent(path)
         self.set_status(f"Saved {os.path.basename(path)}")
+        if not quiet:
+            self.toasts.show("saved", name=os.path.splitext(os.path.basename(path))[0])
         return True
 
+    @not_while_busy
     def open_canvas(self):
         """Browse for a canvas file anywhere on disk."""
         if not self._confirm_discard():
@@ -1042,6 +1373,12 @@ class BadgeApp(RootBase):
             filetypes=[("Pin canvas", f"*{CANVAS_EXT}"), ("All files", "*.*")])
         if path and self._load_from(path):
             self._show("editor")
+            self._opened(path)
+
+    def _opened(self, path):
+        """A canvas was opened by the person: remember it as recent and say hello."""
+        self._remember_recent(path)
+        self.toasts.show("opened", name=os.path.splitext(os.path.basename(path))[0])
 
     def _load_from(self, path):
         """Read a canvas file and rebuild the sheet from it. Each image is looked for at its
@@ -1059,22 +1396,33 @@ class BadgeApp(RootBase):
             return False
         base = os.path.dirname(os.path.abspath(path))
 
-        sources, missing = [], []
-        for ph in data.get("photos", []):
-            orig = ph.get("path") or ""
-            rel = ph.get("rel") or ""
-            src = None
-            for cand in (orig, os.path.join(base, rel) if rel else "",
-                         os.path.join(base, os.path.basename(orig)) if orig else ""):
-                if cand and os.path.isfile(cand):
-                    try:
-                        src = load_source(cand)
-                        break
-                    except Exception:  # noqa: BLE001
-                        pass
-            if src is None:
-                missing.append(os.path.basename(orig) or "?")
-            sources.append(src)
+        photos = data.get("photos", [])
+        prog = {"done": 0, "total": len(photos)}
+
+        def load_all():
+            """Runs in a background thread: open every picture the canvas uses."""
+            sources, missing = [], []
+            for ph in photos:
+                orig = ph.get("path") or ""
+                rel = ph.get("rel") or ""
+                src = None
+                for cand in (orig, os.path.join(base, rel) if rel else "",
+                             os.path.join(base, os.path.basename(orig)) if orig else ""):
+                    if cand and os.path.isfile(cand):
+                        try:
+                            src = load_source(cand)
+                            break
+                        except Exception:  # noqa: BLE001
+                            pass
+                if src is None:
+                    missing.append(os.path.basename(orig) or "?")
+                sources.append(src)
+                prog["done"] += 1
+            return sources, missing
+
+        sources, missing = self._run_busy(
+            load_all, "opening_canvas", prog=prog,
+            name=os.path.splitext(os.path.basename(path))[0])
 
         slots = {}
         for sl in data.get("slots", []):
@@ -1120,12 +1468,14 @@ class BadgeApp(RootBase):
                 + "\n".join(missing[:10]) + ("\n…" if len(missing) > 10 else ""))
         return True
 
+    @not_while_busy
     def on_close(self):
         """The window's close button and the Exit button: offer to save, remember the settings,
         then quit.
         """
         if not self._confirm_discard():
             return
+        self._clear_recovery()               # a normal exit: nothing to recover
         self._store_settings()
         self.destroy()
 
@@ -1150,32 +1500,33 @@ class BadgeApp(RootBase):
             return None
         return p, active
 
-    def _progress(self, done, total):
-        """Update the export progress bar."""
-        self.export_bar.config(maximum=max(total, 1), value=done)
-        self.update_idletasks()
-
     def _write_pdf(self, path, p, active):
-        """Build the PDF while showing a progress bar and a busy cursor. Returns True on
-        success.
+        """Build the PDF in a background thread, so the window stays alive, while showing a
+        busy note and the status bar's progress bar. Returns True on success.
         """
         self.set_status("Building PDF…", hold=0)
         self.export_bar.config(value=0)
         self.export_bar.pack(side="right", padx=(0, 8))
-        self.config(cursor="watch")
-        self.update_idletasks()
+        prog = {"done": 0, "total": len(active)}
+        layout, guides = self.layout, self.v_guides.get()
+
+        def tick():
+            self.export_bar.config(maximum=max(prog["total"], 1), value=prog["done"])
+
         try:
-            build_pdf(path, self.layout, p["d"], active, guides=self.v_guides.get(),
-                      dpi=EXPORT_DPI, progress=self._progress)
+            self._run_busy(
+                lambda: build_pdf(path, layout, p["d"], active, guides=guides, dpi=EXPORT_DPI,
+                                  progress=lambda d, t: prog.update(done=d, total=t)),
+                "exporting", delay=0.0, prog=prog, on_tick=tick)
             return True
         except Exception as ex:  # noqa: BLE001
             messagebox.showerror("Oh no!", f"Something went wrong while making the PDF:\n{ex}")
             return False
         finally:
             self.export_bar.pack_forget()
-            self.config(cursor="")
             self.set_status()
 
+    @not_while_busy
     def export_pdf(self):
         """Ask where to save, then export the sheet as a PDF."""
         prep = self._prepare_export()
@@ -1191,7 +1542,11 @@ class BadgeApp(RootBase):
         self.settings["export_dir"] = os.path.dirname(path)
         if self._write_pdf(path, *prep):
             self.set_status(f"Exported {os.path.basename(path)}")
+            folder = os.path.dirname(os.path.abspath(path))
+            self.toasts.show("exported", name=os.path.basename(path),
+                             action=("Show in folder", lambda: reveal_folder(folder)))
 
+    @not_while_busy
     def print_now(self):
         """Build a temporary PDF and send it to the printer."""
         prep = self._prepare_export()
@@ -1203,6 +1558,7 @@ class BadgeApp(RootBase):
         try:
             print_pdf(tmp)
             self.set_status("Print job started")
+            self.toasts.show("printing")
         except Exception as ex:  # noqa: BLE001
             messagebox.showerror("Oh no!", f"I couldn't start the print job:\n{ex}")
 

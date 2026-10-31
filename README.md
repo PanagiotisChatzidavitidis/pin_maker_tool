@@ -29,6 +29,23 @@ export a PDF (or print straight away) ready to cut out.
   tile previews its own colours. Oat Milk is the default; the Dark mode switch flips between
   your chosen light and dark theme.
 
+- **Drag to rearrange.** Drag a pin onto another circle to swap the two, or onto an empty
+  circle to move it. A ghost follows the mouse and the target lights up; Esc cancels. A plain
+  click still opens Modify / Clear, and every move can be undone.
+- **Autosave and crash recovery.** Unsaved work is copied to a recovery file every 10 seconds
+  (your canvas file is never touched). After a crash or power cut the app offers to put it all
+  back at the next start; saving or closing normally clears it.
+- **Gentle loading.** Big pictures, opening a canvas and PDF export run in the background, so the
+  window never freezes. A little progress note appears if it takes a moment, and buttons that
+  could clash with the running job are ignored until it finishes.
+- **Recent canvases, search and sorting.** The start screen has a "Jump back in" row with the
+  last canvases you opened, a search box (name, paper or pin size) and a sort menu: recently
+  edited, recently opened, name A–Z / Z–A, oldest first, most pins. Thumbnails appear as they
+  are ready, and your sort choice is remembered.
+- **Corner notes.** Small cheerful notes with the hamster appear in the bottom-right corner
+  for saved, opened, deleted, exported, swapped and so on. Some carry a link (Undo, Show in
+  folder). They fade by themselves, or click one to close it.
+
 ## Getting started
 
 You need Python 3 with tkinter (it ships with Python; on Linux install it with
@@ -56,7 +73,7 @@ On macOS use Cmd instead of Ctrl.
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
 | Delete | Clear the circle under the mouse |
 | F11 | Switch between full screen and windowed |
-| Esc | Close the popup, or leave full screen |
+| Esc | Cancel a drag, close the popup, or leave full screen |
 
 ## Building a standalone app
 
@@ -95,6 +112,7 @@ badge_pin_maker/          The program itself
     crop_dialog.py        The window for positioning an image under the pin
     dialogs.py            Message boxes in the app's own style
     widgets.py            Cards, stat tiles, the on / off switch
+    toast.py              The corner notes and their cute messages
     icons.py              Canvas thumbnails and the logo
     theme.py              The light and dark themes (colours) and ttk styling
     dnd.py                Optional drag and drop support
@@ -109,4 +127,5 @@ and the PDF output can be read, run and tested on their own.
 | --- | --- |
 | Canvases | `~/Badge Pin Maker Canvases/` (changeable from the start screen) |
 | Preferences | `~/.badge_pin_maker.json` |
+| Crash recovery | `~/.badge_pin_maker_recovery.pinproj` (deleted on save or normal close) |
 | Images | Stay where they are. A canvas stores only their location, so moving an image means the canvas has to find it again (it also looks next to the canvas file). |
