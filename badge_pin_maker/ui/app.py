@@ -116,6 +116,12 @@ class BadgeApp(RootBase):
         self.selected = None
         self.popup = None
         self._image_cache = {}
+        self._pil_cache = {}           # the same pictures as PIL images (for the fade-out)
+        self._zoom, self._pan, self._fit = 1.0, (0.0, 0.0), 1.0   # sheet zoom and pan (pixels)
+        self._space, self._space_job, self._panning = False, None, None
+        self._pill_box = None          # where the "zoom %" pill sits, for clicks
+        self._hide = set()             # circles whose picture is mid-glide (not drawn)
+        self._anim_id, self._anim_refs, self._view_job = 0, [], None
         self._after = None
         self._status_after = None
         self._undo, self._redo = [], []
@@ -137,6 +143,7 @@ class BadgeApp(RootBase):
         self.v_pin = tk.StringVar(value=pin)
         self.v_d = tk.StringVar(value=str(s.get("d", "32")))
         self.v_guides = tk.BooleanVar(value=bool(s.get("guides", True)))
+        self.v_anim = tk.BooleanVar(value=bool(s.get("animations", True)))
 
         # ---- build the screens and connect the events ----
         self._build_ui()
@@ -180,6 +187,11 @@ class BadgeApp(RootBase):
             self.bind(f"<{MOD}-{key}>", handler(fn, home_ok))
             if len(key) == 1:
                 self.bind(f"<{MOD}-{key.upper()}>", handler(fn, home_ok))
+        for keys, fn in ((("plus", "equal", "KP_Add"), lambda: self.zoom_by(1.25)),
+                         (("minus", "KP_Subtract"), lambda: self.zoom_by(0.8)),
+                         (("0", "KP_0"), self.reset_view)):
+            for k in keys:
+                self.bind(f"<{MOD}-{k}>", handler(fn))
         self.bind("<Delete>", self.delete_selected)
         self.bind("<Escape>", self._on_escape)
         self.bind("<F11>", lambda e: self.toggle_fullscreen())
@@ -303,8 +315,9 @@ class BadgeApp(RootBase):
         """
         self.light_theme, self.dark_theme = T.DEFAULT_LIGHT, T.DEFAULT_DARK
         self.v_dark.set(False)
-        for key in ("canvases_dir", "projects_dir", "sort"):
+        for key in ("canvases_dir", "projects_dir", "sort", "animations"):
             self.settings.pop(key, None)
+        self.v_anim.set(True)
         self.set_fullscreen(True)
         self._apply_theme()
         self.after_idle(lambda: self.toasts.show("defaults"))
@@ -474,6 +487,15 @@ class BadgeApp(RootBase):
         self.cv.bind("<ButtonRelease-1>", self.on_release)
         self.cv.bind("<Motion>", self.on_motion)
         self.cv.bind("<Leave>", lambda e: self._set_hover(None))
+        self.cv.bind("<Enter>", self._focus_canvas)
+        self.cv.bind("<MouseWheel>", self.on_wheel)
+        self.cv.bind("<Button-4>", lambda e: self.on_wheel(e, 1))      # wheel on Linux
+        self.cv.bind("<Button-5>", lambda e: self.on_wheel(e, -1))
+        self.cv.bind("<ButtonPress-2>", self._pan_start)               # middle button pans
+        self.cv.bind("<B2-Motion>", self._pan_move)
+        self.cv.bind("<ButtonRelease-2>", self._pan_end)
+        self.cv.bind("<KeyPress-space>", self._space_down)
+        self.cv.bind("<KeyRelease-space>", self._space_up)
         if DND_FILES:
             self.cv.drop_target_register(DND_FILES)
             self.cv.dnd_bind("<<Drop>>", self.on_drop)
@@ -670,6 +692,13 @@ class BadgeApp(RootBase):
         self.cv.focus_set()
         if self._busy:
             return
+        if self._space:                          # Space held: the mouse moves the sheet
+            self._pan_start(e)
+            return
+        if self._pill_box and self._pill_box[0] <= e.x <= self._pill_box[2] \
+                and self._pill_box[1] <= e.y <= self._pill_box[3]:
+            self.reset_view()                    # a click on the zoom pill fits the sheet
+            return
         self.close_popup()
         self._press = (self.hit(e.x, e.y), e.x, e.y)
         self._dragging = False
@@ -678,6 +707,9 @@ class BadgeApp(RootBase):
         """Dragging a filled circle picks its pin up; it follows the mouse and the circle it
         would land on lights up.
         """
+        if self._panning:
+            self._pan_move(e)
+            return
         if self._press is None:
             return
         src, x0, y0 = self._press
@@ -696,7 +728,9 @@ class BadgeApp(RootBase):
     def on_release(self, e):
         """The mouse went up: finish a drag (swap / move the pin), or treat it as a click."""
         press, self._press = self._press, None
-        if self._dragging:
+        if self._panning:
+            self._pan_end(e)
+        elif self._dragging:
             self._end_drag(e)
         elif press is not None and not self._busy:
             self.on_click(e)
@@ -714,7 +748,7 @@ class BadgeApp(RootBase):
         s, ox, oy, p = self.geo
         x, y, w = self._circle_box(src)
         self._dragging, self._drag_src, self._drop = True, src, None
-        self._last_xy = (x0, y0)
+        self._last_xy = self._drag_from = (x0, y0)
         self._set_hover(None)
         self.cv.config(cursor="fleur")
         try:
@@ -758,15 +792,21 @@ class BadgeApp(RootBase):
         two swap, anywhere else it goes back. One undo step either way.
         """
         src, target = self._drag_src, self.hit(e.x, e.y)
+        sx, sy = self._circle_box(src)[:2]
+        held = (sx + self._last_xy[0] - self._drag_from[0],      # where the ghost is right now
+                sy + self._last_xy[1] - self._drag_from[1])
         self._cancel_drag()
         if target is None or target == src or src not in self.slots:
             return
         self._push_undo()
+        tx, ty = self._circle_box(target)[:2]
+        moves = [(self.slots[src], held, (tx, ty))]
         if target in self.slots:
+            moves.append((self.slots[target], (tx, ty), (sx, sy)))
             self.slots[src], self.slots[target] = self.slots[target], self.slots[src]
         else:
             self.slots[target] = self.slots.pop(src)
-        self.schedule_redraw()
+        self._glide(moves, {src, target} if len(moves) > 1 else {target})
 
     def on_click(self, e):
         """Click on an empty circle: add images. Click on a filled one: show the Clear / Modify
@@ -956,8 +996,8 @@ class BadgeApp(RootBase):
         """Remove the image from one circle (can be undone)."""
         if idx in self.slots:
             self._push_undo()
-            del self.slots[idx]
-            self.schedule_redraw()
+            gone = [(self.slots.pop(idx), self._circle_box(idx)[:2])] if self.geo else []
+            self._redraw_then_fade(gone)
             self.toasts.show("cleared_one", action=("Undo", self.undo))
 
     @not_while_busy
@@ -966,8 +1006,11 @@ class BadgeApp(RootBase):
         if self._filled():
             self.close_popup()
             self._push_undo()
+            n = self._n()
+            gone = [(a, self._circle_box(i)[:2]) for i, a in self.slots.items()
+                    if i < n] if self.geo else []
             self.slots.clear()
-            self.schedule_redraw()
+            self._redraw_then_fade(gone)
             self.set_status(f"Cleared all images — {MOD_LABEL}+Z to undo")
             self.toasts.show("cleared_all", action=("Undo", self.undo))
 
@@ -984,18 +1027,25 @@ class BadgeApp(RootBase):
         """The round preview picture for one pin. Cached, because making it is the slow part of
         drawing the sheet.
         """
-        key = (art.key(), round(p["d"], 2), round(s, 3))
+        key = self._preview_key(art, p, s)
         ph = self._image_cache.get(key)
         if ph is None:
             if len(self._image_cache) > 400:
                 self._image_cache.clear()
+                self._pil_cache.clear()
             im = render_art(art, p["d"], s, small=True).convert("RGBA")
             big = Image.new("L", (im.size[0] * 3, im.size[1] * 3), 0)
             ImageDraw.Draw(big).ellipse((0, 0, big.size[0] - 1, big.size[1] - 1), fill=255)
             im.putalpha(big.resize(im.size, Image.LANCZOS))
             ph = ImageTk.PhotoImage(im)
             self._image_cache[key] = ph
+            self._pil_cache[key] = im
         return ph
+
+    @staticmethod
+    def _preview_key(art, p, s):
+        """What a cached preview picture is filed under."""
+        return (art.key(), round(p["d"], 2), round(s, 3))
 
     def redraw(self):
         """Draw the whole sheet preview: paper, empty circles, images, guides, crop ticks and
@@ -1014,8 +1064,11 @@ class BadgeApp(RootBase):
         cw, ch = max(cv.winfo_width(), 50), max(cv.winfo_height(), 50)
         # Scale the sheet to fit the window (keeping its shape, with a 20 px margin all
         # round). s = screen pixels per mm; (ox, oy) = where the paper's corner lands.
-        s = min((cw - 40) / W, (ch - 40) / H)
-        ox, oy = (cw - W * s) / 2, (ch - H * s) / 2
+        fit = self._fit = min((cw - 40) / W, (ch - 40) / H)
+        self._zoom = max(1.0, min(self._zoom, self._max_zoom(p["d"])))
+        s = fit * self._zoom
+        self._pan = self._clamp_pan(*self._pan, W * s, H * s, cw, ch)
+        ox, oy = (cw - W * s) / 2 + self._pan[0], (ch - H * s) / 2 + self._pan[1]
         self.geo = (s, ox, oy, p)
 
         # A soft three-layer shadow behind the paper.
@@ -1032,6 +1085,15 @@ class BadgeApp(RootBase):
         for i, (cx, cy) in enumerate(L["points"]):
             x, y = ox + cx * s, oy + cy * s
             art = self.slots.get(i)
+            if art is not None and art.ppi(p["d"]) < LOW_PPI:
+                low += 1
+            # Circles scrolled out of view are not drawn at all (zoomed in, that is most).
+            if x + w / 2 + 30 < 0 or x - w / 2 - 30 > cw or y + w / 2 + 30 < 0 \
+                    or y - w / 2 - 30 > ch:
+                continue
+            if i in self._hide:                  # its picture is gliding in: just the rim
+                cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, outline=T.PIN_EDGE)
+                continue
             # An empty circle: a dashed outline with a plus sign in the middle.
             if art is None:
                 cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
@@ -1054,18 +1116,247 @@ class BadgeApp(RootBase):
                 cv.create_line(x1, y1, x2, y2, fill=T.TICK)
             # A small orange "!" in the corner of images that would print soft.
             if art.ppi(p["d"]) < LOW_PPI:
-                low += 1
                 r = max(6, w * 0.09)
                 bx, by = x + w * 0.34, y - w * 0.34
                 cv.create_oval(bx - r, by - r, bx + r, by + r, fill=T.WARN, outline="white")
                 cv.create_text(bx, by, text="!", fill="white",
                                font=(self.base_font[0], max(7, int(r * 1.2)), "bold"))
 
+        self._draw_zoom_pill(cw, ch)
         n, filled = self._n(), self._filled()
         self._update_stats(L, n, filled, low)
         if n == 0:
             cv.create_text(cw / 2, ch / 2, fill=T.ERR,
                            text="Pin doesn't fit on this paper — choose a smaller size.")
+
+    # ---- zoom and pan -------------------------------------------------------
+    def _max_zoom(self, d):
+        """How far the sheet may be zoomed: a pin at most about 700 px wide, never over 8x."""
+        return max(1.0, min(8.0, 700 / max(d * self._fit, 1e-6)))
+
+    @staticmethod
+    def _clamp_pan(px, py, pw, ph, cw, ch):
+        """Keep the sheet in reach: it can slide until its edge is 20 px from the window's
+        edge, and sits centred when it is smaller than the window.
+        """
+        lx, ly = max(0.0, (pw - cw) / 2 + 20), max(0.0, (ph - ch) / 2 + 20)
+        return max(-lx, min(lx, px)), max(-ly, min(ly, py))
+
+    def _redraw_soon(self):
+        """Redraw as soon as the mouse events queued so far are handled (several wheel clicks
+        then cost one redraw).
+        """
+        if self._view_job is None:
+            self._view_job = self.after_idle(self._view_redraw)
+
+    def _view_redraw(self):
+        """Run the redraw asked for by _redraw_soon."""
+        self._view_job = None
+        if self.screen == "editor":
+            self.redraw()
+
+    def _zoom_to(self, z, x=None, y=None):
+        """Zoom to ``z`` (1 = the whole sheet), keeping the spot at (x, y) under the mouse."""
+        if not self.geo or not self.layout:
+            return
+        s0, ox0, oy0, p = self.geo
+        cw, ch = max(self.cv.winfo_width(), 50), max(self.cv.winfo_height(), 50)
+        x = cw / 2 if x is None else x
+        y = ch / 2 if y is None else y
+        z = max(1.0, min(z, self._max_zoom(p["d"])))
+        if abs(z - self._zoom) < 1e-3:
+            return
+        W, H = self.layout["page_w"], self.layout["page_h"]
+        mx, my = (x - ox0) / s0, (y - oy0) / s0                 # that spot, in millimetres
+        s1 = self._fit * z
+        px = x - mx * s1 - (cw - W * s1) / 2
+        py = y - my * s1 - (ch - H * s1) / 2
+        self._zoom = z
+        self._pan = self._clamp_pan(px, py, W * s1, H * s1, cw, ch)
+        self._redraw_soon()
+
+    def zoom_by(self, factor):
+        """Ctrl +  /  Ctrl -  : zoom around the middle of the window."""
+        self._zoom_to(self._zoom * factor)
+
+    def reset_view(self):
+        """Ctrl 0, or a click on the zoom pill: the whole sheet in view again."""
+        if self._zoom != 1.0 or self._pan != (0.0, 0.0):
+            self._zoom, self._pan = 1.0, (0.0, 0.0)
+            self._redraw_soon()
+
+    def on_wheel(self, e, direction=None):
+        """Ctrl + wheel zooms at the mouse. Zoomed in, the wheel alone slides the sheet up and
+        down, and Shift + wheel slides it sideways.
+        """
+        if self._busy or self._dragging or not self.geo:
+            return "break"
+        if direction is None:
+            direction = 1 if e.delta > 0 else -1
+        if e.state & 0x4 or (MOD == "Command" and e.state & 0x8):
+            self._zoom_to(self._zoom * (1.2 if direction > 0 else 1 / 1.2), e.x, e.y)
+        elif self._zoom > 1.001:
+            step = 70 * direction
+            px, py = self._pan
+            self._pan = (px + step, py) if e.state & 0x1 else (px, py + step)
+            self._redraw_soon()           # redraw() puts the pan back in range if need be
+        return "break"
+
+    def _focus_canvas(self, _e=None):
+        """So the Space bar reaches the sheet (unless the person is typing somewhere)."""
+        try:
+            if not isinstance(self.focus_get(), (tk.Entry, ttk.Entry, ttk.Spinbox,
+                                                 ttk.Combobox)):
+                self.cv.focus_set()
+        except KeyError:
+            pass
+
+    def _space_down(self, _e=None):
+        """Space held: the next drag on the sheet moves the sheet."""
+        if self._space_job is not None:           # key auto-repeat sends release + press
+            self.after_cancel(self._space_job)
+            self._space_job = None
+        if not self._space and not self._dragging:
+            self._space = True
+            self._set_hover(None)
+            self.cv.config(cursor="fleur")
+        return "break"
+
+    def _space_up(self, _e=None):
+        """Space let go (after a pause, so auto-repeat doesn't count)."""
+        self._space_job = self.after(40, self._space_end)
+        return "break"
+
+    def _space_end(self):
+        """Space really is up."""
+        self._space_job, self._space = None, False
+        if not self._panning:
+            self.cv.config(cursor="")
+
+    def _pan_start(self, e):
+        """Grab the sheet."""
+        self._panning = (e.x, e.y) + self._pan
+        self.close_popup()
+        self.cv.config(cursor="fleur")
+
+    def _pan_move(self, e):
+        """Slide the sheet with the mouse."""
+        if not self._panning:
+            return
+        x0, y0, px, py = self._panning
+        self._pan = (px + e.x - x0, py + e.y - y0)
+        self._redraw_soon()
+
+    def _pan_end(self, _e=None):
+        """Let go of the sheet."""
+        self._panning = None
+        self.cv.config(cursor="fleur" if self._space else "")
+
+    def _draw_zoom_pill(self, cw, ch):
+        """A small pill in the corner while zoomed in: the zoom, and a click fits the sheet."""
+        self._pill_box = None
+        if self._zoom <= 1.001:
+            return
+        t = self.cv.create_text(
+            24, ch - 22, anchor="sw", fill=T.TEXT, font=(self.base_font[0], 9), tags="pill",
+            text=f"{round(self._zoom * 100)}%   ·   Space + drag to move   ·   click to fit")
+        x1, y1, x2, y2 = self.cv.bbox(t)
+        box = (x1 - 12, y1 - 6, x2 + 12, y2 + 6)
+        r = self.cv.create_rectangle(*box, fill=T.CARD, outline=T.BORDER, tags="pill")
+        self.cv.tag_lower(r, t)
+        self._pill_box = box
+
+    # ---- quiet animations ---------------------------------------------------
+    def animations_changed(self):
+        """The Smooth animations switch in Options was flipped."""
+        self.settings["animations"] = bool(self.v_anim.get())
+        save_settings(self.settings)
+
+    def _glide(self, moves, hidden):
+        """Pins glide to their new circles. ``moves`` is [(art, (x, y) from, (x, y) to)] in
+        canvas pixels; the circles in ``hidden`` are drawn bare until the glide ends.
+        """
+        if not self.v_anim.get() or not self.geo:
+            self.schedule_redraw()
+            return
+        self._anim_id += 1
+        token = self._anim_id
+        self._hide = set(hidden)
+        self.redraw()
+        s, ox, oy, p = self.geo
+        w = p["d"] * s
+        items = []
+        for art, a, b in moves:
+            ph = self._preview_image(art, p, s)
+            pic = self.cv.create_image(a[0], a[1], image=ph, tags="anim")
+            ring = self.cv.create_oval(0, 0, 0, 0, outline=T.PIN_EDGE, tags="anim")
+            items.append((pic, ring, a, b, ph))
+        self._anim_refs = [i[4] for i in items]
+        steps = 10
+
+        def frame(k):
+            if token != self._anim_id:
+                return                          # a newer animation took over
+            e = 1 - (1 - k / steps) ** 3        # eases out: quick start, soft landing
+            for pic, ring, a, b, _ph in items:
+                x, y = a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e
+                self.cv.coords(pic, x, y)
+                self.cv.coords(ring, x - w / 2, y - w / 2, x + w / 2, y + w / 2)
+            if k < steps:
+                self.after(15, frame, k + 1)
+            else:
+                self._hide = set()
+                self._anim_refs = []
+                self.redraw()
+
+        frame(1)
+
+    def _redraw_then_fade(self, gone):
+        """Redraw now, with the pins in ``gone`` [(art, (x, y))] already removed, then let
+        copies of them fade away on top.
+        """
+        if not self.v_anim.get() or not gone or not self.geo:
+            self.schedule_redraw()
+            return
+        self.redraw()
+        s, ox, oy, p = self.geo
+        cw, ch = self.cv.winfo_width(), self.cv.winfo_height()
+        w = p["d"] * s
+        bases = []
+        for art, (x, y) in gone[:60]:
+            if x + w / 2 < 0 or x - w / 2 > cw or y + w / 2 < 0 or y - w / 2 > ch:
+                continue
+            self._preview_image(art, p, s)
+            im = self._pil_cache.get(self._preview_key(art, p, s))
+            if im is not None:
+                bases.append((im, self.cv.create_image(x, y, tags="fade")))
+        if not bases:
+            return
+        self._anim_id += 1
+        token = self._anim_id
+        steps = 6
+        refs = []
+
+        def frame(k):
+            if token != self._anim_id:
+                self.cv.delete("fade")
+                return
+            refs.clear()
+            f = 1 - k / steps
+            for im, item in bases:
+                a = im.getchannel("A").point(lambda v, f=f: int(v * f))
+                frame_im = im.copy()
+                frame_im.putalpha(a)
+                size = max(2, int(im.size[0] * (1 - 0.14 * k / steps)))
+                ph = ImageTk.PhotoImage(frame_im.resize((size, size), Image.BILINEAR))
+                refs.append(ph)
+                self.cv.itemconfig(item, image=ph)
+            if k < steps:
+                self.after(22, frame, k + 1)
+            else:
+                self.cv.delete("fade")
+
+        frame(1)
 
     def _update_stats(self, L, n, filled, low):
         """Refresh the four tiles above the preview and the progress bar."""
@@ -1283,6 +1574,7 @@ class BadgeApp(RootBase):
         self.slots.clear()
         self._undo.clear()
         self._redo.clear()
+        self._zoom, self._pan = 1.0, (0.0, 0.0)
         self.canvas_path = None
         path = self._unique_canvas_path(name)
         if self._save_to(path, quiet=True):

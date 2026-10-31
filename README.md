@@ -42,6 +42,12 @@ export a PDF (or print straight away) ready to cut out.
   last canvases you opened, a search box (name, paper or pin size) and a sort menu: recently
   edited, recently opened, name A–Z / Z–A, oldest first, most pins. Thumbnails appear as they
   are ready, and your sort choice is remembered.
+- **Zoom and pan the sheet.** Ctrl + scroll zooms in on the spot under the mouse (up to 8x).
+  Zoomed in, scroll slides the sheet up and down (Shift + scroll sideways), and holding Space
+  while dragging, or dragging with the middle button, moves it freely. Ctrl + / Ctrl - zoom and
+  Ctrl 0, or a click on the zoom pill, fits the whole sheet again.
+- **Quiet animations.** Pins glide into their new circles when swapped or moved and fade away
+  when cleared. They can be turned off with **Smooth animations** in Options.
 - **Corner notes.** Small cheerful notes with the hamster appear in the bottom-right corner
   for saved, opened, deleted, exported, swapped and so on. Some carry a link (Undo, Show in
   folder). They fade by themselves, or click one to close it.
@@ -73,6 +79,9 @@ On macOS use Cmd instead of Ctrl.
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
 | Delete | Clear the circle under the mouse |
 | F11 | Switch between full screen and windowed |
+| Ctrl + scroll / Ctrl + / Ctrl - | Zoom the sheet |
+| Ctrl 0 | Fit the whole sheet |
+| Space + drag | Move the zoomed sheet |
 | Esc | Cancel a drag, close the popup, or leave full screen |
 
 ## Building a standalone app

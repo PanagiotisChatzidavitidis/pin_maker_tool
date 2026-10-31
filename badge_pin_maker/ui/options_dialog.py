@@ -67,6 +67,12 @@ class OptionsDialog(tk.Toplevel):
                   command=self._mode_changed).pack(fill="x")
         ttk.Label(f, text="Press F11 at any time to switch.",
                   style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
+        row = ttk.Frame(f, style="Card.TFrame")
+        row.pack(fill="x", pady=(14, 0))
+        ttk.Label(row, text="Smooth animations", style="Card.TLabel").pack(side="left")
+        Toggle(row, app.v_anim, command=app.animations_changed, bg=T.CARD).pack(side="right")
+        ttk.Label(f, text="Pins glide when swapped and fade when cleared.",
+                  style="Muted.TLabel").pack(anchor="w", pady=(4, 0))
 
         # ---- themes: a light column and a dark column of preview tiles
         f = make_card(body, "Themes", pady=(0, 8))
