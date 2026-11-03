@@ -18,8 +18,10 @@ def _circle_alpha(size):
     return big.resize((size, size), Image.LANCZOS)
 
 
-def make_icon(art, size=56):
-    """Round thumbnail of the canvas's first pin, or a generic pin icon."""
+def render_icon_image(art, size=56):
+    """Round thumbnail of the canvas's first pin (or a generic pin icon) as a Pillow image.
+    It does not touch Tk, so it is safe to call from a background thread.
+    """
     im = None
     if art:
         path, zoom, cx, cy, angle = art
@@ -43,7 +45,12 @@ def make_icon(art, size=56):
         im = im.resize((size, size), Image.LANCZOS)
     im = im.convert("RGBA")
     im.putalpha(_circle_alpha(size))
-    return ImageTk.PhotoImage(im)
+    return im
+
+
+def make_icon(art, size=56):
+    """Round thumbnail of the canvas's first pin, or a generic pin icon, ready for Tk."""
+    return ImageTk.PhotoImage(render_icon_image(art, size))
 
 
 def load_logo(size):
