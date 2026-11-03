@@ -98,7 +98,7 @@ class OptionsDialog(tk.Toplevel):
                 in_use = theme_id == app.current_theme()
                 tile = ThemeTile(col, T.THEMES[theme_id], title, note, in_use,
                                  lambda t=theme_id: self._theme_picked(t), fam, bg=T.CARD)
-                tile.pack(pady=(0, 6))
+                tile.pack(pady=(0, 4))
 
         # ---- canvases folder
         f = make_card(body, "Canvases folder", pady=(0, 6))
