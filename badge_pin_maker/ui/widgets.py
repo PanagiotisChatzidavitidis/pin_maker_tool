@@ -312,3 +312,82 @@ class ThemeTile(tk.Canvas):
             self.create_oval(cx - 10, cy - 10, cx + 10, cy + 10, fill=c["TEAL"], outline="")
             self.create_line(cx - 5, cy, cx - 1.5, cy + 4, cx + 5, cy - 4,
                              fill=c["ON_PRIMARY"], width=2, capstyle="round", joinstyle="round")
+
+
+class IconButton(tk.Canvas):
+    """A small square button with a drawn icon ("undo" or "redo": a curved arrow). Drawn
+    rather than typed, so it looks the same on every system and font. It can be greyed out
+    with state(["disabled"]) / state(["!disabled"]), like a ttk button.
+    """
+    SIZE = 34
+
+    def __init__(self, parent, kind, command, tip="", on_tip=None):
+        """``kind`` is "undo" or "redo"; ``on_tip(text or None)`` is told when to show / hide
+        the hint ``tip``.
+        """
+        super().__init__(parent, width=self.SIZE, height=self.SIZE, bg=T.BG,
+                         highlightthickness=0, cursor="hand2")
+        self.kind, self.command, self.tip, self.on_tip = kind, command, tip, on_tip
+        self._disabled, self._hover, self._down = False, False, False
+        self.bind("<Enter>", lambda e: self._set(hover=True))
+        self.bind("<Leave>", lambda e: self._set(hover=False, down=False))
+        self.bind("<ButtonPress-1>", lambda e: self._set(down=True))
+        self.bind("<ButtonRelease-1>", self._release)
+        self._draw()
+
+    def state(self, spec=None):
+        """["disabled"] / ["!disabled"] changes the state; without an argument it returns the
+        current flags (so "disabled" in btn.state() works).
+        """
+        if spec is None:
+            return ("disabled",) if self._disabled else ()
+        for s in spec:
+            if s == "disabled":
+                self._disabled = True
+            elif s == "!disabled":
+                self._disabled = False
+        self.config(cursor="arrow" if self._disabled else "hand2")
+        self._draw()
+
+    def instate(self, spec):
+        """True if the button is in the given state: ["disabled"] or ["!disabled"]."""
+        return all(self._disabled if f == "disabled" else not self._disabled for f in spec)
+
+    def invoke(self):
+        """Press the button from code (does nothing while it is greyed out)."""
+        if not self._disabled:
+            self.command()
+
+    def _set(self, hover=None, down=None):
+        """Remember the mouse state, redraw, and show / hide the hint."""
+        if hover is not None:
+            self._hover = hover
+            if self.on_tip:
+                self.on_tip(self.tip if hover and not self._disabled else None)
+        if down is not None:
+            self._down = down
+        self._draw()
+
+    def _release(self, _e=None):
+        """Mouse up: run the command if the button was pressed and is usable."""
+        was, self._down = self._down, False
+        self._draw()
+        if was and self._hover and not self._disabled:
+            self.command()
+
+    def _draw(self):
+        """Paint the tile and the arrow."""
+        self.delete("all")
+        n = self.SIZE
+        bg = T.SAND_PRESS if (self._down and not self._disabled) else (
+            T.SAND_HOVER if (self._hover and not self._disabled) else T.SAND)
+        fg = T.BORDER if self._disabled else T.TEXT
+        self.create_rectangle(0, 0, n, n, fill=bg, outline="")
+        m = n / 2
+        left = self.kind == "undo"
+        # an arch with an arrow head on one end: left end for undo, right end for redo
+        self.create_arc(m - 8, m - 5, m + 8, m + 11, start=0, extent=180, style="arc",
+                        outline=fg, width=2)
+        hx = m - 8 if left else m + 8
+        self.create_polygon(hx - 4.5, m + 3.5, hx + 4.5, m + 3.5, hx, m + 9.5, fill=fg,
+                            outline=fg)

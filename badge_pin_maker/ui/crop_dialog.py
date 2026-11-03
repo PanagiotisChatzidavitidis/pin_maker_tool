@@ -182,21 +182,14 @@ class CropDialog(tk.Toplevel):
         self._layout()
         self.update_view(fast=False)
 
-        # size the window to its content (but never taller than the screen), centre it over
-        # the parent and show it
+        # size the window to its content (but never taller than the screen), centre it on the
+        # screen and show it
         self.update_idletasks()
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         w = min(self.winfo_reqwidth(), sw - 40)
         h = min(self.winfo_reqheight(), sh - 110)
         self.minsize(min(w, 620), min(h, 560))
-        try:
-            if parent is not None and parent.winfo_viewable():
-                x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
-                y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
-            else:
-                raise tk.TclError
-        except tk.TclError:
-            x, y = (sw - w) // 2, (sh - h) // 3
+        x, y = (sw - w) // 2, (sh - h) // 2          # the middle of the screen
         self.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
         set_titlebar(self)
         self.deiconify()

@@ -119,6 +119,7 @@ class Toast(tk.Frame):
         """
         super().__init__(mgr.app, bg=T.BORDER)
         self.mgr, self.busy = mgr, busy
+        self.event = None
         self._timer = self._bob_job = None
         self._closing = False
         self._width = 0
@@ -287,7 +288,12 @@ class Toasts:
             title, body = pick(event, **fmt)
         else:
             title, body = event, fmt.get("body", "")
+        for old in [t for t in self.live if t.event == event and not t.busy]:
+            old._closing = True                 # the same kind of note again replaces it
+            old.destroy()
+            self.live.remove(old)
         note = self._add(Toast(self, title, body, kind=kind, action=action))
+        note.event = event
         note.start(max(duration, 7000) if action else duration)
         return note
 

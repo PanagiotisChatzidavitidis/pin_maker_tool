@@ -223,7 +223,8 @@ def setup_style(root):
     # small square-ish button for the - / + and rotate steps
     st.configure("Tool.TButton", background=SAND, foreground=TEXT, padding=(0, 5),
                  borderwidth=0, focusthickness=0, focuscolor=SAND, font=(base[0], 11))
-    st.map("Tool.TButton", background=[("pressed", SAND_PRESS), ("active", SAND_HOVER)])
+    st.map("Tool.TButton", background=[("pressed", SAND_PRESS), ("active", SAND_HOVER)],
+           foreground=[("disabled", BORDER)])
     st.configure("Card.TCheckbutton", background=CARD, foreground=TEXT, focuscolor=CARD)
     st.map("Card.TCheckbutton", background=[("active", CARD)],
            indicatorcolor=[("selected", TEAL)])

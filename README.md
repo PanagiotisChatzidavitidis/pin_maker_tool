@@ -50,6 +50,10 @@ export a PDF (or print straight away) ready to cut out.
   Ctrl 0, or a click on the zoom pill, fits the whole sheet again.
 - **Quiet animations.** Pins glide into their new circles when swapped or moved and fade away
   when cleared. They can be turned off with **Smooth animations** in Options.
+- **Undo and redo arrows.** Two arrows next to the app name (greyed out when there is nothing to
+  undo or redo) do the same as Ctrl+Z and Ctrl+Y.
+- **Held keys count once.** Holding Ctrl+S (or any other shortcut) runs it only once instead of
+  repeating. Zooming with Ctrl + and Ctrl - is the exception: holding it keeps zooming.
 - **Corner notes.** Small cheerful notes with the hamster appear in the bottom-right corner
   for saved, opened, deleted, exported, swapped and so on. Some carry a link (Undo, Show in
   folder). They fade by themselves, or click one to close it.
@@ -123,7 +127,7 @@ badge_pin_maker/          The program itself
     crop_dialog.py        The window for positioning an image under the pin
     dialogs.py            Message boxes in the app's own style
     widgets.py            Cards, stat tiles, the on / off switch
-    toast.py              The corner notes and their cute messages
+    toast.py              The corner notes and their cute messages (one of each kind at a time)
     icons.py              Canvas thumbnails and the logo
     theme.py              The light and dark themes (colours) and ttk styling
     dnd.py                Optional drag and drop support

@@ -49,7 +49,7 @@ from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
 from .options_dialog import OptionsDialog
 from .toast import Toasts
-from .widgets import StatTile, Toggle, make_card
+from .widgets import IconButton, StatTile, Toggle, make_card
 
 
 AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
@@ -120,6 +120,7 @@ class BadgeApp(RootBase):
         self._zoom, self._pan, self._fit = 1.0, (0.0, 0.0), 1.0   # sheet zoom and pan (pixels)
         self._space, self._space_job, self._panning = False, None, None
         self._pill_box = None          # where the "zoom %" pill sits, for clicks
+        self._held, self._held_job = {}, None   # shortcuts whose keys are still down
         self._hide = set()             # circles whose picture is mid-glide (not drawn)
         self._anim_id, self._anim_refs, self._view_job = 0, [], None
         self._after = None
@@ -170,8 +171,13 @@ class BadgeApp(RootBase):
         """Keyboard shortcuts. The Command key is used on macOS, Control elsewhere. Some work
         on the start screen too, the rest only in the editor.
         """
-        def handler(fn, home_ok=False):
+        def handler(fn, home_ok=False, repeat=False):
+            """Wrap a shortcut. Holding the keys down makes the system repeat the key press;
+            only the first press does anything (zooming is the exception: holding it zooms on).
+            """
             def run(e):
+                if not repeat and not self._fresh_press(fn.__name__, e):
+                    return "break"
                 if self._busy:
                     return "break"
                 if home_ok or self.screen == "editor":
@@ -191,10 +197,46 @@ class BadgeApp(RootBase):
                          (("minus", "KP_Subtract"), lambda: self.zoom_by(0.8)),
                          (("0", "KP_0"), self.reset_view)):
             for k in keys:
-                self.bind(f"<{MOD}-{k}>", handler(fn))
-        self.bind("<Delete>", self.delete_selected)
+                self.bind(f"<{MOD}-{k}>", handler(fn, repeat=fn != self.reset_view))
+        self.bind("<Delete>", lambda e: self._fresh_press("delete", e) and self.delete_selected(e))
         self.bind("<Escape>", self._on_escape)
-        self.bind("<F11>", lambda e: self.toggle_fullscreen())
+        self.bind("<F11>", lambda e: self._fresh_press("fullscreen", e) and self.toggle_fullscreen())
+        self.bind("<KeyRelease>", self._key_released, add="+")
+
+    HELD_EXPIRY = 0.9      # seconds without a repeat before a key counts as pressed anew
+
+    def _fresh_press(self, name, e):
+        """True for the first press of a shortcut, False for the repeats that come while the
+        keys are held down. Every repeat resets the clock; letting go (or 0.9 s without a
+        repeat, in case the release went to another window) makes the next press count again.
+        """
+        now = time.time()
+        held = self._held.get(name)
+        if self._held_job is not None and held:        # a repeat: cancel the pending release
+            self.after_cancel(self._held_job)
+            self._held_job = None
+        if held and now - held[1] < self.HELD_EXPIRY:
+            self._held[name] = (held[0], now)
+            return False
+        self._held[name] = (str(e.keysym).lower(), now)
+        return True
+
+    def _key_released(self, e):
+        """A key came up: if it belongs to a held shortcut, forget the shortcut shortly (the
+        short wait skips the fake release / press pairs some systems send while repeating).
+        """
+        ks = str(e.keysym).lower()
+        mods = ("control_l", "control_r", "meta_l", "meta_r", "super_l", "super_r", "command",
+                "shift_l", "shift_r")
+        if self._held and (ks in mods or any(ks == v[0] for v in self._held.values())):
+            if self._held_job is not None:
+                self.after_cancel(self._held_job)
+            self._held_job = self.after(90, self._forget_held)
+
+    def _forget_held(self):
+        """No shortcut is being held any more."""
+        self._held_job = None
+        self._held.clear()
 
     def _on_escape(self, _e=None):
         """Esc cancels a drag, closes the click popup, or (with nothing open) leaves full
@@ -414,7 +456,15 @@ class BadgeApp(RootBase):
         right = ttk.Frame(host, padding=(8, 16, 18, 16))
         right.pack(side="left", fill="both", expand=True)
 
-        ttk.Label(left, text="Badge Pin Maker", style="Title.TLabel").pack(anchor="w", pady=(0, 10))
+        head = ttk.Frame(left)
+        head.pack(fill="x", pady=(0, 10))
+        ttk.Label(head, text="Badge Pin Maker", style="Title.TLabel").pack(side="left")
+        self.btn_redo = IconButton(head, "redo", self.redo, f"Redo  ({MOD_LABEL}+Y)",
+                                   on_tip=self._tip)
+        self.btn_redo.pack(side="right")
+        self.btn_undo = IconButton(head, "undo", self.undo, f"Undo  ({MOD_LABEL}+Z)",
+                                   on_tip=self._tip)
+        self.btn_undo.pack(side="right", padx=(0, 4))
         nav = ttk.Frame(left)
         nav.pack(fill="x", pady=(0, 14))
         ttk.Button(nav, text="← Canvases", style="Soft.TButton",
@@ -621,6 +671,18 @@ class BadgeApp(RootBase):
         self._clear_recovery()
         self._update_title()
 
+    def _tip(self, text):
+        """Show (or, given None, hide) a button's hint in the status bar."""
+        if text:
+            self.status_lbl.config(text=text)
+        else:
+            self.set_status()
+
+    def _sync_undo_buttons(self):
+        """Grey the undo / redo arrows out when there is nothing to undo or redo."""
+        for btn, has in ((self.btn_undo, self._undo), (self.btn_redo, self._redo)):
+            btn.state(["!disabled"] if has else ["disabled"])
+
     def _snapshot(self):
         """A copy of every image placement, for undo / redo."""
         return {i: a.copy() for i, a in self.slots.items()}
@@ -633,6 +695,7 @@ class BadgeApp(RootBase):
         del self._undo[:-60]
         self._redo.clear()
         self._mark_dirty()
+        self._sync_undo_buttons()
 
     @not_while_busy
     def undo(self):
@@ -644,6 +707,7 @@ class BadgeApp(RootBase):
         self._redo.append(self._snapshot())
         self.slots = self._undo.pop()
         self._mark_dirty()
+        self._sync_undo_buttons()
         self.schedule_redraw()
         self.set_status("Undone")
 
@@ -657,6 +721,7 @@ class BadgeApp(RootBase):
         self._undo.append(self._snapshot())
         self.slots = self._redo.pop()
         self._mark_dirty()
+        self._sync_undo_buttons()
         self.schedule_redraw()
         self.set_status("Redone")
 
@@ -745,6 +810,7 @@ class BadgeApp(RootBase):
         """Pick the pin in circle ``src`` up: a ghost of it follows the mouse, and the circle
         it came from is shown shaded.
         """
+        self._stop_anim()
         s, ox, oy, p = self.geo
         x, y, w = self._circle_box(src)
         self._dragging, self._drag_src, self._drop = True, src, None
@@ -1123,6 +1189,7 @@ class BadgeApp(RootBase):
                                font=(self.base_font[0], max(7, int(r * 1.2)), "bold"))
 
         self._draw_zoom_pill(cw, ch)
+        self._sync_undo_buttons()
         n, filled = self._n(), self._filled()
         self._update_stats(L, n, filled, low)
         if n == 0:
@@ -1271,6 +1338,15 @@ class BadgeApp(RootBase):
         """The Smooth animations switch in Options was flipped."""
         self.settings["animations"] = bool(self.v_anim.get())
         save_settings(self.settings)
+
+    def _stop_anim(self):
+        """End any glide or fade at once (the sheet is redrawn in its final state)."""
+        self._anim_id += 1
+        self.cv.delete("anim", "fade")
+        if self._hide:
+            self._hide = set()
+            self._anim_refs = []
+            self.redraw()
 
     def _glide(self, moves, hidden):
         """Pins glide to their new circles. ``moves`` is [(art, (x, y) from, (x, y) to)] in
