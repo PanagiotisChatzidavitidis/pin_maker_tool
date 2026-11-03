@@ -267,7 +267,7 @@ class ThemeTile(tk.Canvas):
     title and note, and four colour dots (surface, main, accent, text). The chosen theme
     gets a thick outline in its main colour and a tick.
     """
-    W, H = 292, 52
+    W, H = 292, 44
 
     def __init__(self, parent, colours, title, note, selected, command, font_family, bg=None):
         """``colours`` is the theme's colour dict (see theme.THEMES). ``command`` runs when
@@ -297,9 +297,9 @@ class ThemeTile(tk.Canvas):
         else:
             edge, width = (c["MUTED"] if self._hover else c["BORDER"]), 1
         round_rect(self, 2, 2, w - 2, h - 2, 12, fill=c["BG"], outline=edge, width=width)
-        self.create_text(18, 19, text=self.title, anchor="w", fill=c["TEXT"],
+        self.create_text(18, 16, text=self.title, anchor="w", fill=c["TEXT"],
                          font=(self.fam, 11, "bold"))
-        self.create_text(18, 36, text=self.note, anchor="w", fill=c["MUTED"],
+        self.create_text(18, 31, text=self.note, anchor="w", fill=c["MUTED"],
                          font=(self.fam, 9))
         # four colour dots, then the tick circle
         x = w - 124

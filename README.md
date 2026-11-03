@@ -26,11 +26,13 @@ export a PDF (or print straight away) ready to cut out.
 - **Options in one place.** The **Options** button (start screen and editor) holds full
   screen / windowed (full screen is the default), the themes, dark mode and the canvases
   folder. **Restore defaults** puts everything back, **Return** closes the window.
-- **Themes.** Three light themes (Cream & Denim, Oat Milk, Strawberry Cream), three dark
-  themes (Carbon Blue, Graphite Mint, Midnight Orchid) and the original Classic pair. Each
-  tile previews its own colours. Oat Milk is the default; the Dark mode switch flips between
-  your chosen light and dark theme.
-
+- **Themes.** Creamy, warm colours throughout. Four light themes (Oat Milk, Vanilla Latte,
+  Cream & Denim, Strawberry Cream), four dark themes that are coffee and cream rather than steel
+  (Espresso Mint, Cocoa Cream, Cocoa Denim, Mocha Orchid) and the original Classic pair. Each
+  tile previews its own colours. Oat Milk is the default light theme and Espresso Mint the
+  default dark one; the Dark mode switch flips between your chosen light and dark theme. Themes
+  chosen before the renaming carry over (Carbon Blue is now Cocoa Denim, Graphite Mint is
+  Espresso Mint, Midnight Orchid is Mocha Orchid).
 - **Drag to rearrange.** Drag a pin onto another circle to swap the two, or onto an empty
   circle to move it. A ghost follows the mouse and the target lights up; Esc cancels. A plain
   click still opens Modify / Clear, and every move can be undone.

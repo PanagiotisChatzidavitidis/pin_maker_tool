@@ -16,7 +16,7 @@ from tkinter import ttk
 
 
 DEFAULT_LIGHT = "oat_milk"
-DEFAULT_DARK = "graphite_mint"
+DEFAULT_DARK = "espresso_mint"
 
 
 # ---- small colour helpers ------------------------------------------------------------
@@ -134,19 +134,29 @@ _CLASSIC = {
 # id, title, one-line note, mode, then the eight base colours for _build():
 #   bg, card, border, text, muted, primary, soft button, accent
 _PALETTES = [
-    ("cream_denim", "Cream & Denim", "Soft denim blue", "light",
-     "#F6EFE0", "#FFFBF2", "#E6D9BF", "#2B3345", "#767162", "#3F5F8F", "#EBE3CE", "#D49A4A"),
+    # --- light: warm cream pages, lighter cream cards, brown ink, dusty accents
     ("oat_milk", "Oat Milk", "Sage green · default", "light",
-     "#F5EEDF", "#FFFAF0", "#E8DCC3", "#3A3126", "#7D7260", "#7E8F68", "#EAE2CB", "#C47F4F"),
+     "#F7EFDF", "#FFF9EC", "#E8D9BE", "#4A3B2E", "#786957", "#7E8F6A", "#EEE5CF", "#C98F6B"),
+    ("vanilla_latte", "Vanilla Latte", "Caramel & cocoa", "light",
+     "#F5EBDA", "#FFF8EA", "#E6D3B5", "#4A3828", "#776653", "#B98552", "#EDDFC6", "#7A5A44"),
+    ("cream_denim", "Cream & Denim", "Soft denim blue", "light",
+     "#F6EFE2", "#FFFBF2", "#E7DAC0", "#433A33", "#756A5B", "#6F88A8", "#EEE3CC", "#D9A55B"),
     ("strawberry_cream", "Strawberry Cream", "Rosy pink", "light",
-     "#FBEFE6", "#FFF9F3", "#EFD7C8", "#4A2F33", "#86696A", "#D0707F", "#F6DFD3", "#A58BC8"),
-    ("carbon_blue", "Carbon Blue", "Electric blue", "dark",
-     "#0B0D12", "#13161D", "#232833", "#EDEFF4", "#8B93A3", "#5B8CFF", "#1C212B", "#7DD3FC"),
-    ("graphite_mint", "Graphite Mint", "Fresh mint · default", "dark",
-     "#0E0F10", "#161819", "#26292B", "#EDEDEA", "#8E9290", "#4FD1A5", "#1F2223", "#F5C26B"),
-    ("midnight_orchid", "Midnight Orchid", "Orchid pink", "dark",
-     "#0F0B14", "#17121E", "#2A2236", "#F2ECF7", "#9A8FA8", "#E879B9", "#211A2B", "#A78BFA"),
+     "#FBEFE6", "#FFF8F1", "#F0D8C9", "#4E3436", "#836566", "#D57A8A", "#F8E2D6", "#A99BCB"),
+    # --- dark: coffee and cream instead of steel, cream ink, soft glowing accents
+    ("espresso_mint", "Espresso Mint", "Soft mint · default", "dark",
+     "#262420", "#312E29", "#45413A", "#F1E8D6", "#A9A292", "#8FC4A8", "#3A3631", "#E8C98A"),
+    ("cocoa_cream", "Cocoa Cream", "Caramel & cream", "dark",
+     "#2A211C", "#352A24", "#4A3B32", "#F3E7D3", "#B5A28C", "#D9A66B", "#3F332B", "#9DB08A"),
+    ("cocoa_denim", "Cocoa Denim", "Warm denim", "dark",
+     "#232321", "#2E2D2A", "#44423D", "#EFE5D0", "#A8A090", "#86A3C7", "#383632", "#E9DCC2"),
+    ("mocha_orchid", "Mocha Orchid", "Dusty orchid", "dark",
+     "#2B2229", "#372C35", "#4C3F49", "#F2E6E4", "#B09DAA", "#C79BC4", "#403440", "#E8B79A"),
 ]
+
+# Themes that were renamed keep working for people who had them chosen.
+_ALIASES = {"carbon_blue": "cocoa_denim", "graphite_mint": "espresso_mint",
+            "midnight_orchid": "mocha_orchid"}
 
 THEMES = {}          # id -> every colour name
 THEME_INFO = {}      # id -> (title, note)
@@ -166,6 +176,7 @@ def mode_of(name):
     """"light" or "dark" for a theme id. The old settings file only stored "light" / "dark",
     which still works here; anything unknown counts as light.
     """
+    name = _ALIASES.get(name, name)
     if name == "dark":
         return "dark"
     return THEMES[name]["MODE"] if name in THEMES else "light"
@@ -173,6 +184,7 @@ def mode_of(name):
 
 def resolve(name, mode):
     """``name`` if it is a theme of that ``mode``, otherwise the default theme for the mode."""
+    name = _ALIASES.get(name, name)
     if name in THEMES and THEMES[name]["MODE"] == mode:
         return name
     return DEFAULT_DARK if mode == "dark" else DEFAULT_LIGHT
@@ -182,6 +194,7 @@ def apply_theme(name):
     """Switch the colour names in this module to the theme ``name``. Unknown names (and the
     old "light") give the default light theme, the old "dark" the default dark one.
     """
+    name = _ALIASES.get(name, name)
     if name == "dark":
         name = DEFAULT_DARK
     if name not in THEMES:
