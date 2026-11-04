@@ -81,7 +81,7 @@ On macOS use Cmd instead of Ctrl.
 | Ctrl+N | New canvas |
 | Ctrl+O | Browse for a canvas |
 | Ctrl+S / Ctrl+Shift+S | Save / Save as |
-| Ctrl+H | Back to the canvases screen |
+| Ctrl+H | Back to the menu |
 | Ctrl+E | Export PDF |
 | Ctrl+P | Print |
 | Ctrl+Z / Ctrl+Y | Undo / Redo |

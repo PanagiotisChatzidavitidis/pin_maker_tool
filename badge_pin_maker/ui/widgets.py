@@ -381,8 +381,9 @@ class IconButton(tk.Canvas):
         n = self.SIZE
         bg = T.SAND_PRESS if (self._down and not self._disabled) else (
             T.SAND_HOVER if (self._hover and not self._disabled) else T.SAND)
-        fg = T.BORDER if self._disabled else T.TEXT
-        self.create_rectangle(0, 0, n, n, fill=bg, outline="")
+        # greyed out = the text colour faded toward the tile, but still clearly visible
+        fg = T._mix(T.TEXT, bg, 0.5) if self._disabled else T.TEXT
+        self.create_rectangle(0, 0, n - 1, n - 1, fill=bg, outline=T.BORDER)
         m = n / 2
         left = self.kind == "undo"
         # an arch with an arrow head on one end: left end for undo, right end for redo
