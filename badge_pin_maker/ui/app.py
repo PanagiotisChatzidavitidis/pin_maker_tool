@@ -325,10 +325,6 @@ class BadgeApp(RootBase):
         """
         return self.dark_theme if self.v_dark.get() else self.light_theme
 
-    def toggle_theme(self):
-        """Called by the dark-mode switch: show the chosen dark or light theme."""
-        self._apply_theme()
-
     def choose_theme(self, theme_id):
         """A theme was picked in the Options window. It becomes the light or the dark theme
         (depending on what kind it is) and is shown straight away.
@@ -344,12 +340,78 @@ class BadgeApp(RootBase):
     def _apply_theme(self):
         """Apply the current theme, remember the choice and rebuild the screens."""
         name = self.current_theme()
+        cover = self._fade_begin()               # a picture of the window as it is now
         T.apply_theme(name)
         self.settings.update(theme=name, light_theme=self.light_theme,
                              dark_theme=self.dark_theme)
         save_settings(self.settings)
         self.base_font = T.setup_style(self)
         self.after_idle(self._rebuild_ui)        # don't destroy the widget that fired us
+        self._fade_finish(cover)
+
+    def _fade_begin(self):
+        """Cover the window with a picture of itself, so the rebuild underneath cannot be seen.
+        Returns the cover, or None (no animations, or the screen can't be captured here).
+        """
+        if not self.v_anim.get() or self.state() == "iconic":
+            return None
+        try:
+            from PIL import ImageGrab
+            self.update_idletasks()
+            x, y, w, h = (self.winfo_rootx(), self.winfo_rooty(),
+                          self.winfo_width(), self.winfo_height())
+            if w < 100 or h < 100:
+                return None
+            shot = ImageGrab.grab(bbox=(x, y, x + w, y + h))
+            if shot.size != (w, h):              # high-resolution screens
+                shot = shot.resize((w, h))
+            cover = tk.Toplevel(self)
+            cover.overrideredirect(True)
+            cover.geometry(f"{w}x{h}+{x}+{y}")
+            photo = ImageTk.PhotoImage(shot)
+            lbl = tk.Label(cover, image=photo, bd=0, highlightthickness=0)
+            lbl.image = photo
+            lbl.pack()
+            cover.attributes("-alpha", 1.0)       # not supported everywhere: then no fade
+            try:
+                cover.attributes("-topmost", True)
+            except tk.TclError:
+                pass
+            cover._focus = self.focus_get()
+            cover.update()
+            return cover
+        except Exception:
+            try:
+                cover.destroy()
+            except Exception:
+                pass
+            return None
+
+    def _fade_finish(self, cover, steps=12):
+        """Let the cover fade away, showing the rebuilt, re-coloured windows underneath."""
+        if cover is None:
+            return
+
+        def done():
+            try:
+                focus = getattr(cover, "_focus", None)
+                cover.destroy()
+                (focus or self).focus_force()
+            except (tk.TclError, KeyError):
+                pass
+
+        def step(k):
+            try:
+                cover.attributes("-alpha", max(0.0, 1 - (k / steps) ** 0.8))
+                if k < steps:
+                    self.after(18, step, k + 1)
+                else:
+                    done()
+            except tk.TclError:
+                pass
+
+        self.after(110, step, 1)                 # first let everything repaint underneath
+        self.after(2000, done)                   # never leave the cover stuck
 
     def restore_defaults(self):
         """Put every option back to its default: full screen, the Oat Milk theme (with the
