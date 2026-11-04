@@ -5,7 +5,7 @@ rectangle helper.
 import tkinter as tk
 from tkinter import ttk
 
-from . import theme as T
+from . import smooth, theme as T
 
 
 def make_card(parent, title, pady=(0, 10)):
@@ -198,15 +198,9 @@ class Toggle(tk.Canvas):
             self.delete("all")
         except tk.TclError:
             return
-        w, h = self.W, self.H
-        col = T.TEAL if on else T.SAND_PRESS
-        r = h / 2
-        self.create_oval(0, 0, h, h, fill=col, outline=col)
-        self.create_oval(w - h, 0, w, h, fill=col, outline=col)
-        self.create_rectangle(r, 0, w - r, h, fill=col, outline=col)
-        pad = 3
-        x0 = w - h + pad if on else pad
-        self.create_oval(x0, pad, x0 + h - 2 * pad, h - pad, fill="white", outline="")
+        self._img = smooth.switch(self.W, self.H, on, T.TEAL if on else T.SAND_PRESS, "#FFFFFF",
+                                  self.cget("bg"))
+        self.create_image(0, 0, anchor="nw", image=self._img)
 
 
 class Segmented(tk.Frame):
@@ -296,22 +290,17 @@ class ThemeTile(tk.Canvas):
             edge, width = c["TEAL"], 3
         else:
             edge, width = (c["MUTED"] if self._hover else c["BORDER"]), 1
-        round_rect(self, 2, 2, w - 2, h - 2, 12, fill=c["BG"], outline=edge, width=width)
+        # the card, the colour dots and the tick are one smooth picture; the words go on top
+        x = w - 124
+        dots = [(c[key], c["BORDER"] if key == "CARD" else c[key])
+                for key in ("CARD", "TEAL", "ORCHID", "TEXT")]
+        tick = (w - 24, c["TEAL"], c["ON_PRIMARY"]) if self.selected else None
+        self._img = smooth.tile_face(w, h, self.cget("bg"), c["BG"], edge, width, dots, x, tick)
+        self.create_image(0, 0, anchor="nw", image=self._img)
         self.create_text(18, 16, text=self.title, anchor="w", fill=c["TEXT"],
                          font=(self.fam, 11, "bold"))
         self.create_text(18, 31, text=self.note, anchor="w", fill=c["MUTED"],
                          font=(self.fam, 9))
-        # four colour dots, then the tick circle
-        x = w - 124
-        for key in ("CARD", "TEAL", "ORCHID", "TEXT"):
-            self.create_oval(x - 9, h / 2 - 9, x + 9, h / 2 + 9, fill=c[key],
-                             outline=c["BORDER"] if key == "CARD" else c[key], width=1)
-            x += 22
-        if self.selected:
-            cx, cy = w - 24, h / 2
-            self.create_oval(cx - 10, cy - 10, cx + 10, cy + 10, fill=c["TEAL"], outline="")
-            self.create_line(cx - 5, cy, cx - 1.5, cy + 4, cx + 5, cy - 4,
-                             fill=c["ON_PRIMARY"], width=2, capstyle="round", joinstyle="round")
 
 
 class IconButton(tk.Canvas):
@@ -378,17 +367,9 @@ class IconButton(tk.Canvas):
     def _draw(self):
         """Paint the tile and the arrow."""
         self.delete("all")
-        n = self.SIZE
         bg = T.SAND_PRESS if (self._down and not self._disabled) else (
             T.SAND_HOVER if (self._hover and not self._disabled) else T.SAND)
         # greyed out = the text colour faded toward the tile, but still clearly visible
         fg = T._mix(T.TEXT, bg, 0.5) if self._disabled else T.TEXT
-        self.create_rectangle(0, 0, n - 1, n - 1, fill=bg, outline=T.BORDER)
-        m = n / 2
-        left = self.kind == "undo"
-        # an arch with an arrow head on one end: left end for undo, right end for redo
-        self.create_arc(m - 8, m - 5, m + 8, m + 11, start=0, extent=180, style="arc",
-                        outline=fg, width=2)
-        hx = m - 8 if left else m + 8
-        self.create_polygon(hx - 4.5, m + 3.5, hx + 4.5, m + 3.5, hx, m + 9.5, fill=fg,
-                            outline=fg)
+        self._img = smooth.arrow_icon(self.kind, fg, bg, T.BORDER, self.SIZE)
+        self.create_image(0, 0, anchor="nw", image=self._img)

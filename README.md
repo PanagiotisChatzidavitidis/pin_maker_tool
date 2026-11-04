@@ -29,11 +29,11 @@ export a PDF (or print straight away) ready to cut out.
   Changing a theme cross-fades smoothly (when Smooth animations is on).
 - **Themes.** Creamy, warm colours throughout. Four light themes (Oat Milk, Vanilla Latte,
   Cream & Denim, Strawberry Cream), four dark themes that are coffee and cream rather than steel
-  (Espresso Mint, Cocoa Cream, Cocoa Denim, Mocha Orchid) and the original Classic pair. Each
+  (Espresso Mint, Cocoa Cream, Cocoa Denim, Mocha Orchid) and the original teal pair (Lagoon Sand and Lagoon Night). Each
   tile previews its own colours. Oat Milk is the default light theme and Espresso Mint the
   default dark one; the app remembers your last light and your last dark theme. Themes
   chosen before the renaming carry over (Carbon Blue is now Cocoa Denim, Graphite Mint is
-  Espresso Mint, Midnight Orchid is Mocha Orchid).
+  Espresso Mint, Midnight Orchid is Mocha Orchid, Classic is Lagoon).
 - **Drag to rearrange.** Drag a pin onto another circle to swap the two, or onto an empty
   circle to move it. A ghost follows the mouse and the target lights up; Esc cancels. A plain
   click still opens Modify / Clear, and every move can be undone.

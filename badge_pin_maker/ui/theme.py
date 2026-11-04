@@ -7,7 +7,7 @@ widget picks up the new colours.
 
 A theme is a full set of colour names. The new themes are written as eight base colours in
 _PALETTES; _build() works out the rest (hover shades, sheet shadows, ...) from them. The
-original look is kept as "Classic".
+original teal look is kept as the Lagoon pair.
 """
 
 import platform
@@ -95,10 +95,10 @@ def _build(mode, bg, card, border, text, muted, pri, soft, acc):
         CROP_HALO=_mix(bg, BLACK, 0.4) if dark else WHITE)
 
 
-# The original lo-fi look, kept exactly as it was.
-_CLASSIC = {
+# The original lo-fi teal look, kept exactly as it was (now called Lagoon).
+_LAGOON = {
     # lo-fi cosy daylight
-    "classic_light": dict(
+    "lagoon_sand": dict(
         MODE="light", ON_PRIMARY="white",
         PETROL="#005F73", TEAL="#008080", TEAL_HOVER="#1A9696", TEAL_DARK="#006767",
         SAND="#EACDB2", SAND_HOVER="#E2C3A4", SAND_PRESS="#D6B391",
@@ -115,7 +115,7 @@ _CLASSIC = {
         # crop window: colour the image fades to outside the pin, and the pin outline
         CROP_DIM=(243, 231, 218), CROP_LINE="#2C4651", CROP_HALO="#FFFFFF"),
     # lo-fi night: deep petrol-slate surfaces, warm sand text, brighter accents
-    "classic_dark": dict(
+    "lagoon_night": dict(
         MODE="dark", ON_PRIMARY="white",
         PETROL="#8FD3D6", TEAL="#2B9A9A", TEAL_HOVER="#3AB0B0", TEAL_DARK="#217878",
         SAND="#33494F", SAND_HOVER="#3A535B", SAND_PRESS="#3F5A62",
@@ -135,28 +135,29 @@ _CLASSIC = {
 #   bg, card, border, text, muted, primary, soft button, accent
 _PALETTES = [
     # --- light: warm cream pages, lighter cream cards, brown ink, dusty accents
-    ("oat_milk", "Oat Milk", "Sage green · default", "light",
+    ("oat_milk", "Oat Milk", "Sage & cream · default", "light",
      "#F7EFDF", "#FFF9EC", "#E8D9BE", "#4A3B2E", "#786957", "#7E8F6A", "#EEE5CF", "#C98F6B"),
     ("vanilla_latte", "Vanilla Latte", "Caramel & cocoa", "light",
      "#F5EBDA", "#FFF8EA", "#E6D3B5", "#4A3828", "#776653", "#B98552", "#EDDFC6", "#7A5A44"),
-    ("cream_denim", "Cream & Denim", "Soft denim blue", "light",
+    ("cream_denim", "Cream & Denim", "Denim & honey", "light",
      "#F6EFE2", "#FFFBF2", "#E7DAC0", "#433A33", "#756A5B", "#6F88A8", "#EEE3CC", "#D9A55B"),
-    ("strawberry_cream", "Strawberry Cream", "Rosy pink", "light",
+    ("strawberry_cream", "Strawberry Cream", "Rose & lilac", "light",
      "#FBEFE6", "#FFF8F1", "#F0D8C9", "#4E3436", "#836566", "#D57A8A", "#F8E2D6", "#A99BCB"),
     # --- dark: coffee and cream instead of steel, cream ink, soft glowing accents
-    ("espresso_mint", "Espresso Mint", "Soft mint · default", "dark",
+    ("espresso_mint", "Espresso Mint", "Mint & butter · default", "dark",
      "#262420", "#312E29", "#45413A", "#F1E8D6", "#A9A292", "#8FC4A8", "#3A3631", "#E8C98A"),
-    ("cocoa_cream", "Cocoa Cream", "Caramel & cream", "dark",
+    ("cocoa_cream", "Cocoa Cream", "Caramel & sage", "dark",
      "#2A211C", "#352A24", "#4A3B32", "#F3E7D3", "#B5A28C", "#D9A66B", "#3F332B", "#9DB08A"),
-    ("cocoa_denim", "Cocoa Denim", "Warm denim", "dark",
+    ("cocoa_denim", "Cocoa Denim", "Denim & cream", "dark",
      "#232321", "#2E2D2A", "#44423D", "#EFE5D0", "#A8A090", "#86A3C7", "#383632", "#E9DCC2"),
-    ("mocha_orchid", "Mocha Orchid", "Dusty orchid", "dark",
+    ("mocha_orchid", "Mocha Orchid", "Orchid & peach", "dark",
      "#2B2229", "#372C35", "#4C3F49", "#F2E6E4", "#B09DAA", "#C79BC4", "#403440", "#E8B79A"),
 ]
 
 # Themes that were renamed keep working for people who had them chosen.
 _ALIASES = {"carbon_blue": "cocoa_denim", "graphite_mint": "espresso_mint",
-            "midnight_orchid": "mocha_orchid"}
+            "midnight_orchid": "mocha_orchid", "classic_light": "lagoon_sand",
+            "classic_dark": "lagoon_night"}
 
 THEMES = {}          # id -> every colour name
 THEME_INFO = {}      # id -> (title, note)
@@ -165,11 +166,11 @@ for _id, _title, _note, _mode, *_base in _PALETTES:
     THEMES[_id] = _build(_mode, *_base)
     THEME_INFO[_id] = (_title, _note)
     THEME_ORDER[_mode].append(_id)
-for _id, _title, _note in (("classic_light", "Classic Light", "Teal & sand"),
-                           ("classic_dark", "Classic Dark", "Teal night")):
-    THEMES[_id] = _CLASSIC[_id]
+for _id, _title, _note in (("lagoon_sand", "Lagoon Sand", "Teal & orchid"),
+                           ("lagoon_night", "Lagoon Night", "Teal & rose")):
+    THEMES[_id] = _LAGOON[_id]
     THEME_INFO[_id] = (_title, _note)
-    THEME_ORDER[_CLASSIC[_id]["MODE"]].append(_id)
+    THEME_ORDER[_LAGOON[_id]["MODE"]].append(_id)
 
 
 def mode_of(name):

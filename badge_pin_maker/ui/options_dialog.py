@@ -8,22 +8,9 @@ canvases folder, and a button that puts everything back to its default.
 import tkinter as tk
 from tkinter import ttk
 
-from . import theme as T
+from . import smooth, theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .widgets import Segmented, ThemeTile, Toggle, make_card
-
-
-def _draw_mode_icon(cv, mode):
-    """A tiny sun (light) or moon (dark) in the colours of the theme in use."""
-    col = T.ORCHID if mode == "light" else T.TEAL
-    if mode == "light":
-        cv.create_oval(5, 5, 13, 13, fill=col, outline=col)
-        for dx, dy in ((9, 1), (9, 17), (1, 9), (17, 9), (3, 3), (15, 3), (3, 15), (15, 15)):
-            x, y = 9 + (dx - 9) * 0.8, 9 + (dy - 9) * 0.8
-            cv.create_line(9 + (dx - 9) * 0.62, 9 + (dy - 9) * 0.62, x, y, fill=col, width=1.5)
-    else:
-        cv.create_oval(3, 3, 15, 15, fill=col, outline=col)
-        cv.create_oval(7, 1, 18, 12, fill=T.CARD, outline=T.CARD)
 
 
 class OptionsDialog(tk.Toplevel):
@@ -124,14 +111,15 @@ class OptionsDialog(tk.Toplevel):
                   wraplength=2 * ThemeTile.W).pack(anchor="w", pady=(0, 12))
         cols = tk.Frame(f, bg=T.CARD)
         cols.pack(fill="x")
+        self._mode_imgs = []                                   # keep the icons alive
         for c, (mode, label) in enumerate((("light", "LIGHT"), ("dark", "DARK"))):
             col = tk.Frame(cols, bg=T.CARD)
             col.grid(row=0, column=c, sticky="n", padx=(0, 14) if c == 0 else 0)
             hd = tk.Frame(col, bg=T.CARD)
             hd.pack(fill="x", pady=(0, 8))
-            icon = tk.Canvas(hd, width=18, height=18, bg=T.CARD, highlightthickness=0)
-            icon.pack(side="left")
-            _draw_mode_icon(icon, mode)
+            img = smooth.mode_icon(mode, T.ORCHID if mode == "light" else T.TEAL, T.CARD)
+            self._mode_imgs.append(img)
+            tk.Label(hd, image=img, bg=T.CARD, bd=0).pack(side="left")
             ttk.Label(hd, text=label, style="Section.TLabel").pack(side="left", padx=(6, 0))
             tk.Frame(hd, bg=T.BORDER, height=1).pack(side="left", fill="x", expand=True,
                                                      padx=(10, 0))
