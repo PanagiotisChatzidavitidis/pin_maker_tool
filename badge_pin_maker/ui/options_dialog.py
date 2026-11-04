@@ -1,8 +1,8 @@
 """The Options window: every setting of the app in one place.
 
 It is opened from the Options button on the start screen and in the editor. It holds the
-display mode (full screen or windowed), the light and dark themes, dark mode and the canvases
-folder, and a button that puts everything back to its default.
+display mode (full screen or windowed), smooth animations, the light and dark themes and the
+canvases folder, and a button that puts everything back to its default.
 """
 
 import tkinter as tk
@@ -11,6 +11,19 @@ from tkinter import ttk
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .widgets import Segmented, ThemeTile, Toggle, make_card
+
+
+def _draw_mode_icon(cv, mode):
+    """A tiny sun (light) or moon (dark) in the colours of the theme in use."""
+    col = T.ORCHID if mode == "light" else T.TEAL
+    if mode == "light":
+        cv.create_oval(5, 5, 13, 13, fill=col, outline=col)
+        for dx, dy in ((9, 1), (9, 17), (1, 9), (17, 9), (3, 3), (15, 3), (3, 15), (15, 15)):
+            x, y = 9 + (dx - 9) * 0.8, 9 + (dy - 9) * 0.8
+            cv.create_line(9 + (dx - 9) * 0.62, 9 + (dy - 9) * 0.62, x, y, fill=col, width=1.5)
+    else:
+        cv.create_oval(3, 3, 15, 15, fill=col, outline=col)
+        cv.create_oval(7, 1, 18, 12, fill=T.CARD, outline=T.CARD)
 
 
 class OptionsDialog(tk.Toplevel):
@@ -51,6 +64,9 @@ class OptionsDialog(tk.Toplevel):
     def _build(self):
         """Fill the window with the current theme's colours. It is called again after a theme
         change, so the window itself changes colour too.
+
+        Layout: a header with the logo, then two columns: Display and Canvases folder on the
+        left, the Themes on the right, and a footer bar with Restore defaults and Return.
         """
         for child in self.winfo_children():
             child.destroy()
@@ -58,76 +74,98 @@ class OptionsDialog(tk.Toplevel):
         app = self.app
         fam = app.base_font[0]
 
-        body = ttk.Frame(self, padding=(24, 20, 24, 6))
-        body.pack(fill="both", expand=True)
-        ttk.Label(body, text="Options", style="Title.TLabel").pack(anchor="w", pady=(0, 12))
+        # ---- header
+        head = tk.Frame(self, bg=T.BG)
+        head.pack(fill="x", padx=28, pady=(22, 16))
+        self._logo = app.toasts.logo()
+        tk.Label(head, image=self._logo, bg=T.BG).pack(side="left", padx=(0, 14))
+        titles = tk.Frame(head, bg=T.BG)
+        titles.pack(side="left")
+        ttk.Label(titles, text="Options", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(titles, text="Make the app feel like yours. Changes apply right away.",
+                  style="Hint.TLabel").pack(anchor="w", pady=(2, 0))
+        tk.Frame(self, bg=T.BORDER, height=1).pack(fill="x")
 
-        f = make_card(body, "Window", pady=(0, 8))
+        body = tk.Frame(self, bg=T.BG)
+        body.pack(fill="both", expand=True, padx=28, pady=(18, 20))
+        left = tk.Frame(body, bg=T.BG)
+        left.pack(side="left", fill="y", anchor="n")
+        tk.Frame(left, bg=T.BG, width=330, height=1).pack()          # the column's width
+        right = tk.Frame(body, bg=T.BG)
+        right.pack(side="left", fill="both", expand=True, padx=(18, 0), anchor="n")
+
+        # ---- left: display
+        f = make_card(left, "Display", pady=(0, 14))
+        self._setting(f, "Window", "Press F11 at any time to switch.")
         Segmented(f, app.v_window, [("fullscreen", "Full screen"), ("windowed", "Windowed")],
-                  command=self._mode_changed).pack(fill="x")
-        ttk.Label(f, text="Press F11 at any time to switch.",
-                  style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
-        row = ttk.Frame(f, style="Card.TFrame")
-        row.pack(fill="x", pady=(14, 0))
-        ttk.Label(row, text="Smooth animations", style="Card.TLabel").pack(side="left")
+                  command=self._mode_changed).pack(fill="x", pady=(8, 0))
+        tk.Frame(f, bg=T.BORDER, height=1).pack(fill="x", pady=14)
+        row = tk.Frame(f, bg=T.CARD)
+        row.pack(fill="x")
         Toggle(row, app.v_anim, command=app.animations_changed, bg=T.CARD).pack(side="right")
-        ttk.Label(f, text="Pins glide when swapped and fade when cleared.",
-                  style="Muted.TLabel").pack(anchor="w", pady=(4, 0))
+        self._setting(row, "Smooth animations", "Pins glide when swapped and fade away "
+                      "when cleared.", wrap=220, side="left")
 
-        # ---- themes: a light column and a dark column of preview tiles
-        f = make_card(body, "Themes", pady=(0, 8))
-        row = ttk.Frame(f, style="Card.TFrame")
-        row.pack(fill="x", pady=(0, 8))
-        ttk.Label(row, text="Dark mode", style="Card.TLabel").pack(side="left")
-        Toggle(row, app.v_dark, command=self._dark_changed, bg=T.CARD).pack(side="right")
-        ttk.Label(f, text="Pick a theme to use it. The Dark mode switch flips between your "
-                          "chosen light and dark theme.", style="Muted.TLabel",
-                  justify="left", wraplength=2 * ThemeTile.W + 14).pack(anchor="w",
-                                                                         pady=(0, 10))
-        cols = ttk.Frame(f, style="Card.TFrame")
+        # ---- left: canvases folder
+        f = make_card(left, "Canvases folder", pady=(0, 0))
+        edge = tk.Frame(f, bg=T.BORDER)
+        edge.pack(fill="x")
+        self.folder_lbl = tk.Label(edge, text=app.canvases_dir(), bg=T.FIELD, fg=T.TEXT,
+                                   font=(fam, 9), anchor="w", justify="left", wraplength=290,
+                                   padx=10, pady=8)
+        self.folder_lbl.pack(fill="x", padx=1, pady=1)
+        ttk.Button(f, text="Change folder…", style="Ghost.TButton",
+                   command=self._change_folder).pack(anchor="e", pady=(10, 0))
+
+        # ---- right: themes, a light column and a dark column of preview tiles
+        f = make_card(right, "Themes", pady=(0, 0))
+        ttk.Label(f, text="Pick a theme to use it. A light theme gives the light look, a dark "
+                          "one the dark look.", style="Muted.TLabel", justify="left",
+                  wraplength=2 * ThemeTile.W).pack(anchor="w", pady=(0, 12))
+        cols = tk.Frame(f, bg=T.CARD)
         cols.pack(fill="x")
-        for c, (mode, label, chosen) in enumerate(
-                (("light", "LIGHT THEMES", app.light_theme),
-                 ("dark", "DARK THEMES", app.dark_theme))):
-            col = ttk.Frame(cols, style="Card.TFrame")
+        for c, (mode, label) in enumerate((("light", "LIGHT"), ("dark", "DARK"))):
+            col = tk.Frame(cols, bg=T.CARD)
             col.grid(row=0, column=c, sticky="n", padx=(0, 14) if c == 0 else 0)
-            ttk.Label(col, text=label, style="Section.TLabel").pack(anchor="w", pady=(0, 6))
+            hd = tk.Frame(col, bg=T.CARD)
+            hd.pack(fill="x", pady=(0, 8))
+            icon = tk.Canvas(hd, width=18, height=18, bg=T.CARD, highlightthickness=0)
+            icon.pack(side="left")
+            _draw_mode_icon(icon, mode)
+            ttk.Label(hd, text=label, style="Section.TLabel").pack(side="left", padx=(6, 0))
+            tk.Frame(hd, bg=T.BORDER, height=1).pack(side="left", fill="x", expand=True,
+                                                     padx=(10, 0))
             for theme_id in T.THEME_ORDER[mode]:
                 title, note = T.THEME_INFO[theme_id]
                 # the tile that is in use right now gets the tick
                 in_use = theme_id == app.current_theme()
                 tile = ThemeTile(col, T.THEMES[theme_id], title, note, in_use,
                                  lambda t=theme_id: self._theme_picked(t), fam, bg=T.CARD)
-                tile.pack(pady=(0, 4))
+                tile.pack(pady=(0, 5))
 
-        # ---- canvases folder
-        f = make_card(body, "Canvases folder", pady=(0, 6))
-        row = ttk.Frame(f, style="Card.TFrame")
-        row.pack(fill="x")
-        ttk.Button(row, text="Change folder…", style="Ghost.TButton",
-                   command=self._change_folder).pack(side="right", padx=(12, 0))
-        self.folder_lbl = ttk.Label(row, text=app.canvases_dir(), style="Muted.TLabel",
-                                    justify="left", wraplength=2 * ThemeTile.W - 90)
-        self.folder_lbl.pack(side="left", fill="x", expand=True)
-
+        # ---- footer bar
         tk.Frame(self, bg=T.BORDER, height=1).pack(fill="x")
-        foot = ttk.Frame(self, padding=(24, 12))
+        foot = tk.Frame(self, bg=T.CARD)
         foot.pack(fill="x")
-        ttk.Button(foot, text="Return", style="Accent.TButton",
+        inner = tk.Frame(foot, bg=T.CARD)
+        inner.pack(fill="x", padx=28, pady=12)
+        ttk.Button(inner, text="Return", style="Accent.TButton",
                    command=self.destroy).pack(side="right")
-        ttk.Button(foot, text="Restore defaults", style="Soft.TButton",
+        ttk.Button(inner, text="Restore defaults", style="Soft.TButton",
                    command=self._restore).pack(side="left")
+
+    def _setting(self, parent, title, note, wrap=300, side=None):
+        """A setting's name in bold with a muted explanation under it (inside a card)."""
+        box = tk.Frame(parent, bg=T.CARD)
+        box.pack(anchor="w", **({"side": side} if side else {}))
+        tk.Label(box, text=title, bg=T.CARD, fg=T.TEXT,
+                 font=(self.app.base_font[0], 10, "bold")).pack(anchor="w")
+        ttk.Label(box, text=note, style="Muted.TLabel", justify="left",
+                  wraplength=wrap).pack(anchor="w", pady=(2, 0))
 
     def _mode_changed(self):
         """Full screen / Windowed was picked."""
         self.app.set_fullscreen(self.app.v_window.get() == "fullscreen")
-
-    def _dark_changed(self):
-        """The dark-mode switch was flipped. The app rebuilds its own screens; this window
-        rebuilds itself right after (queued behind the app's rebuild).
-        """
-        self.app.toggle_theme()
-        self.after_idle(self._rebuild)
 
     def _theme_picked(self, theme_id):
         """A theme tile was clicked: use that theme."""

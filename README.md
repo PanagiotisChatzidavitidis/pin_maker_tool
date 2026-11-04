@@ -23,14 +23,15 @@ export a PDF (or print straight away) ready to cut out.
   ticks and an optional safe-area ring. Empty circles print blank.
 - **Canvases.** Everything is saved as a `.pinproj` file so you can come back and edit it.
   Undo / redo, a light and a dark theme, and your last settings are remembered.
-- **Options in one place.** The **Options** button (start screen and editor) holds full
-  screen / windowed (full screen is the default), the themes, dark mode and the canvases
-  folder. **Restore defaults** puts everything back, **Return** closes the window.
+- **Options in one place.** The **Options** button (start screen and editor) opens a window with
+  full screen / windowed (full screen is the default), smooth animations, the themes and the
+  canvases folder. **Restore defaults** puts everything back, **Return** closes the window.
+  Changing a theme cross-fades smoothly (when Smooth animations is on).
 - **Themes.** Creamy, warm colours throughout. Four light themes (Oat Milk, Vanilla Latte,
   Cream & Denim, Strawberry Cream), four dark themes that are coffee and cream rather than steel
   (Espresso Mint, Cocoa Cream, Cocoa Denim, Mocha Orchid) and the original Classic pair. Each
   tile previews its own colours. Oat Milk is the default light theme and Espresso Mint the
-  default dark one; the Dark mode switch flips between your chosen light and dark theme. Themes
+  default dark one; the app remembers your last light and your last dark theme. Themes
   chosen before the renaming carry over (Carbon Blue is now Cocoa Denim, Graphite Mint is
   Espresso Mint, Midnight Orchid is Mocha Orchid).
 - **Drag to rearrange.** Drag a pin onto another circle to swap the two, or onto an empty
