@@ -9,7 +9,7 @@ How the app is used
      reopen and edit them later.
 
 Shortcuts:  Ctrl+N new   Ctrl+O browse   Ctrl+S save   Ctrl+Shift+S save as
-            Ctrl+H canvases home   Ctrl+E export PDF   Ctrl+P print
+            Ctrl+H back to menu   Ctrl+E export PDF   Ctrl+P print
             Ctrl+Z undo   Ctrl+Y redo
             Delete  clear the circle under the mouse
 (On macOS use Cmd instead of Ctrl.)
@@ -446,7 +446,7 @@ class BadgeApp(RootBase):
                                    font=(self.base_font[0], 9))
         self.status_lbl.pack(side="left")
         tk.Label(status, bg=T.CARD, fg=T.MUTED, padx=14, font=(self.base_font[0], 9),
-                 text=f"{MOD_LABEL}+Z undo  ·  {MOD_LABEL}+S save  ·  {MOD_LABEL}+H canvases"
+                 text=f"{MOD_LABEL}+Z undo  ·  {MOD_LABEL}+S save  ·  {MOD_LABEL}+H menu"
                  ).pack(side="right")
         self.export_bar = ttk.Progressbar(status, length=160, mode="determinate",
                                           style="Teal.Horizontal.TProgressbar")
@@ -465,12 +465,12 @@ class BadgeApp(RootBase):
         self.btn_undo = IconButton(head, "undo", self.undo, f"Undo  ({MOD_LABEL}+Z)",
                                    on_tip=self._tip)
         self.btn_undo.pack(side="right", padx=(0, 4))
+        ttk.Button(left, text="←  Back to menu", style="Soft.TButton",
+                   command=self.go_home).pack(fill="x", pady=(0, 6))
         nav = ttk.Frame(left)
         nav.pack(fill="x", pady=(0, 14))
-        ttk.Button(nav, text="← Canvases", style="Soft.TButton",
-                   command=self.go_home).pack(side="left", expand=True, fill="x")
         ttk.Button(nav, text="Save", style="Soft.TButton",
-                   command=self.save_canvas).pack(side="left", expand=True, fill="x", padx=(8, 0))
+                   command=self.save_canvas).pack(side="left", expand=True, fill="x")
         ttk.Button(nav, text="Options", style="Soft.TButton",
                    command=self.open_options).pack(side="left", expand=True, fill="x", padx=(8, 0))
 
