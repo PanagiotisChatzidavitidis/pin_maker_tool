@@ -1,4 +1,4 @@
-"""Badge Pin Maker: the main window, where everything comes together.
+"""Ozzie's Pin Studio: the main window, where everything comes together.
 
 How the app is used
   1. Pick a paper size and a pin size; the sheet is laid out automatically.
@@ -83,7 +83,7 @@ class BadgeApp(RootBase):
         self._loading = True
         self.screen = "home"
 
-        self.title("Badge Pin Maker")
+        self.title("Ozzie's Pin Studio")
         mascot.set_current(self.settings.get("mascot", mascot.DEFAULT))
         set_window_icon(self, everywhere=True)
         geo = self.settings.get("size")
@@ -297,7 +297,7 @@ class BadgeApp(RootBase):
         self.home.pack_forget()
         self.editor.pack_forget()
         if name == "home":
-            self.title("Badge Pin Maker")
+            self.title("Ozzie's Pin Studio")
             self.home.refresh()
             self.home.pack(fill="both", expand=True)
         else:
@@ -534,7 +534,7 @@ class BadgeApp(RootBase):
 
         head = ttk.Frame(left)
         head.pack(fill="x", pady=(0, 10))
-        ttk.Label(head, text="Badge Pin Maker", style="Title.TLabel").pack(side="left")
+        ttk.Label(head, text="Ozzie's Pin Studio", style="Title.TLabel").pack(side="left")
         self.btn_redo = IconButton(head, "redo", self.redo, f"Redo  ({MOD_LABEL}+Y)",
                                    on_tip=self._tip)
         self.btn_redo.pack(side="right")
@@ -730,10 +730,10 @@ class BadgeApp(RootBase):
     def _update_title(self):
         """Window title: the canvas name, with a * when there are unsaved changes."""
         if self.screen == "home":
-            self.title("Badge Pin Maker")
+            self.title("Ozzie's Pin Studio")
             return
         name = os.path.basename(self.canvas_path) if self.canvas_path else "Untitled"
-        self.title(f"{name}{'*' if self.dirty else ''} — Badge Pin Maker")
+        self.title(f"{name}{'*' if self.dirty else ''} — Ozzie's Pin Studio")
 
     def _mark_dirty(self):
         """Note that the canvas has unsaved changes."""
@@ -1832,7 +1832,7 @@ class BadgeApp(RootBase):
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, dict) or data.get("app") != "badge-pin-maker":
-                raise ValueError("This is not a Badge Pin Maker canvas.")
+                raise ValueError("This is not an Ozzie's Pin Studio canvas.")
         except (OSError, ValueError) as ex:
             messagebox.showerror("Oh no!", f"I couldn't open that canvas:\n{ex}")
             return False

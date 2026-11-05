@@ -58,8 +58,8 @@ class HomeScreen(tk.Frame):
         tk.Label(brand, image=self._logo, bg=T.CARD).pack(side="left", padx=(0, 12))
         names = ttk.Frame(brand, style="Card.TFrame")
         names.pack(side="left")
-        ttk.Label(names, text="Badge Pin", style="Hero.TLabel").pack(anchor="w")
-        ttk.Label(names, text="Maker", style="Hero.TLabel").pack(anchor="w")
+        ttk.Label(names, text="Ozzie's", style="Hero.TLabel").pack(anchor="w")
+        ttk.Label(names, text="Pin Studio", style="Hero.TLabel").pack(anchor="w")
         ttk.Label(pad, text="Image sheets for your pin badges",
                   style="Muted.TLabel").pack(anchor="w", pady=(14, 22))
 

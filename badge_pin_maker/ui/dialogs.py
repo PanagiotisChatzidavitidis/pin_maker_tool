@@ -74,9 +74,9 @@ class ThemedDialog(tk.Toplevel):
         body.pack(fill="both", expand=True)
 
         # the hamster (does a little hop when the window opens)
-        self._logo = load_logo(52)
-        self._mascot = tk.Canvas(body, width=60, height=66, bg=T.CARD, highlightthickness=0)
-        self._mimg = self._mascot.create_image(30, 36, image=self._logo)
+        self._logo = load_logo(80)
+        self._mascot = tk.Canvas(body, width=92, height=98, bg=T.CARD, highlightthickness=0)
+        self._mimg = self._mascot.create_image(46, 54, image=self._logo)
         self._mascot.pack(side="left", anchor="s")
         self._anim = None
 
@@ -143,7 +143,7 @@ class ThemedDialog(tk.Toplevel):
             self._anim = None
             return
         try:
-            self._mascot.coords(self._mimg, 30, 36 + hops[step])
+            self._mascot.coords(self._mimg, 46, 54 + hops[step])
         except tk.TclError:
             return
         self._anim = self.after(70, self._bounce, step + 1)

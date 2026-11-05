@@ -1,4 +1,4 @@
-# Badge Pin Maker
+# Ozzie's Pin Studio
 
 A small desktop app for making printable sheets of round badge-pin artwork. Pick a paper
 size and a pin size, drop in your images, position each one under the pin circle, then
