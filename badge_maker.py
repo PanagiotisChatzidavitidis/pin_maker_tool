@@ -1,4 +1,4 @@
-"""Start Badge Pin Maker:  python badge_maker.py
+"""Start Ozzie's Pin Studio:  python badge_maker.py
 
 The program itself lives in the "badge_pin_maker" package. This small file just starts it,
 so the familiar command (and the PyInstaller build) keep working.

@@ -1,4 +1,4 @@
-"""Badge Pin Maker: lay out images as round badge-pin artwork and print them on one sheet.
+"""Ozzie's Pin Studio: lay out images as round badge-pin artwork and print them on one sheet.
 
 Where things are:
   constants.py, paths.py, settings.py    shared values, file locations, remembered preferences

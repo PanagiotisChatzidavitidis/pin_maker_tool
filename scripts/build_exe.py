@@ -22,7 +22,7 @@ import sys
 # The top folder of the project. This file lives one level down, in scripts/.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = os.path.join(ROOT, "assets")
-NAME = "Badge Pin Maker"          # the name of the finished .exe / .app
+NAME = "Ozzie's Pin Studio"          # the name of the finished .exe / .app
 
 
 def main():
