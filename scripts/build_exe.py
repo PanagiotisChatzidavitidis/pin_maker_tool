@@ -9,8 +9,9 @@ Run it on the system you are building for (build on Windows for a Windows .exe,
 on macOS for a .app). The result is in the "dist" folder at the top of the project.
 
 Put your images in an "assets" folder at the top of the project:
-    assets/icon.ico   (Windows)  or  assets/icon.icns  (macOS)
-    assets/logo.png   (optional: replaces the in-app logo)
+    assets/ozzie.png, mr_ozzie.png, ms_ozzie.png   (the mascot; the app icon is made from Ozzie)
+    assets/icon.ico (Windows) or icon.icns (macOS) are made from Ozzie when you build, or put
+    your own there if there is no Ozzie picture
 """
 
 import importlib.util
@@ -36,6 +37,14 @@ def main():
     if importlib.util.find_spec("tkinterdnd2") is not None:
         # drag and drop is optional, but when it is installed it must be packed in too
         cmd += ["--collect-all", "tkinterdnd2"]
+
+    # The icon comes from Ozzie's picture (assets/ozzie.png), made fresh for each build.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import make_icon
+        make_icon.main()
+    except Exception as exc:  # noqa: BLE001 - fall back to whatever icon file exists
+        print("Could not make the icon from Ozzie:", exc)
 
     icon = os.path.join(ASSETS, "icon.icns" if sys.platform == "darwin" else "icon.ico")
     print("Icon path:", icon, "| exists:", os.path.isfile(icon))

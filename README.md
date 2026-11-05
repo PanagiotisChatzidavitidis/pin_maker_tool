@@ -57,6 +57,10 @@ export a PDF (or print straight away) ready to cut out.
   undo or redo) do the same as Ctrl+Z and Ctrl+Y.
 - **Held keys count once.** Holding Ctrl+S (or any other shortcut) runs it only once instead of
   repeating. Zooming with Ctrl + and Ctrl - is the exception: holding it keeps zooming.
+- **Ozzie, the mascot.** Ozzie the hamster is the app's logo, the picture in the corner notes
+  and the window icon. In **Options → Mascot** you can pick **Ozzie**, **Mr Ozzie** (bow tie)
+  or **Ms Ozzie** (hair bow); the choice is remembered and swaps everywhere straight away.
+  Ozzie is the default.
 - **Corner notes.** Small cheerful notes with the hamster appear in the bottom-right corner
   for saved, opened, deleted, exported, swapped and so on. Some carry a link (Undo, Show in
   folder). They fade by themselves, or click one to close it.
@@ -103,8 +107,8 @@ python scripts/build_exe.py
 ```
 
 Build on the system you are building for (Windows for a `.exe`, macOS for a `.app`). The
-result appears in `dist/`. Put `icon.ico` / `icon.icns` and `logo.png` in
-[`assets/`](assets/README.md) first if you want your own artwork.
+result appears in `dist/`. Ozzie's pictures live in [`assets/`](assets/README.md); the build makes the app icon
+from Ozzie's picture.
 
 ## Project layout
 
@@ -114,6 +118,7 @@ requirements.txt          Python packages the app needs
 assets/                   Icon and logo images (see assets/README.md)
 scripts/
   build_exe.py            Packs the app into a single executable with PyInstaller
+  make_icon.py            Makes the app icon (.ico / .icns) from Ozzie's picture
 badge_pin_maker/          The program itself
   constants.py            Fixed numbers: margins, print quality, paper and pin size menus
   paths.py                Finding bundled files, from source or from the built exe
@@ -132,6 +137,7 @@ badge_pin_maker/          The program itself
     widgets.py            Cards, stat tiles, the on / off switch
     toast.py              The corner notes and their cute messages (one of each kind at a time)
     icons.py              Canvas thumbnails and the logo
+    mascot.py             Ozzie, Mr Ozzie and Ms Ozzie: finding, cutting out and sizing the pictures
     theme.py              The light and dark themes (colours) and ttk styling
     dnd.py                Optional drag and drop support
 ```

@@ -42,7 +42,7 @@ from ..pdf_export import build_pdf
 from ..canvas_files import read_canvas_info
 from ..settings import RECOVERY_PATH, default_canvases_dir, load_settings, save_settings
 from ..system_actions import print_pdf, reveal_folder
-from . import theme as T
+from . import mascot, theme as T
 from .crop_dialog import CropDialog
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
@@ -84,7 +84,8 @@ class BadgeApp(RootBase):
         self.screen = "home"
 
         self.title("Badge Pin Maker")
-        set_window_icon(self)
+        mascot.set_current(self.settings.get("mascot", mascot.DEFAULT))
+        set_window_icon(self, everywhere=True)
         geo = self.settings.get("size")
         if not (isinstance(geo, str) and re.fullmatch(r"\d{3,4}x\d{3,4}", geo)):
             geo = "1220x820"
@@ -349,6 +350,17 @@ class BadgeApp(RootBase):
         self.after_idle(self._rebuild_ui)        # don't destroy the widget that fired us
         self._fade_finish(cover)
 
+    def choose_mascot(self, mid):
+        """Ozzie, Mr Ozzie or Ms Ozzie was picked: remember it and show it as the logo, in the
+        notes and as the window icon.
+        """
+        mascot.set_current(mid)
+        self.settings["mascot"] = mascot.current
+        save_settings(self.settings)
+        self.toasts.reset()                      # the notes hold the old picture
+        set_window_icon(self, everywhere=True)
+        self.after_idle(self._rebuild_ui)
+
     def _fade_begin(self):
         """Cover the window with a picture of itself, so the rebuild underneath cannot be seen.
         Returns the cover, or None (no animations, or the screen can't be captured here).
@@ -419,9 +431,11 @@ class BadgeApp(RootBase):
         """
         self.light_theme, self.dark_theme = T.DEFAULT_LIGHT, T.DEFAULT_DARK
         self.v_dark.set(False)
-        for key in ("canvases_dir", "projects_dir", "sort", "animations"):
+        for key in ("canvases_dir", "projects_dir", "sort", "animations", "mascot"):
             self.settings.pop(key, None)
         self.v_anim.set(True)
+        mascot.set_current(mascot.DEFAULT)
+        set_window_icon(self, everywhere=True)
         self.set_fullscreen(True)
         self._apply_theme()
         self.after_idle(lambda: self.toasts.show("defaults"))

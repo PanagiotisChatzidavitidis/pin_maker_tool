@@ -10,15 +10,22 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..paths import asset_path
-from . import theme as T
+from . import mascot, theme as T
 from .icons import load_logo
 from .widgets import round_rect
 
 
-def set_window_icon(win):
-    """Use the app icon in a window's title bar instead of the default Tk feather."""
+def set_window_icon(win, everywhere=False):
+    """Use the mascot as a window's icon (title bar, taskbar) instead of the default Tk
+    feather. Without the mascot pictures: assets/icon.ico on Windows. ``everywhere`` makes it
+    the icon of every window opened later too (used for the main window).
+    """
     try:
-        if platform.system() == "Windows":
+        photos = [mascot.photo(mascot.current, s) for s in (256, 64, 32)]
+        if all(photos):
+            win.iconphoto(everywhere, *photos)
+            win._icon_photos = photos                # Tk only keeps a reference to the name
+        elif platform.system() == "Windows":
             win.iconbitmap(asset_path("icon.ico"))
     except tk.TclError:
         pass

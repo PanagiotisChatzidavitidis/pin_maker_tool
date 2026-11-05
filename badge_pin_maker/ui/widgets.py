@@ -373,3 +373,70 @@ class IconButton(tk.Canvas):
         fg = T._mix(T.TEXT, bg, 0.5) if self._disabled else T.TEXT
         self._img = smooth.arrow_icon(self.kind, fg, bg, T.BORDER, self.SIZE)
         self.create_image(0, 0, anchor="nw", image=self._img)
+
+
+class MascotTile(tk.Canvas):
+    """A card showing one mascot's portrait and name, for the Options window. The one in use
+    has a coloured outline and a tick. Clicking runs ``command``; the portrait hops when it is
+    picked.
+    """
+    W, H, PORTRAIT = 88, 116, 62
+
+    def __init__(self, parent, mid, name, selected, command, fam):
+        """``mid`` is the mascot's id, ``name`` what is written under it."""
+        super().__init__(parent, width=self.W, height=self.H, bg=T.CARD, highlightthickness=0,
+                         cursor="hand2")
+        from . import mascot
+        self.mid, self.name, self.selected, self.command, self.fam = mid, name, selected, command, fam
+        self._hover, self._hop_job, self._dy = False, None, 0
+        self._portrait = mascot.photo(mid, self.PORTRAIT)
+        if self._portrait is None:                         # no picture file: the pin icon
+            from .icons import load_logo
+            self._portrait = load_logo(self.PORTRAIT)
+        self.bind("<Button-1>", lambda e: self.command())
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
+        self._draw()
+
+    def _set_hover(self, on):
+        """Light up while the mouse is over the card."""
+        self._hover = on
+        self._draw()
+
+    def set_selected(self, on):
+        """Show (or take away) the outline and tick."""
+        self.selected = on
+        self._draw()
+
+    def _draw(self):
+        """Paint the plate, the portrait and the name."""
+        self.delete("all")
+        w, h = self.W, self.H
+        edge = T.TEAL if self.selected else T.BORDER
+        fill = T.HOVER if (self._hover and not self.selected) else T.BG
+        badge = (w - 17, 17, T.TEAL, T.ON_PRIMARY) if self.selected else None
+        self._plate = smooth.plate(w, h, T.CARD, fill, edge, 2 if self.selected else 1,
+                                   badge=badge)
+        self.create_image(0, 0, anchor="nw", image=self._plate)
+        self._item = self.create_image(w / 2, 14 + self.PORTRAIT / 2 + self._dy,
+                                       image=self._portrait)
+        self.create_text(w / 2, h - 16, text=self.name, fill=T.PETROL if self.selected else T.TEXT,
+                         font=("Georgia", 10, "bold"))
+
+    def hop(self):
+        """A little jump, to say hello."""
+        if self._hop_job is not None:
+            self.after_cancel(self._hop_job)
+        steps = (0, -10, -14, -9, 0, -4, 0)
+
+        def frame(i):
+            self._hop_job = None
+            if i >= len(steps):
+                return
+            try:
+                self.move(self._item, 0, steps[i] - self._dy)
+                self._dy = steps[i]
+                self._hop_job = self.after(45, frame, i + 1)
+            except tk.TclError:
+                pass
+        frame(0)

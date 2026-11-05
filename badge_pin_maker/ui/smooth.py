@@ -118,3 +118,19 @@ def switch(w, h, on, track, knob, bg):
         x0 = w - h + pad if on else pad
         _oval(d, k, x0 + (h - 2 * pad) / 2, h / 2, (h - 2 * pad) / 2, knob)
     return _make(key, w, h, bg, paint)
+
+
+def plate(w, h, bg, fill, edge, edge_w, radius=14, badge=None):
+    """A rounded plate (colour ``fill``, outline ``edge``) with an optional round tick badge
+    ``badge = (cx, cy, circle colour, tick colour)`` for the item in use.
+    """
+    key = ("plate", w, h, bg, fill, edge, edge_w, radius, badge)
+
+    def paint(d, k):
+        d.rounded_rectangle([1.5 * k, 1.5 * k, (w - 1.5) * k - 1, (h - 1.5) * k - 1],
+                            radius=radius * k, fill=fill, outline=edge, width=round(edge_w * k))
+        if badge:
+            cx, cy, circle, mark = badge
+            _oval(d, k, cx, cy, 10, circle)
+            _line(d, k, [(cx - 5, cy), (cx - 1.5, cy + 4), (cx + 5, cy - 4)], mark, 2)
+    return _make(key, w, h, bg, paint)
