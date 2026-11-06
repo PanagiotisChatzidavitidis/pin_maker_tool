@@ -46,7 +46,7 @@ from ..system_actions import print_pdf, reveal_folder
 from ..version import ART_CREDIT, version_text
 from . import mascot, theme as T
 from .crop_dialog import CropDialog
-from .dialogs import messagebox, set_titlebar, set_window_icon
+from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
 from .options_dialog import OptionsDialog
@@ -284,9 +284,8 @@ class BadgeApp(RootBase):
     def open_about(self):
         """The About box: the version (and build date) and who drew Ozzie."""
         self.close_popup()
-        messagebox.showinfo(
-            "About", f"Ozzie's Pin Studio\n{version_text()}\n\nArt by {ART_CREDIT}",
-            parent=self, button="Close")
+        self.wait_window(AboutDialog(self, "Ozzie's Pin Studio", version_text(),
+                                     f"Art by {ART_CREDIT}"))
 
     def choose_canvases_folder(self, parent=None):
         """Let the user pick a different canvases folder. Returns True if one was chosen."""
