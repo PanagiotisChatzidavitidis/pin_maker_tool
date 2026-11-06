@@ -593,20 +593,17 @@ class BadgeApp(RootBase):
         # ---- right: stat tiles + sheet preview
         hdr = ttk.Frame(right)
         hdr.pack(fill="x")
-        for c in range(4):
+        for c in range(3):
             hdr.columnconfigure(c, weight=1, uniform="tiles")
-        self.t_sheet = StatTile(hdr, self.base_font[0])
-        self.t_layout = StatTile(hdr, self.base_font[0])
-        self.t_pins = StatTile(hdr, self.base_font[0])
-        self.t_filled = StatTile(hdr, self.base_font[0])
-        for c, tile in enumerate((self.t_sheet, self.t_layout, self.t_pins, self.t_filled)):
-            tile.grid(row=0, column=c, sticky="ew", padx=(0 if c == 0 else 8, 0))
-        self.fill_bar = ttk.Progressbar(right, mode="determinate",
-                                        style="Teal.Horizontal.TProgressbar")
-        self.fill_bar.pack(fill="x", pady=(10, 10))
+        ff = self.base_font[0]
+        self.t_sheet = StatTile(hdr, ff, "paper", "Paper size")
+        self.t_pins = StatTile(hdr, ff, "pins", "Pin capacity")
+        self.t_filled = StatTile(hdr, ff, "done", "Completed", bar=True)
+        for c, tile in enumerate((self.t_sheet, self.t_pins, self.t_filled)):
+            tile.grid(row=0, column=c, sticky="nsew", padx=(0 if c == 0 else 10, 0))
 
         self.cv = tk.Canvas(right, bg=T.BLUSH, highlightthickness=0)
-        self.cv.pack(fill="both", expand=True)
+        self.cv.pack(fill="both", expand=True, pady=(12, 0))
         self.cv.bind("<Configure>", lambda e: self.schedule_redraw())
         self.cv.bind("<ButtonPress-1>", self.on_press)
         self.cv.bind("<B1-Motion>", self.on_drag)
@@ -1511,20 +1508,16 @@ class BadgeApp(RootBase):
         frame(1)
 
     def _update_stats(self, L, n, filled, low):
-        """Refresh the four tiles above the preview and the progress bar."""
+        """Refresh the three tiles above the preview."""
         W, H = L["page_w"], L["page_h"]
         short = self.v_paper.get().split(" (")[0].replace("Custom...", "Custom")
-        self.t_sheet.set(short, f"{W:g} × {H:g} mm · {L['orientation'].capitalize()}")
-        if L["method"] == "staggered":
-            self.t_layout.set("Staggered", "Honeycomb packing")
-        else:
-            self.t_layout.set("Grid", "Straight rows")
-        self.t_pins.set(str(n), f"pin{'s' if n != 1 else ''} per sheet")
-        if low:
-            self.t_filled.set(str(filled), f"of {n} filled · {low} low-res", warn=True)
-        else:
-            self.t_filled.set(str(filled), f"of {n} filled")
-        self.fill_bar.config(maximum=max(n, 1), value=filled)
+        self.t_sheet.set(short, f"{W:g} × {H:g} mm" + (" · Landscape" if L["orientation"] ==
+                                                          "landscape" else ""))
+        self.t_pins.set(str(n), "Total capacity")
+        pct = round(100 * filled / n) if n else 0
+        label = f"{pct}% completed" + (f" · {low} low-res" if low else "")
+        self.t_filled.set(f"{filled:02d}", total=n, progress=filled / n if n else 0,
+                          label=label, warn=bool(low))
 
     def on_motion(self, e):
         """Highlight the circle under the mouse."""

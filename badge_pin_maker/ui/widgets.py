@@ -20,25 +20,75 @@ def make_card(parent, title, pady=(0, 10)):
 
 
 class StatTile(tk.Frame):
-    """A small card with a big value and a caption underneath."""
-    def __init__(self, parent, font_family):
-        """Build an empty tile; fill it with set()."""
+    """A statistic card: a small icon, a big value (with an optional muted "/ total"), a caption,
+    an optional progress bar and a small capitals label in the accent colour.
+    """
+    def __init__(self, parent, font_family, icon, label, bar=False):
+        """Build an empty tile; fill it with set(). ``icon`` is a smooth.stat_icon kind."""
         super().__init__(parent, bg=T.BORDER)
         inner = tk.Frame(self, bg=T.CARD)
         inner.pack(fill="both", expand=True, padx=1, pady=1)
-        self.value = tk.Label(inner, bg=T.CARD, fg=T.PETROL, anchor="w",
+        self._icon = smooth.stat_icon(icon, T.TEAL, T.CARD)
+        tk.Label(inner, image=self._icon, bg=T.CARD).pack(anchor="w", padx=16, pady=(12, 0))
+        row = tk.Frame(inner, bg=T.CARD)
+        row.pack(fill="x", padx=16, pady=(6, 0))
+        self.value = tk.Label(row, bg=T.CARD, fg=T.PETROL, anchor="w",
                               font=("Georgia", 20, "bold"))
-        self.value.pack(fill="x", padx=14, pady=(9, 0))
+        self.value.pack(side="left")
+        self.total = tk.Label(row, bg=T.CARD, fg=T.MUTED, anchor="w", font=(font_family, 12))
+        self.total.pack(side="left", padx=(6, 0), pady=(5, 0))
         self.caption = tk.Label(inner, bg=T.CARD, fg=T.MUTED, anchor="w",
                                 font=(font_family, 9))
-        self.caption.pack(fill="x", padx=14, pady=(0, 10))
+        self._bar = None
+        if bar:
+            self._frac, self._goal, self._job = 0.0, 0.0, None
+            self._bar = tk.Canvas(inner, height=6, bg=T.CARD, highlightthickness=0)
+            self._bar.pack(fill="x", padx=16, pady=(8, 0))
+            self._bar.bind("<Configure>", lambda e: self._draw_bar())
+        else:
+            self.caption.pack(fill="x", padx=16, pady=(1, 0))
+        self._default_label = label
+        self.label = tk.Label(inner, text=label, bg=T.CARD, fg=T.TEAL, anchor="w",
+                              font=(font_family, 8, "bold"))
+        self.label.pack(fill="x", padx=16, pady=(8 if not bar else 6, 13))
 
-    def set(self, value, caption, warn=False):
-        """Show ``value`` (big) and ``caption`` (small). ``warn`` colours the caption as a
-        warning.
+    def set(self, value, caption="", total=None, progress=None, label=None, warn=False):
+        """Show ``value`` (big), an optional muted ``total`` after it, a ``caption`` under it
+        (tiles without a bar), a ``progress`` bar position (0 to 1) and the capitals ``label``.
+        ``warn`` colours the label as a warning.
         """
         self.value.config(text=value)
-        self.caption.config(text=caption, fg=T.WARN if warn else T.MUTED)
+        self.total.config(text="" if total is None else f"/ {total}")
+        self.caption.config(text=caption)
+        self.label.config(text=(label or self._default_label).upper(),
+                          fg=T.WARN if warn else T.TEAL)
+        if self._bar is not None and progress is not None:
+            self._goal = max(0.0, min(1.0, progress))
+            if self._job is None:
+                self._job = self.after(0, self._glide)
+
+    def _glide(self):
+        """Ease the bar towards its new position over a few quick frames."""
+        self._job = None
+        gap = self._goal - self._frac
+        self._frac = self._goal if abs(gap) < 0.004 else self._frac + gap * 0.3
+        self._draw_bar()
+        if self._frac != self._goal:
+            self._job = self.after(16, self._glide)
+
+    def _draw_bar(self):
+        """Paint the rounded track and the accent fill."""
+        c, w = self._bar, self._bar.winfo_width()
+        c.delete("all")
+        if w < 4:
+            return
+        r = 3
+        round_rect(c, 0, 0, w, 6, r, fill=T._mix(T.CARD, T.TEXT, 0.12), outline="")
+        fw = int(w * self._frac)
+        if fw >= 2 * r:
+            round_rect(c, 0, 0, fw, 6, r, fill=T.TEAL, outline="")
+        elif fw > 0:
+            c.create_oval(0, 0, 6, 6, fill=T.TEAL, outline="")
 
 
 def round_rect(canvas, x0, y0, x1, y1, r, **kw):
