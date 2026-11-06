@@ -14,6 +14,7 @@ Put your images in an "assets" folder at the top of the project:
     your own there if there is no Ozzie picture
 """
 
+import datetime
 import importlib.util
 import os
 import subprocess
@@ -61,8 +62,15 @@ def main():
     # whole badge_pin_maker package from there.
     cmd.append(os.path.join(ROOT, "badge_maker.py"))
 
+    # Stamp the build date so the About box can show it (the file is removed again afterwards).
+    stamp = os.path.join(ROOT, "badge_pin_maker", "_build.py")
+    with open(stamp, "w", encoding="utf-8") as f:
+        f.write(f'BUILD_DATE = "{datetime.date.today().isoformat()}"\n')
     print("Running:", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=ROOT)
+    try:
+        subprocess.run(cmd, check=True, cwd=ROOT)
+    finally:
+        os.remove(stamp)
     print(f"\nDone. Look in: {os.path.join(ROOT, 'dist')}")
 
 

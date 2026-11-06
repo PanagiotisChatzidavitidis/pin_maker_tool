@@ -184,9 +184,10 @@ class _ThemedMessageBox:
                 pass
         return dlg.result
 
-    def showinfo(self, title, message, parent=None, **kw):
-        """Tell the user something; one Okay button."""
-        self._run(parent, title, message, kind="info")
+    def showinfo(self, title, message, parent=None, button=None, **kw):
+        """Tell the user something; one button ("Okay!" unless ``button`` words it)."""
+        extra = {"buttons": ((button, True, "Accent.TButton"),)} if button else {}
+        self._run(parent, title, message, kind="info", **extra)
 
     def showwarning(self, title, message, parent=None, **kw):
         """Same as showinfo, for warnings."""

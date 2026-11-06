@@ -72,8 +72,14 @@ class HomeScreen(tk.Frame):
         ttk.Button(pad, text="Browse for a canvas…", style="Ghost.TButton",
                    command=app.open_canvas).pack(fill="x", pady=(10, 0))
 
-        ttk.Button(pad, text="Options", style="Ghost.TButton",
-                   command=app.open_options).pack(fill="x", pady=(10, 0))
+        more = ttk.Frame(pad, style="Card.TFrame")
+        more.pack(fill="x", pady=(10, 0))
+        more.columnconfigure(0, weight=3, uniform="more")
+        more.columnconfigure(1, weight=2, uniform="more")
+        ttk.Button(more, text="Options", style="Ghost.TButton",
+                   command=app.open_options).grid(row=0, column=0, sticky="ew")
+        ttk.Button(more, text="About", style="Ghost.TButton",
+                   command=app.open_about).grid(row=0, column=1, sticky="ew", padx=(10, 0))
 
         ttk.Button(pad, text="Exit", style="Ghost.TButton",
                    command=app.on_close).pack(side="bottom", fill="x")

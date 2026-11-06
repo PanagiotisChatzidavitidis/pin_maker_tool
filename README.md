@@ -155,3 +155,11 @@ and the PDF output can be read, run and tested on their own.
 | Preferences | `~/.badge_pin_maker.json` |
 | Crash recovery | `~/.badge_pin_maker_recovery.pinproj` (deleted on save or normal close) |
 | Images | Stay where they are. A canvas stores only their location, so moving an image means the canvas has to find it again (it also looks next to the canvas file). |
+
+## About and credits
+
+The **About** button on the start screen shows the version (and, in a built app, the build date).
+Ozzie, the hamster mascot, is drawn by **Netherduck**.
+
+The version lives in `badge_pin_maker/version.py` (change `__version__` there). `scripts/build_exe.py`
+stamps the build date into the app when you build it.
