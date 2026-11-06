@@ -395,12 +395,42 @@ class HomeScreen(tk.Frame):
                              lambda p=info["path"]: self.app.open_path(p), skip=(dele,))
         return outer
 
-    def _make_clickable(self, outer, widgets, action, skip=(), rest=T.CARD):
-        """Make a card run ``action`` when clicked, and light up its border on hover."""
-        def paint(on):
-            outer.config(bg=T.TEAL if on else T.BORDER)
-            for w in widgets:
-                w.config(bg=T.HOVER if on else rest)
+    def _make_clickable(self, outer, widgets, action, skip=(), rest=None):
+        """Make a card run ``action`` when clicked. Hovering fades its background and border
+        towards the theme's hover colours (and back), a few quick frames, nothing flashy.
+        ``rest`` is the card's normal colour (the theme's card colour unless given); colours
+        are read when the card is used, so they always match the current theme.
+        """
+        state = {"t": 0.0, "goal": 0.0, "job": None}
+        STEPS, MS = 7, 16
+
+        def paint(t):
+            base = rest or T.CARD
+            try:
+                outer.config(bg=T._mix(T.BORDER, T.TEAL, t))
+                col = T._mix(base, T.HOVER, t)
+                for w in widgets:
+                    w.config(bg=col)
+            except tk.TclError:                  # the card was destroyed mid-fade
+                state["job"] = None
+                return False
+            return True
+
+        def step():
+            state["job"] = None
+            d = 1.0 / STEPS
+            if state["t"] < state["goal"]:
+                state["t"] = min(state["goal"], state["t"] + d)
+            else:
+                state["t"] = max(state["goal"], state["t"] - d)
+            ease = state["t"] * state["t"] * (3 - 2 * state["t"])       # smoothstep
+            if paint(ease) and state["t"] != state["goal"]:
+                state["job"] = outer.after(MS, step)
+
+        def go(goal):
+            state["goal"] = goal
+            if state["job"] is None:
+                state["job"] = outer.after(0, step)
 
         def leave(_e):
             try:
@@ -409,10 +439,10 @@ class HomeScreen(tk.Frame):
             except (tk.TclError, KeyError):
                 under = None
             if under is None or not (under == outer or str(under).startswith(str(outer) + ".")):
-                paint(False)
+                go(0.0)
 
         for w in widgets:
-            w.bind("<Enter>", lambda e: paint(True), add="+")
+            w.bind("<Enter>", lambda e: go(1.0), add="+")
             w.bind("<Leave>", leave, add="+")
             if w not in skip:
                 w.config(cursor="hand2")
