@@ -1,4 +1,4 @@
-# Badge Pin Maker
+# Ozzie's Pin Studio
 
 A small desktop app for making printable sheets of round badge-pin artwork. Pick a paper
 size and a pin size, drop in your images, position each one under the pin circle, then
@@ -43,20 +43,26 @@ export a PDF (or print straight away) ready to cut out.
 - **Gentle loading.** Big pictures, opening a canvas and PDF export run in the background, so the
   window never freezes. A little progress note appears if it takes a moment, and buttons that
   could clash with the running job are ignored until it finishes.
-- **Recent canvases, search and sorting.** The start screen has a "Jump back in" row with the
-  last canvases you opened, a search box (name, paper or pin size) and a sort menu: recently
+- **Canvas grid, search and sorting.** The start screen shows your canvases as a grid of cards
+  that fills the window (more columns on a wide screen), with a "New canvas" tile first, a search box (name, paper or pin size) and a sort menu: recently
   edited, recently opened, name A–Z / Z–A, oldest first, most pins. Thumbnails appear as they
   are ready, and your sort choice is remembered.
-- **Zoom and pan the sheet.** Ctrl + scroll zooms in on the spot under the mouse (up to 8x).
-  Zoomed in, scroll slides the sheet up and down (Shift + scroll sideways), and holding Space
-  while dragging, or dragging with the middle button, moves it freely. Ctrl + / Ctrl - zoom and
-  Ctrl 0, or a click on the zoom pill, fits the whole sheet again.
+- **Zoom and pan the sheet.** Ctrl + scroll zooms in on the spot under the mouse (up to 8x), and
+  so does the zoom bar under the sheet (slider, - / + and a Fit button). A small readout
+  (the zoom HUD) pops up while you zoom and fades away. Zoomed in, scroll slides the sheet up
+  and down (Shift + scroll sideways), and holding Ctrl or Space while dragging, or dragging with
+  the middle button, moves it freely. Ctrl + / Ctrl - zoom and Ctrl 0, the Fit button or a click
+  on the corner pill fits the whole sheet again.
 - **Quiet animations.** Pins glide into their new circles when swapped or moved and fade away
   when cleared. They can be turned off with **Smooth animations** in Options.
 - **Undo and redo arrows.** Two arrows next to the app name (greyed out when there is nothing to
   undo or redo) do the same as Ctrl+Z and Ctrl+Y.
 - **Held keys count once.** Holding Ctrl+S (or any other shortcut) runs it only once instead of
   repeating. Zooming with Ctrl + and Ctrl - is the exception: holding it keeps zooming.
+- **Ozzie, the mascot.** Ozzie the hamster is the app's logo, the picture in the corner notes
+  and the window icon. In **Options → Mascot** you can pick **Ozzie**, **Mr Ozzie** (bow tie)
+  or **Ms Ozzie** (hair bow); the choice is remembered and swaps everywhere straight away.
+  Ozzie is the default.
 - **Corner notes.** Small cheerful notes with the hamster appear in the bottom-right corner
   for saved, opened, deleted, exported, swapped and so on. Some carry a link (Undo, Show in
   folder). They fade by themselves, or click one to close it.
@@ -90,7 +96,7 @@ On macOS use Cmd instead of Ctrl.
 | F11 | Switch between full screen and windowed |
 | Ctrl + scroll / Ctrl + / Ctrl - | Zoom the sheet |
 | Ctrl 0 | Fit the whole sheet |
-| Space + drag | Move the zoomed sheet |
+| Ctrl + drag / Space + drag | Move the zoomed sheet |
 | Esc | Cancel a drag, close the popup, or leave full screen |
 
 ## Building a standalone app
@@ -103,8 +109,8 @@ python scripts/build_exe.py
 ```
 
 Build on the system you are building for (Windows for a `.exe`, macOS for a `.app`). The
-result appears in `dist/`. Put `icon.ico` / `icon.icns` and `logo.png` in
-[`assets/`](assets/README.md) first if you want your own artwork.
+result appears in `dist/`. Ozzie's pictures live in [`assets/`](assets/README.md); the build makes the app icon
+from Ozzie's picture.
 
 ## Project layout
 
@@ -114,6 +120,7 @@ requirements.txt          Python packages the app needs
 assets/                   Icon and logo images (see assets/README.md)
 scripts/
   build_exe.py            Packs the app into a single executable with PyInstaller
+  make_icon.py            Makes the app icon (.ico / .icns) from Ozzie's picture
 badge_pin_maker/          The program itself
   constants.py            Fixed numbers: margins, print quality, paper and pin size menus
   paths.py                Finding bundled files, from source or from the built exe
@@ -132,6 +139,7 @@ badge_pin_maker/          The program itself
     widgets.py            Cards, stat tiles, the on / off switch
     toast.py              The corner notes and their cute messages (one of each kind at a time)
     icons.py              Canvas thumbnails and the logo
+    mascot.py             Ozzie, Mr Ozzie and Ms Ozzie: finding, cutting out and sizing the pictures
     theme.py              The light and dark themes (colours) and ttk styling
     dnd.py                Optional drag and drop support
 ```

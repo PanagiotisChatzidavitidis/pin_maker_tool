@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageOps, ImageTk
 
 from ..imaging import Art, Source, render_art
 from ..paths import asset_path
-from . import theme as T
+from . import mascot, theme as T
 
 
 def _circle_alpha(size):
@@ -54,7 +54,12 @@ def make_icon(art, size=56):
 
 
 def load_logo(size):
-    """Use assets/logo.png as the app logo, else fall back to the default pin icon."""
+    """The app logo: the mascot in use (Ozzie, Mr Ozzie or Ms Ozzie). Without the mascot
+    pictures, assets/logo.png, and failing that the default pin icon.
+    """
+    ph = mascot.photo(mascot.current, size)
+    if ph is not None:
+        return ph
     p = asset_path("logo.png")
     if os.path.isfile(p):
         try:

@@ -31,7 +31,12 @@ desktop.ini
 *.log
 pin_sheet.pdf
 
-# Image files (including the icon and logo in assets/) are not committed.
-# See assets/README.md if you want them in the repository.
+# Image files are not committed (see assets/README.md), except the ones named below.
 *.ico
 *.png
+
+# ...except Ozzie, the mascot (any capitalisation) and the app icon.
+!assets/*[Oo][Zz][Zz][Ii][Ee]*.png
+!assets/*[Oo][Zz][Zz][Ii][Ee]*.webp
+!assets/icon.ico
+!assets/icon.png

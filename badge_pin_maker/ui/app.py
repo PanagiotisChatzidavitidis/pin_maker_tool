@@ -1,4 +1,4 @@
-"""Badge Pin Maker: the main window, where everything comes together.
+"""Ozzie's Pin Studio: the main window, where everything comes together.
 
 How the app is used
   1. Pick a paper size and a pin size; the sheet is laid out automatically.
@@ -24,6 +24,7 @@ How this file is organised
 import functools
 import glob
 import json
+import math
 import os
 import re
 import tempfile
@@ -42,14 +43,14 @@ from ..pdf_export import build_pdf
 from ..canvas_files import read_canvas_info
 from ..settings import RECOVERY_PATH, default_canvases_dir, load_settings, save_settings
 from ..system_actions import print_pdf, reveal_folder
-from . import theme as T
+from . import mascot, theme as T
 from .crop_dialog import CropDialog
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
 from .options_dialog import OptionsDialog
 from .toast import Toasts
-from .widgets import IconButton, StatTile, Toggle, make_card
+from .widgets import FlatSlider, IconButton, StatTile, Toggle, make_card, round_rect
 
 
 AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
@@ -83,8 +84,9 @@ class BadgeApp(RootBase):
         self._loading = True
         self.screen = "home"
 
-        self.title("Badge Pin Maker")
-        set_window_icon(self)
+        self.title("Ozzie's Pin Studio")
+        mascot.set_current(self.settings.get("mascot", mascot.DEFAULT))
+        set_window_icon(self, everywhere=True)
         geo = self.settings.get("size")
         if not (isinstance(geo, str) and re.fullmatch(r"\d{3,4}x\d{3,4}", geo)):
             geo = "1220x820"
@@ -119,6 +121,7 @@ class BadgeApp(RootBase):
         self._pil_cache = {}           # the same pictures as PIL images (for the fade-out)
         self._zoom, self._pan, self._fit = 1.0, (0.0, 0.0), 1.0   # sheet zoom and pan (pixels)
         self._space, self._space_job, self._panning = False, None, None
+        self._hud_t0, self._hud_job = -1e9, None     # the zoom HUD's start time and timer
         self._pill_box = None          # where the "zoom %" pill sits, for clicks
         self._held, self._held_job = {}, None   # shortcuts whose keys are still down
         self._hide = set()             # circles whose picture is mid-glide (not drawn)
@@ -296,7 +299,7 @@ class BadgeApp(RootBase):
         self.home.pack_forget()
         self.editor.pack_forget()
         if name == "home":
-            self.title("Badge Pin Maker")
+            self.title("Ozzie's Pin Studio")
             self.home.refresh()
             self.home.pack(fill="both", expand=True)
         else:
@@ -348,6 +351,17 @@ class BadgeApp(RootBase):
         self.base_font = T.setup_style(self)
         self.after_idle(self._rebuild_ui)        # don't destroy the widget that fired us
         self._fade_finish(cover)
+
+    def choose_mascot(self, mid):
+        """Ozzie, Mr Ozzie or Ms Ozzie was picked: remember it and show it as the logo, in the
+        notes and as the window icon.
+        """
+        mascot.set_current(mid)
+        self.settings["mascot"] = mascot.current
+        save_settings(self.settings)
+        self.toasts.reset()                      # the notes hold the old picture
+        set_window_icon(self, everywhere=True)
+        self.after_idle(self._rebuild_ui)
 
     def _fade_begin(self):
         """Cover the window with a picture of itself, so the rebuild underneath cannot be seen.
@@ -419,9 +433,11 @@ class BadgeApp(RootBase):
         """
         self.light_theme, self.dark_theme = T.DEFAULT_LIGHT, T.DEFAULT_DARK
         self.v_dark.set(False)
-        for key in ("canvases_dir", "projects_dir", "sort", "animations"):
+        for key in ("canvases_dir", "projects_dir", "sort", "animations", "mascot"):
             self.settings.pop(key, None)
         self.v_anim.set(True)
+        mascot.set_current(mascot.DEFAULT)
+        set_window_icon(self, everywhere=True)
         self.set_fullscreen(True)
         self._apply_theme()
         self.after_idle(lambda: self.toasts.show("defaults"))
@@ -520,7 +536,7 @@ class BadgeApp(RootBase):
 
         head = ttk.Frame(left)
         head.pack(fill="x", pady=(0, 10))
-        ttk.Label(head, text="Badge Pin Maker", style="Title.TLabel").pack(side="left")
+        ttk.Label(head, text="Ozzie's Pin Studio", style="Title.TLabel").pack(side="left")
         self.btn_redo = IconButton(head, "redo", self.redo, f"Redo  ({MOD_LABEL}+Y)",
                                    on_tip=self._tip)
         self.btn_redo.pack(side="right")
@@ -579,20 +595,18 @@ class BadgeApp(RootBase):
         # ---- right: stat tiles + sheet preview
         hdr = ttk.Frame(right)
         hdr.pack(fill="x")
-        for c in range(4):
+        for c in range(3):
             hdr.columnconfigure(c, weight=1, uniform="tiles")
-        self.t_sheet = StatTile(hdr, self.base_font[0])
-        self.t_layout = StatTile(hdr, self.base_font[0])
-        self.t_pins = StatTile(hdr, self.base_font[0])
-        self.t_filled = StatTile(hdr, self.base_font[0])
-        for c, tile in enumerate((self.t_sheet, self.t_layout, self.t_pins, self.t_filled)):
-            tile.grid(row=0, column=c, sticky="ew", padx=(0 if c == 0 else 8, 0))
-        self.fill_bar = ttk.Progressbar(right, mode="determinate",
-                                        style="Teal.Horizontal.TProgressbar")
-        self.fill_bar.pack(fill="x", pady=(10, 10))
+        ff = self.base_font[0]
+        self.t_sheet = StatTile(hdr, ff, "paper")
+        self.t_pins = StatTile(hdr, ff, "pins")
+        self.t_filled = StatTile(hdr, ff, "done", bar=True)
+        for c, tile in enumerate((self.t_sheet, self.t_pins, self.t_filled)):
+            tile.grid(row=0, column=c, sticky="nsew", padx=(0 if c == 0 else 8, 0))
 
+        self._build_zoom_bar(right)
         self.cv = tk.Canvas(right, bg=T.BLUSH, highlightthickness=0)
-        self.cv.pack(fill="both", expand=True)
+        self.cv.pack(fill="both", expand=True, pady=(10, 0))
         self.cv.bind("<Configure>", lambda e: self.schedule_redraw())
         self.cv.bind("<ButtonPress-1>", self.on_press)
         self.cv.bind("<B1-Motion>", self.on_drag)
@@ -716,10 +730,10 @@ class BadgeApp(RootBase):
     def _update_title(self):
         """Window title: the canvas name, with a * when there are unsaved changes."""
         if self.screen == "home":
-            self.title("Badge Pin Maker")
+            self.title("Ozzie's Pin Studio")
             return
         name = os.path.basename(self.canvas_path) if self.canvas_path else "Untitled"
-        self.title(f"{name}{'*' if self.dirty else ''} — Badge Pin Maker")
+        self.title(f"{name}{'*' if self.dirty else ''} — Ozzie's Pin Studio")
 
     def _mark_dirty(self):
         """Note that the canvas has unsaved changes."""
@@ -819,8 +833,9 @@ class BadgeApp(RootBase):
         self.cv.focus_set()
         if self._busy:
             return
-        if self._space:                          # Space held: the mouse moves the sheet
-            self._pan_start(e)
+        ctrl = e.state & 0x4 or (MOD == "Command" and e.state & 0x8)
+        if self._space or (ctrl and self._zoom > 1.001):
+            self._pan_start(e)                   # Space or Ctrl held: the mouse moves the sheet
             return
         if self._pill_box and self._pill_box[0] <= e.x <= self._pill_box[2] \
                 and self._pill_box[1] <= e.y <= self._pill_box[3]:
@@ -1251,6 +1266,8 @@ class BadgeApp(RootBase):
                                font=(self.base_font[0], max(7, int(r * 1.2)), "bold"))
 
         self._draw_zoom_pill(cw, ch)
+        self._draw_hud()
+        self._sync_zoom_bar()
         self._sync_undo_buttons()
         n, filled = self._n(), self._filled()
         self._update_stats(L, n, filled, low)
@@ -1302,6 +1319,7 @@ class BadgeApp(RootBase):
         py = y - my * s1 - (ch - H * s1) / 2
         self._zoom = z
         self._pan = self._clamp_pan(px, py, W * s1, H * s1, cw, ch)
+        self._hud_show()
         self._redraw_soon()
 
     def zoom_by(self, factor):
@@ -1312,6 +1330,7 @@ class BadgeApp(RootBase):
         """Ctrl 0, or a click on the zoom pill: the whole sheet in view again."""
         if self._zoom != 1.0 or self._pan != (0.0, 0.0):
             self._zoom, self._pan = 1.0, (0.0, 0.0)
+            self._hud_show()
             self._redraw_soon()
 
     def on_wheel(self, e, direction=None):
@@ -1388,12 +1407,108 @@ class BadgeApp(RootBase):
             return
         t = self.cv.create_text(
             24, ch - 22, anchor="sw", fill=T.TEXT, font=(self.base_font[0], 9), tags="pill",
-            text=f"{round(self._zoom * 100)}%   ·   Space + drag to move   ·   click to fit")
+            text="Ctrl + drag to move   ·   click here to fit")
         x1, y1, x2, y2 = self.cv.bbox(t)
         box = (x1 - 12, y1 - 6, x2 + 12, y2 + 6)
         r = self.cv.create_rectangle(*box, fill=T.CARD, outline=T.BORDER, tags="pill")
         self.cv.tag_lower(r, t)
         self._pill_box = box
+
+    # ---- zoom bar and zoom HUD ------------------------------------------------
+    HUD_HOLD, HUD_FADE = 0.75, 0.35          # seconds the zoom HUD stays, then fades
+
+    def _build_zoom_bar(self, parent):
+        """The strip under the sheet: a hint on the left; on the right  -  [slider] +  100%  Fit.
+        The slider works on a log scale, so every step feels the same size.
+        """
+        bar = tk.Frame(parent, bg=T.BG)
+        bar.pack(side="bottom", fill="x", pady=(8, 0))
+        fam = self.base_font[0]
+        tk.Label(bar, text=f"{MOD_LABEL} + scroll to zoom   ·   {MOD_LABEL} + drag or Space + "
+                           "drag to move", bg=T.BG, fg=T.MUTED, font=(fam, 9)).pack(side="left")
+
+        def step_btn(text, cmd):
+            lbl = tk.Label(bar, text=text, bg=T.BG, fg=T.TEAL, cursor="hand2", width=2,
+                           font=(fam, 14, "bold"))
+            lbl.bind("<Button-1>", lambda e: cmd())
+            lbl.bind("<Enter>", lambda e: lbl.config(fg=T.PETROL))
+            lbl.bind("<Leave>", lambda e: lbl.config(fg=T.TEAL))
+            return lbl
+
+        ttk.Button(bar, text="Fit", style="Ghost.TButton", width=5,
+                   command=self.reset_view).pack(side="right")
+        self.zoom_lbl = tk.Label(bar, text="100%", bg=T.BG, fg=T.TEXT, width=6, anchor="e",
+                                 font=(fam, 10, "bold"))
+        self.zoom_lbl.pack(side="right", padx=(0, 8))
+        step_btn("+", lambda: self.zoom_by(1.25)).pack(side="right")
+        self.zoom_var = tk.DoubleVar(value=0.0)
+        self._zoom_sync = False
+        self.zoom_slider = FlatSlider(bar, self.zoom_var, 0.0, 1.0, snaps=(0.0,), snap_tol=0.05,
+                                      bg=T.BG)
+        self.zoom_slider.config(width=200)
+        self.zoom_slider.pack(side="right")
+        step_btn("\u2212", lambda: self.zoom_by(0.8)).pack(side="right")
+        self.zoom_var.trace_add("write", lambda *_: self._zoom_slid())
+
+    def _zoom_slid(self):
+        """The person moved the zoom slider: zoom around the middle of the sheet view."""
+        if self._zoom_sync or self.screen != "editor":
+            return
+        try:
+            self._zoom_to(2.0 ** self.zoom_var.get())
+        except tk.TclError:
+            pass
+
+    def _sync_zoom_bar(self):
+        """Show the current zoom on the slider and its percentage; the slider's far end is the
+        most this pin size may be zoomed.
+        """
+        if not self.geo:
+            return
+        hi = max(0.05, math.log2(self._max_zoom(self.geo[3]["d"])))
+        self._zoom_sync = True
+        try:
+            self.zoom_slider.hi = hi
+            self.zoom_var.set(math.log2(max(self._zoom, 1.0)))
+            self.zoom_slider._draw()
+            self.zoom_lbl.config(text=f"{round(self._zoom * 100)}%")
+        finally:
+            self._zoom_sync = False
+
+    def _hud_show(self):
+        """Pop the zoom HUD up (or keep it up a little longer)."""
+        self._hud_t0 = time.monotonic()
+        if self._hud_job is None:
+            self._hud_tick()
+
+    def _hud_tick(self):
+        """Redraw the HUD, fading it, until it has gone."""
+        self._hud_job = None
+        if self.screen != "editor":
+            return
+        if self._draw_hud():
+            self._hud_job = self.after(30, self._hud_tick)
+
+    def _draw_hud(self):
+        """A rounded zoom readout at the top of the sheet view that fades after a moment.
+        Returns True while it is still showing.
+        """
+        cv = self.cv
+        cv.delete("hud")
+        age = time.monotonic() - self._hud_t0
+        if age >= self.HUD_HOLD + self.HUD_FADE:
+            return False
+        f = max(0.0, (age - self.HUD_HOLD) / self.HUD_FADE)
+        f = f * f * (3 - 2 * f)
+        bg = cv.cget("bg")
+        cx = max(cv.winfo_width(), 50) / 2
+        t = cv.create_text(cx, 34, text=f"{round(self._zoom * 100)}%", tags="hud",
+                           fill=T._mix(T.TEXT, bg, f), font=("Georgia", 15, "bold"))
+        x0, y0, x1, y1 = cv.bbox(t)
+        box = round_rect(cv, x0 - 16, y0 - 7, x1 + 16, y1 + 7, 13, tags="hud",
+                         fill=T._mix(T.CARD, bg, f), outline=T._mix(T.BORDER, bg, f))
+        cv.tag_lower(box, t)
+        return True
 
     # ---- quiet animations ---------------------------------------------------
     def animations_changed(self):
@@ -1497,20 +1612,16 @@ class BadgeApp(RootBase):
         frame(1)
 
     def _update_stats(self, L, n, filled, low):
-        """Refresh the four tiles above the preview and the progress bar."""
+        """Refresh the three tiles above the preview."""
         W, H = L["page_w"], L["page_h"]
         short = self.v_paper.get().split(" (")[0].replace("Custom...", "Custom")
-        self.t_sheet.set(short, f"{W:g} × {H:g} mm · {L['orientation'].capitalize()}")
-        if L["method"] == "staggered":
-            self.t_layout.set("Staggered", "Honeycomb packing")
-        else:
-            self.t_layout.set("Grid", "Straight rows")
+        self.t_sheet.set(short, f"{W:g} × {H:g} mm" + (" · Landscape" if L["orientation"] ==
+                                                          "landscape" else ""))
         self.t_pins.set(str(n), f"pin{'s' if n != 1 else ''} per sheet")
-        if low:
-            self.t_filled.set(str(filled), f"of {n} filled · {low} low-res", warn=True)
-        else:
-            self.t_filled.set(str(filled), f"of {n} filled")
-        self.fill_bar.config(maximum=max(n, 1), value=filled)
+        pct = round(100 * filled / n) if n else 0
+        self.t_filled.set(f"{filled:02d}", f"{pct}% completed" + (f" · {low} low-res" if low
+                                                                  else ""),
+                          total=n, progress=filled / n if n else 0, warn=bool(low))
 
     def on_motion(self, e):
         """Highlight the circle under the mouse."""
@@ -1818,7 +1929,7 @@ class BadgeApp(RootBase):
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, dict) or data.get("app") != "badge-pin-maker":
-                raise ValueError("This is not a Badge Pin Maker canvas.")
+                raise ValueError("This is not an Ozzie's Pin Studio canvas.")
         except (OSError, ValueError) as ex:
             messagebox.showerror("Oh no!", f"I couldn't open that canvas:\n{ex}")
             return False

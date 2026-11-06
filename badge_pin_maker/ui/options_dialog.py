@@ -8,9 +8,9 @@ canvases folder, and a button that puts everything back to its default.
 import tkinter as tk
 from tkinter import ttk
 
-from . import smooth, theme as T
+from . import mascot, smooth, theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
-from .widgets import Segmented, ThemeTile, Toggle, make_card
+from .widgets import MascotTile, Segmented, ThemeTile, Toggle, make_card
 
 
 class OptionsDialog(tk.Toplevel):
@@ -65,7 +65,8 @@ class OptionsDialog(tk.Toplevel):
         head = tk.Frame(self, bg=T.BG)
         head.pack(fill="x", padx=28, pady=(22, 16))
         self._logo = app.toasts.logo()
-        tk.Label(head, image=self._logo, bg=T.BG).pack(side="left", padx=(0, 14))
+        self._logo_lbl = tk.Label(head, image=self._logo, bg=T.BG)
+        self._logo_lbl.pack(side="left", padx=(0, 14))
         titles = tk.Frame(head, bg=T.BG)
         titles.pack(side="left")
         ttk.Label(titles, text="Options", style="Title.TLabel").pack(anchor="w")
@@ -81,8 +82,22 @@ class OptionsDialog(tk.Toplevel):
         right = tk.Frame(body, bg=T.BG)
         right.pack(side="left", fill="both", expand=True, padx=(18, 0), anchor="n")
 
+        # ---- left: the mascot
+        f = make_card(left, "Mascot", pady=(0, 14))
+        row = tk.Frame(f, bg=T.CARD)
+        row.pack(anchor="w")
+        self._mascot_tiles = {}
+        for i, (mid, (name, _note)) in enumerate(mascot.INFO.items()):
+            tile = MascotTile(row, mid, name, mid == mascot.current,
+                              lambda m=mid: self._mascot_picked(m), fam)
+            tile.pack(side="left", padx=(0, 8) if i < 2 else 0)
+            self._mascot_tiles[mid] = tile
+        self._mascot_note = ttk.Label(f, text=mascot.INFO[mascot.current][1],
+                                      style="Muted.TLabel")
+        self._mascot_note.pack(anchor="w", pady=(10, 0))
+
         # ---- left: display
-        f = make_card(left, "Display", pady=(0, 14))
+        f = make_card(left, "Display", pady=(0, 0))
         self._setting(f, "Window", "Press F11 at any time to switch.")
         Segmented(f, app.v_window, [("fullscreen", "Full screen"), ("windowed", "Windowed")],
                   command=self._mode_changed).pack(fill="x", pady=(8, 0))
@@ -92,17 +107,6 @@ class OptionsDialog(tk.Toplevel):
         Toggle(row, app.v_anim, command=app.animations_changed, bg=T.CARD).pack(side="right")
         self._setting(row, "Smooth animations", "Pins glide when swapped and fade away "
                       "when cleared.", wrap=220, side="left")
-
-        # ---- left: canvases folder
-        f = make_card(left, "Canvases folder", pady=(0, 0))
-        edge = tk.Frame(f, bg=T.BORDER)
-        edge.pack(fill="x")
-        self.folder_lbl = tk.Label(edge, text=app.canvases_dir(), bg=T.FIELD, fg=T.TEXT,
-                                   font=(fam, 9), anchor="w", justify="left", wraplength=290,
-                                   padx=10, pady=8)
-        self.folder_lbl.pack(fill="x", padx=1, pady=1)
-        ttk.Button(f, text="Change folder…", style="Ghost.TButton",
-                   command=self._change_folder).pack(anchor="e", pady=(10, 0))
 
         # ---- right: themes, a light column and a dark column of preview tiles
         f = make_card(right, "Themes", pady=(0, 0))
@@ -131,6 +135,17 @@ class OptionsDialog(tk.Toplevel):
                                  lambda t=theme_id: self._theme_picked(t), fam, bg=T.CARD)
                 tile.pack(pady=(0, 5))
 
+        # ---- right: canvases folder, under the themes
+        f = make_card(right, "Canvases folder", pady=(14, 0))
+        edge = tk.Frame(f, bg=T.BORDER)
+        edge.pack(fill="x")
+        self.folder_lbl = tk.Label(edge, text=app.canvases_dir(), bg=T.FIELD, fg=T.TEXT,
+                                   font=(fam, 9), anchor="w", justify="left", wraplength=560,
+                                   padx=10, pady=8)
+        self.folder_lbl.pack(fill="x", padx=1, pady=1)
+        ttk.Button(f, text="Change folder…", style="Ghost.TButton",
+                   command=self._change_folder).pack(anchor="e", pady=(10, 0))
+
         # ---- footer bar
         tk.Frame(self, bg=T.BORDER, height=1).pack(fill="x")
         foot = tk.Frame(self, bg=T.CARD)
@@ -141,6 +156,17 @@ class OptionsDialog(tk.Toplevel):
                    command=self.destroy).pack(side="right")
         ttk.Button(inner, text="Restore defaults", style="Soft.TButton",
                    command=self._restore).pack(side="left")
+
+    def _mascot_picked(self, mid):
+        """A mascot card was clicked: switch to it (the card hops to say hello)."""
+        if mid != mascot.current:
+            self.app.choose_mascot(mid)
+            self._logo = self.app.toasts.logo()
+            self._logo_lbl.config(image=self._logo)
+            for m, tile in self._mascot_tiles.items():
+                tile.set_selected(m == mid)
+            self._mascot_note.config(text=mascot.INFO[mid][1])
+        self._mascot_tiles[mid].hop()
 
     def _setting(self, parent, title, note, wrap=300, side=None):
         """A setting's name in bold with a muted explanation under it (inside a card)."""

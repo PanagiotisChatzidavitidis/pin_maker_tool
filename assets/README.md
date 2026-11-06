@@ -3,15 +3,32 @@
 Pictures the app uses for itself. Everything here is optional: without them the app
 still runs and falls back to a simple built-in pin icon.
 
-| File | Used for |
+## Ozzie, the mascot
+
+Put three pictures of Ozzie in this folder:
+
+| File | Who |
 | --- | --- |
-| `icon.ico` | Window / title-bar icon on Windows, and the icon of the built `.exe` |
-| `icon.icns` | Icon of the built `.app` on macOS |
-| `logo.png` | The logo on the start screen and in dialogs (transparent PNG works best) |
+| `ozzie.png` | Ozzie, the default |
+| `mr_ozzie.png` | Mr Ozzie |
+| `ms_ozzie.png` | Ms Ozzie |
 
-`.ico` and `.png` files are listed in `.gitignore`, so they are **not** committed to the
-repository. Copy them into this folder on each machine you build or run on. If you do want
-them in the repository, remove those two lines from `.gitignore`.
+The names do not have to be exact: capital letters, spaces and underscores are ignored, so
+`Ozzie.png`, `MrOzzie.png` and `ms ozzie.png` all work (`.png`, `.webp` and `.jpg` are fine).
+Square pictures about 512 px or larger look best. If a picture has a flat background (a cream
+square, say), the app cuts it out by itself, so Ozzie sits cleanly on every theme.
 
-When the app is packed into a single file with `python scripts/build_exe.py`, this whole
-folder is bundled inside it.
+The one picked in **Options → Mascot** is the logo (start screen, Options, corner notes) and
+the window icon.
+
+## The app icon
+
+`python scripts/make_icon.py` makes `icon.ico` (Windows), `icon.icns` (macOS) and `icon.png`
+from `ozzie.png`; `python scripts/build_exe.py` does it for you before building the `.exe` /
+`.app`. If there is no Ozzie picture, put your own `icon.ico` / `icon.icns` here instead, and
+`logo.png` still works as a plain logo.
+
+## Git
+
+Ozzie's pictures and `icon.ico` / `icon.png` are allowed through `.gitignore`, so they are
+committed with the project. Other image files here are not.

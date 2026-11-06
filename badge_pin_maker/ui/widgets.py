@@ -20,25 +20,69 @@ def make_card(parent, title, pady=(0, 10)):
 
 
 class StatTile(tk.Frame):
-    """A small card with a big value and a caption underneath."""
-    def __init__(self, parent, font_family):
-        """Build an empty tile; fill it with set()."""
+    """A slim statistic card: a small icon, a value (with an optional muted "/ total") and a
+    caption beside it, and, for a tile with a bar, a thin progress strip along its bottom edge.
+    """
+    BAR_H = 3
+
+    def __init__(self, parent, font_family, icon, label=None, bar=False):
+        """Build an empty tile; fill it with set(). ``icon`` is a smooth.stat_icon kind."""
         super().__init__(parent, bg=T.BORDER)
         inner = tk.Frame(self, bg=T.CARD)
         inner.pack(fill="both", expand=True, padx=1, pady=1)
-        self.value = tk.Label(inner, bg=T.CARD, fg=T.PETROL, anchor="w",
-                              font=("Georgia", 20, "bold"))
-        self.value.pack(fill="x", padx=14, pady=(9, 0))
-        self.caption = tk.Label(inner, bg=T.CARD, fg=T.MUTED, anchor="w",
-                                font=(font_family, 9))
-        self.caption.pack(fill="x", padx=14, pady=(0, 10))
+        self._bar = None
+        if bar:
+            self._frac, self._goal, self._job = 0.0, 0.0, None
+            self._bar = tk.Canvas(inner, height=self.BAR_H, bg=T.CARD, highlightthickness=0)
+            self._bar.pack(side="bottom", fill="x")
+            self._bar.bind("<Configure>", lambda e: self._draw_bar())
+        row = tk.Frame(inner, bg=T.CARD)
+        row.pack(fill="x", padx=14, pady=8)
+        self._icon = smooth.stat_icon(icon, T.TEAL, T.CARD)
+        tk.Label(row, image=self._icon, bg=T.CARD).pack(side="left", padx=(0, 12))
+        col = tk.Frame(row, bg=T.CARD)
+        col.pack(side="left", fill="x", expand=True)
+        top = tk.Frame(col, bg=T.CARD)
+        top.pack(fill="x")
+        self.value = tk.Label(top, bg=T.CARD, fg=T.PETROL, anchor="w",
+                              font=("Georgia", 15, "bold"))
+        self.value.pack(side="left")
+        self.total = tk.Label(top, bg=T.CARD, fg=T.MUTED, anchor="w", font=(font_family, 10))
+        self.total.pack(side="left", padx=(6, 0), pady=(3, 0))
+        self.caption = tk.Label(col, bg=T.CARD, fg=T.MUTED, anchor="w", font=(font_family, 9))
+        self.caption.pack(fill="x")
 
-    def set(self, value, caption, warn=False):
-        """Show ``value`` (big) and ``caption`` (small). ``warn`` colours the caption as a
-        warning.
+    def set(self, value, caption="", total=None, progress=None, warn=False):
+        """Show ``value`` (big), an optional muted ``total`` after it, a ``caption`` under it
+        and a ``progress`` bar position (0 to 1). ``warn`` colours the caption as a warning.
         """
         self.value.config(text=value)
+        self.total.config(text="" if total is None else f"/ {total}")
         self.caption.config(text=caption, fg=T.WARN if warn else T.MUTED)
+        if self._bar is not None and progress is not None:
+            self._goal = max(0.0, min(1.0, progress))
+            if self._job is None:
+                self._job = self.after(0, self._glide)
+
+    def _glide(self):
+        """Ease the bar towards its new position over a few quick frames."""
+        self._job = None
+        gap = self._goal - self._frac
+        self._frac = self._goal if abs(gap) < 0.004 else self._frac + gap * 0.3
+        self._draw_bar()
+        if self._frac != self._goal:
+            self._job = self.after(16, self._glide)
+
+    def _draw_bar(self):
+        """Paint the track and the accent fill."""
+        c, w = self._bar, self._bar.winfo_width()
+        c.delete("all")
+        if w < 4:
+            return
+        c.create_rectangle(0, 0, w, self.BAR_H, fill=T._mix(T.CARD, T.TEXT, 0.12), outline="")
+        fw = int(w * self._frac)
+        if fw > 0:
+            c.create_rectangle(0, 0, fw, self.BAR_H, fill=T.TEAL, outline="")
 
 
 def round_rect(canvas, x0, y0, x1, y1, r, **kw):
@@ -373,3 +417,70 @@ class IconButton(tk.Canvas):
         fg = T._mix(T.TEXT, bg, 0.5) if self._disabled else T.TEXT
         self._img = smooth.arrow_icon(self.kind, fg, bg, T.BORDER, self.SIZE)
         self.create_image(0, 0, anchor="nw", image=self._img)
+
+
+class MascotTile(tk.Canvas):
+    """A card showing one mascot's portrait and name, for the Options window. The one in use
+    has a coloured outline and a tick. Clicking runs ``command``; the portrait hops when it is
+    picked.
+    """
+    W, H, PORTRAIT = 88, 116, 62
+
+    def __init__(self, parent, mid, name, selected, command, fam):
+        """``mid`` is the mascot's id, ``name`` what is written under it."""
+        super().__init__(parent, width=self.W, height=self.H, bg=T.CARD, highlightthickness=0,
+                         cursor="hand2")
+        from . import mascot
+        self.mid, self.name, self.selected, self.command, self.fam = mid, name, selected, command, fam
+        self._hover, self._hop_job, self._dy = False, None, 0
+        self._portrait = mascot.photo(mid, self.PORTRAIT)
+        if self._portrait is None:                         # no picture file: the pin icon
+            from .icons import load_logo
+            self._portrait = load_logo(self.PORTRAIT)
+        self.bind("<Button-1>", lambda e: self.command())
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
+        self._draw()
+
+    def _set_hover(self, on):
+        """Light up while the mouse is over the card."""
+        self._hover = on
+        self._draw()
+
+    def set_selected(self, on):
+        """Show (or take away) the outline and tick."""
+        self.selected = on
+        self._draw()
+
+    def _draw(self):
+        """Paint the plate, the portrait and the name."""
+        self.delete("all")
+        w, h = self.W, self.H
+        edge = T.TEAL if self.selected else T.BORDER
+        fill = T.HOVER if (self._hover and not self.selected) else T.BG
+        badge = (w - 17, 17, T.TEAL, T.ON_PRIMARY) if self.selected else None
+        self._plate = smooth.plate(w, h, T.CARD, fill, edge, 2 if self.selected else 1,
+                                   badge=badge)
+        self.create_image(0, 0, anchor="nw", image=self._plate)
+        self._item = self.create_image(w / 2, 14 + self.PORTRAIT / 2 + self._dy,
+                                       image=self._portrait)
+        self.create_text(w / 2, h - 16, text=self.name, fill=T.PETROL if self.selected else T.TEXT,
+                         font=("Georgia", 10, "bold"))
+
+    def hop(self):
+        """A little jump, to say hello."""
+        if self._hop_job is not None:
+            self.after_cancel(self._hop_job)
+        steps = (0, -10, -14, -9, 0, -4, 0)
+
+        def frame(i):
+            self._hop_job = None
+            if i >= len(steps):
+                return
+            try:
+                self.move(self._item, 0, steps[i] - self._dy)
+                self._dy = steps[i]
+                self._hop_job = self.after(45, frame, i + 1)
+            except tk.TclError:
+                pass
+        frame(0)
