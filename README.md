@@ -43,8 +43,8 @@ export a PDF (or print straight away) ready to cut out.
 - **Gentle loading.** Big pictures, opening a canvas and PDF export run in the background, so the
   window never freezes. A little progress note appears if it takes a moment, and buttons that
   could clash with the running job are ignored until it finishes.
-- **Recent canvases, search and sorting.** The start screen has a "Jump back in" row with the
-  last canvases you opened, a search box (name, paper or pin size) and a sort menu: recently
+- **Canvas grid, search and sorting.** The start screen shows your canvases as a grid of cards
+  that fills the window (more columns on a wide screen), with a "New canvas" tile first, a search box (name, paper or pin size) and a sort menu: recently
   edited, recently opened, name A–Z / Z–A, oldest first, most pins. Thumbnails appear as they
   are ready, and your sort choice is remembered.
 - **Zoom and pan the sheet.** Ctrl + scroll zooms in on the spot under the mouse (up to 8x).
