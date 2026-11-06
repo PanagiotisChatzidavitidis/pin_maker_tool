@@ -47,10 +47,12 @@ export a PDF (or print straight away) ready to cut out.
   that fills the window (more columns on a wide screen), with a "New canvas" tile first, a search box (name, paper or pin size) and a sort menu: recently
   edited, recently opened, name A–Z / Z–A, oldest first, most pins. Thumbnails appear as they
   are ready, and your sort choice is remembered.
-- **Zoom and pan the sheet.** Ctrl + scroll zooms in on the spot under the mouse (up to 8x).
-  Zoomed in, scroll slides the sheet up and down (Shift + scroll sideways), and holding Space
-  while dragging, or dragging with the middle button, moves it freely. Ctrl + / Ctrl - zoom and
-  Ctrl 0, or a click on the zoom pill, fits the whole sheet again.
+- **Zoom and pan the sheet.** Ctrl + scroll zooms in on the spot under the mouse (up to 8x), and
+  so does the zoom bar under the sheet (slider, - / + and a Fit button). A small readout
+  (the zoom HUD) pops up while you zoom and fades away. Zoomed in, scroll slides the sheet up
+  and down (Shift + scroll sideways), and holding Ctrl or Space while dragging, or dragging with
+  the middle button, moves it freely. Ctrl + / Ctrl - zoom and Ctrl 0, the Fit button or a click
+  on the corner pill fits the whole sheet again.
 - **Quiet animations.** Pins glide into their new circles when swapped or moved and fade away
   when cleared. They can be turned off with **Smooth animations** in Options.
 - **Undo and redo arrows.** Two arrows next to the app name (greyed out when there is nothing to
@@ -94,7 +96,7 @@ On macOS use Cmd instead of Ctrl.
 | F11 | Switch between full screen and windowed |
 | Ctrl + scroll / Ctrl + / Ctrl - | Zoom the sheet |
 | Ctrl 0 | Fit the whole sheet |
-| Space + drag | Move the zoomed sheet |
+| Ctrl + drag / Space + drag | Move the zoomed sheet |
 | Esc | Cancel a drag, close the popup, or leave full screen |
 
 ## Building a standalone app
