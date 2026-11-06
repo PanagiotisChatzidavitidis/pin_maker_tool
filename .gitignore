@@ -40,3 +40,6 @@ pin_sheet.pdf
 !assets/*[Oo][Zz][Zz][Ii][Ee]*.webp
 !assets/icon.ico
 !assets/icon.png
+
+# written by scripts/build_exe.py
+badge_pin_maker/_build.py

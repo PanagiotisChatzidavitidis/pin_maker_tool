@@ -43,9 +43,10 @@ from ..pdf_export import build_pdf
 from ..canvas_files import read_canvas_info
 from ..settings import RECOVERY_PATH, default_canvases_dir, load_settings, save_settings
 from ..system_actions import print_pdf, reveal_folder
+from ..version import ART_CREDIT, version_text
 from . import mascot, theme as T
 from .crop_dialog import CropDialog
-from .dialogs import messagebox, set_titlebar, set_window_icon
+from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
 from .options_dialog import OptionsDialog
@@ -279,6 +280,12 @@ class BadgeApp(RootBase):
         self.close_popup()
         dlg = OptionsDialog(self)
         self.wait_window(dlg)
+
+    def open_about(self):
+        """The About box: the version (and build date) and who drew Ozzie."""
+        self.close_popup()
+        self.wait_window(AboutDialog(self, "Ozzie's Pin Studio", version_text(),
+                                     f"Art by {ART_CREDIT}"))
 
     def choose_canvases_folder(self, parent=None):
         """Let the user pick a different canvases folder. Returns True if one was chosen."""

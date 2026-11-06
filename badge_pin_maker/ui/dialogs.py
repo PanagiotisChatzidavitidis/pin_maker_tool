@@ -159,6 +159,57 @@ class ThemedDialog(tk.Toplevel):
         self.destroy()
 
 
+class AboutDialog(tk.Toplevel):
+    """A small, plain "About" box: the logo, the name, the version and the art credit."""
+    def __init__(self, parent, name, version, credit):
+        """Build it off-screen, centre it over ``parent``, then show it modally."""
+        super().__init__(parent)
+        self.withdraw()
+        self.title("About")
+        self.configure(bg=T.BG)
+        self.resizable(False, False)
+        set_window_icon(self)
+        try:
+            if parent is not None and parent.winfo_viewable():
+                self.transient(parent)
+        except tk.TclError:
+            pass
+        fam = "TkDefaultFont"
+        body = ttk.Frame(self, style="Card.TFrame", padding=(40, 26, 40, 20))
+        body.pack(fill="both", expand=True)
+        self._logo = load_logo(56)
+        tk.Label(body, image=self._logo, bg=T.CARD).pack()
+        tk.Label(body, text=name, bg=T.CARD, fg=T.PETROL,
+                 font=("Georgia", 15, "bold")).pack(pady=(10, 2))
+        tk.Label(body, text=version, bg=T.CARD, fg=T.MUTED, font=fam).pack()
+        tk.Frame(body, bg=T.BORDER, height=1, width=150).pack(pady=14)
+        tk.Label(body, text=credit, bg=T.CARD, fg=T.TEXT, font=fam).pack()
+        tk.Frame(self, bg=T.BORDER, height=1).pack(fill="x")
+        foot = ttk.Frame(self, padding=(16, 12))
+        foot.pack(fill="x")
+        close = ttk.Button(foot, text="Close", style="Accent.TButton", command=self.destroy)
+        close.pack(side="right")
+        self.bind("<Return>", lambda e: self.destroy())
+        self.bind("<Escape>", lambda e: self.destroy())
+
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        if parent is not None:
+            x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+            y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+        else:
+            x, y = (self.winfo_screenwidth() - w) // 2, (self.winfo_screenheight() - h) // 3
+        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        set_titlebar(self)
+        self.deiconify()
+        try:
+            self.wait_visibility()
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.focus_force()
+
+
 class _ThemedMessageBox:
     """Drop-in for tkinter.messagebox (plus askstring) that follows the theme."""
     OK = ("Okay!", True, "Accent.TButton")
