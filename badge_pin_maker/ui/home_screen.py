@@ -67,12 +67,14 @@ class HomeScreen(tk.Frame):
         ttk.Label(pad, text="Image sheets for your pin badges",
                   style="Muted.TLabel").pack(anchor="w", pady=(14, 22))
 
-        ttk.Button(pad, text="+  New canvas", style="Hero.TButton",
-                   command=app.new_canvas).pack(fill="x")
-        ttk.Button(pad, text="Browse for a canvas…", style="Ghost.TButton",
-                   command=app.open_canvas).pack(fill="x", pady=(10, 0))
+        self.btn_new = ttk.Button(pad, text="+  New canvas", style="Hero.TButton",
+                                  command=app.new_canvas)
+        self.btn_new.pack(fill="x")
+        self.btn_browse = ttk.Button(pad, text="Browse for a canvas…", style="Ghost.TButton",
+                                     command=app.open_canvas)
+        self.btn_browse.pack(fill="x", pady=(10, 0))
 
-        more = ttk.Frame(pad, style="Card.TFrame")
+        more = self.more_row = ttk.Frame(pad, style="Card.TFrame")
         more.pack(fill="x", pady=(10, 0))
         more.columnconfigure(0, weight=3, uniform="more")
         more.columnconfigure(1, weight=2, uniform="more")
@@ -95,7 +97,7 @@ class HomeScreen(tk.Frame):
         self.count_lbl = ttk.Label(main, style="Hint.TLabel")
         self.count_lbl.pack(anchor="w", pady=(2, 0))
 
-        bar = ttk.Frame(main)
+        bar = self.search_row = ttk.Frame(main)
         bar.pack(fill="x", pady=(14, 0))
         ttk.Label(bar, text="Search", style="Hint.TLabel").pack(side="left", padx=(0, 8))
         entry = ttk.Entry(bar, textvariable=self.v_search, width=30)
@@ -108,7 +110,7 @@ class HomeScreen(tk.Frame):
         ttk.Label(bar, text="Sort by", style="Hint.TLabel").pack(side="right", padx=(0, 8))
         sort.bind("<<ComboboxSelected>>", lambda e: self._sort_changed())
 
-        body = ttk.Frame(main)
+        body = self.body = ttk.Frame(main)
         body.pack(fill="both", expand=True, pady=(16, 0))
         self.cv = tk.Canvas(body, bg=T.BG, highlightthickness=0)
         self.sb = ttk.Scrollbar(body, orient="vertical", command=self.cv.yview)

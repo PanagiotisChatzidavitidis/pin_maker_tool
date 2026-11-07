@@ -51,6 +51,7 @@ from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
 from .options_dialog import OptionsDialog
 from .toast import Toasts
+from .tour import EDITOR_STEPS, HOME_STEPS, Tour
 from .widgets import FlatSlider, IconButton, StatTile, Toggle, make_card, round_rect
 
 
@@ -118,6 +119,7 @@ class BadgeApp(RootBase):
         self.hover = None
         self.selected = None
         self.popup = None
+        self.tour = None               # the guided tour that is running, if any
         self._image_cache = {}
         self._pil_cache = {}           # the same pictures as PIL images (for the fade-out)
         self._zoom, self._pan, self._fit = 1.0, (0.0, 0.0), 1.0   # sheet zoom and pan (pixels)
@@ -149,6 +151,7 @@ class BadgeApp(RootBase):
         self.v_d = tk.StringVar(value=str(s.get("d", "32")))
         self.v_guides = tk.BooleanVar(value=bool(s.get("guides", True)))
         self.v_anim = tk.BooleanVar(value=bool(s.get("animations", True)))
+        self.v_tour = tk.BooleanVar(value=bool(s.get("tour_on", True)))   # show the tips?
 
         # ---- build the screens and connect the events ----
         self._build_ui()
@@ -302,6 +305,8 @@ class BadgeApp(RootBase):
     # ---- screens / theme / canvases folder ---------------------------------
     def _show(self, name):
         """Switch between the "home" and "editor" screens."""
+        if self.tour:
+            self.tour.close(mark=False)          # a tour belongs to one screen
         self.screen = name
         self.home.pack_forget()
         self.editor.pack_forget()
@@ -315,6 +320,66 @@ class BadgeApp(RootBase):
             self.schedule_redraw()
             self.set_status()
         self.toasts.raise_all()
+        self.maybe_tour(name)
+
+    # ---- the guided tour ---------------------------------------------------
+    def tour_seen(self, name):
+        """True if the tour for this screen ("home" or "editor") has been shown before."""
+        return name in self.settings.get("tour_seen", [])
+
+    def tour_finished(self, name, never=False):
+        """Remember that a tour was seen; ``never`` also switches tips off for good."""
+        seen = [n for n in self.settings.get("tour_seen", []) if isinstance(n, str)]
+        if name not in seen:
+            seen.append(name)
+        self.settings["tour_seen"] = seen
+        if never:
+            self.settings["tour_on"] = False
+            self.v_tour.set(False)
+        save_settings(self.settings)
+
+    def tour_toggled(self):
+        """The Tips switch in Options was flipped."""
+        self.settings["tour_on"] = bool(self.v_tour.get())
+        save_settings(self.settings)
+
+    def start_tour(self, name=None):
+        """Run the tour for a screen now, whatever the settings say."""
+        name = name or self.screen
+        if self.tour:
+            self.tour.close(mark=False)
+        self.close_popup()
+        self.update_idletasks()
+        self.tour = Tour(self, name, HOME_STEPS if name == "home" else EDITOR_STEPS)
+
+    def maybe_tour(self, name):
+        """After a screen appears for the first time, offer its tour (a moment later, when the
+        screen has settled).
+        """
+        if os.environ.get("OZZIE_NO_TOUR") or not self.v_tour.get() or self.tour_seen(name):
+            return
+        self.after(700, lambda: self._tour_due(name))
+
+    def _tour_due(self, name):
+        """Start the tour if nothing else is in the way."""
+        try:
+            blocked = (self.screen != name or self.tour or self.grab_current() is not None
+                       or self._busy or self.popup)
+        except tk.TclError:
+            return
+        if blocked or not self.v_tour.get() or self.tour_seen(name):
+            return
+        self.start_tour(name)
+
+    def replay_guide(self):
+        """Options > "Show the guide again": tips on, every tour unseen, and the tour for the
+        screen you are on starts (the other one comes when you get there).
+        """
+        self.settings["tour_on"] = True
+        self.settings["tour_seen"] = []
+        self.v_tour.set(True)
+        save_settings(self.settings)
+        self.after(250, lambda: self._tour_due(self.screen))
 
     @not_while_busy
     def go_home(self):
@@ -550,9 +615,10 @@ class BadgeApp(RootBase):
         self.btn_undo = IconButton(head, "undo", self.undo, f"Undo  ({MOD_LABEL}+Z)",
                                    on_tip=self._tip)
         self.btn_undo.pack(side="right", padx=(0, 4))
-        ttk.Button(left, text="←  Back to menu", style="Soft.TButton",
-                   command=self.go_home).pack(fill="x", pady=(0, 6))
-        nav = ttk.Frame(left)
+        self.btn_back = ttk.Button(left, text="←  Back to menu", style="Soft.TButton",
+                                   command=self.go_home)
+        self.btn_back.pack(fill="x", pady=(0, 6))
+        nav = self.nav_row = ttk.Frame(left)
         nav.pack(fill="x", pady=(0, 14))
         ttk.Button(nav, text="Save", style="Soft.TButton",
                    command=self.save_canvas).pack(side="left", expand=True, fill="x")
@@ -560,6 +626,7 @@ class BadgeApp(RootBase):
                    command=self.open_options).pack(side="left", expand=True, fill="x", padx=(8, 0))
 
         f = make_card(left, "1 · Paper size")
+        self.card_paper = f.master
         ttk.Combobox(f, textvariable=self.v_paper, values=list(PAPER_SIZES),
                      state="readonly", width=30).pack(fill="x")
         self.paper_custom = ttk.Frame(f, style="Card.TFrame")
@@ -569,6 +636,7 @@ class BadgeApp(RootBase):
         ttk.Label(self.paper_custom, text="mm", style="Muted.TLabel").pack(side="left")
 
         f = make_card(left, "2 · Pin size")
+        self.card_pin = f.master
         ttk.Combobox(f, textvariable=self.v_pin, values=list(PIN_SIZES),
                      state="readonly", width=30).pack(fill="x")
         self.pin_custom = ttk.Frame(f, style="Card.TFrame")
@@ -579,6 +647,7 @@ class BadgeApp(RootBase):
         self.pin_note.pack(anchor="w", pady=(6, 0))
 
         f = make_card(left, "3 · Images")
+        self.card_images = f.master
         tip = "Click a circle to add images. Select several files to fill many circles at once."
         if DND_FILES:
             tip += " You can also drop image files onto the sheet."
@@ -592,7 +661,7 @@ class BadgeApp(RootBase):
         r.pack(fill="x", pady=3)
         ttk.Label(r, text="Safe-area guide", style="Card.TLabel").pack(side="left")
         Toggle(r, self.v_guides, bg=T.CARD).pack(side="right")
-        a = ttk.Frame(left)
+        a = self.export_row = ttk.Frame(left)
         a.pack(fill="x")
         ttk.Button(a, text="Export PDF", style="Accent.TButton",
                    command=self.export_pdf).pack(side="left", expand=True, fill="x")
@@ -600,7 +669,7 @@ class BadgeApp(RootBase):
                    command=self.print_now).pack(side="left", expand=True, fill="x", padx=(8, 0))
 
         # ---- right: stat tiles + sheet preview
-        hdr = ttk.Frame(right)
+        hdr = self.stat_row = ttk.Frame(right)
         hdr.pack(fill="x")
         for c in range(3):
             hdr.columnconfigure(c, weight=1, uniform="tiles")
@@ -1428,7 +1497,7 @@ class BadgeApp(RootBase):
         """The strip under the sheet: a hint on the left; on the right  -  [slider] +  100%  Fit.
         The slider works on a log scale, so every step feels the same size.
         """
-        bar = tk.Frame(parent, bg=T.BG)
+        bar = self.zoom_row = tk.Frame(parent, bg=T.BG)
         bar.pack(side="bottom", fill="x", pady=(8, 0))
         fam = self.base_font[0]
         tk.Label(bar, text=f"{MOD_LABEL} + scroll to zoom   ·   {MOD_LABEL} + drag or Space + "
