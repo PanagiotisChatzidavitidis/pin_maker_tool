@@ -31,8 +31,13 @@ def main():
         sys.exit("PyInstaller is not installed. Run:  pip install pyinstaller")
 
     # --windowed = no console window behind the app, --clean = ignore old build caches
+    # The spec file and the work files go into build/, so the top folder stays tidy; the
+    # finished app is in dist/.
+    build = os.path.join(ROOT, "build")
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
-           "--windowed", "--name", NAME]
+           "--windowed", "--name", NAME,
+           "--specpath", build, "--workpath", os.path.join(build, "work"),
+           "--distpath", os.path.join(ROOT, "dist")]
     if sys.platform != "darwin":
         cmd.append("--onefile")          # macOS builds a .app bundle instead
     if importlib.util.find_spec("tkinterdnd2") is not None:
