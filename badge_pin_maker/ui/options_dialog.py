@@ -1,7 +1,7 @@
 """The Options window: every setting of the app in one place.
 
 It is opened from the Options button on the start screen and in the editor. It holds the
-display mode (full screen or windowed), smooth animations, the light and dark themes and the
+display mode (full screen or windowed), the light and dark themes, the tutorial and the
 canvases folder, and a button that puts everything back to its default.
 """
 
@@ -10,7 +10,8 @@ from tkinter import ttk
 
 from . import mascot, smooth, theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
-from .widgets import MascotTile, Segmented, ThemeTile, Toggle, make_card
+from ..system_actions import reveal_folder
+from .widgets import MascotTile, Segmented, ThemeTile, make_card
 
 
 class OptionsDialog(tk.Toplevel):
@@ -101,21 +102,13 @@ class OptionsDialog(tk.Toplevel):
         self._setting(f, "Window", "Press F11 at any time to switch.")
         Segmented(f, app.v_window, [("fullscreen", "Full screen"), ("windowed", "Windowed")],
                   command=self._mode_changed).pack(fill="x", pady=(8, 0))
-        tk.Frame(f, bg=T.BORDER, height=1).pack(fill="x", pady=14)
-        row = tk.Frame(f, bg=T.CARD)
-        row.pack(fill="x")
-        Toggle(row, app.v_anim, command=app.animations_changed, bg=T.CARD).pack(side="right")
-        self._setting(row, "Smooth animations", "Pins glide when swapped and fade away "
-                      "when cleared.", wrap=220, side="left")
 
-        # ---- left: the guide (tips and the tour)
-        f = make_card(left, "Guide", pady=(0, 0))
-        row = tk.Frame(f, bg=T.CARD)
-        row.pack(fill="x")
-        Toggle(row, app.v_tour, command=app.tour_toggled, bg=T.CARD).pack(side="right")
-        self._setting(row, "Show tips", "I'll show you around the first time you visit "
-                      "each screen.", wrap=220, side="left")
-        ttk.Button(f, text="Show the guide again", style="Ghost.TButton",
+        # ---- left: the tutorial
+        f = make_card(left, "Tutorial", pady=(0, 0))
+        ttk.Label(f, text=f"Want a hand? {mascot.INFO[mascot.current][0]} shows you around "
+                          "the start screen and the editor.", style="Muted.TLabel", justify="left",
+                  wraplength=300).pack(anchor="w")
+        ttk.Button(f, text="Watch the tutorial again", style="Ghost.TButton",
                    command=self._replay).pack(fill="x", pady=(12, 0))
 
         # ---- right: themes, a light column and a dark column of preview tiles
@@ -146,15 +139,10 @@ class OptionsDialog(tk.Toplevel):
                 tile.pack(pady=(0, 5))
 
         # ---- right: canvases folder, under the themes
-        f = make_card(right, "Canvases folder", pady=(14, 0))
-        edge = tk.Frame(f, bg=T.BORDER)
-        edge.pack(fill="x")
-        self.folder_lbl = tk.Label(edge, text=app.canvases_dir(), bg=T.FIELD, fg=T.TEXT,
-                                   font=(fam, 9), anchor="w", justify="left", wraplength=560,
-                                   padx=10, pady=8)
-        self.folder_lbl.pack(fill="x", padx=1, pady=1)
-        ttk.Button(f, text="Change folder…", style="Ghost.TButton",
-                   command=self._change_folder).pack(anchor="e", pady=(10, 0))
+        f = make_card(right, "Your files", pady=(14, 0))
+        self.folder_lbl = self._folder_row(
+            f, "Canvases", app.canvases_dir(), change=self._change_folder)
+        self.pdf_lbl = self._folder_row(f, "PDFs", app._dir("export_dir"), pady=(14, 0))
 
         # ---- footer bar
         tk.Frame(self, bg=T.BORDER, height=1).pack(fill="x")
@@ -200,11 +188,12 @@ class OptionsDialog(tk.Toplevel):
         """A theme tile was clicked: use that theme."""
         if theme_id == self.app.current_theme():
             return
-        self.app.choose_theme(theme_id)
-        self.after_idle(self._rebuild)
+        self.app.choose_theme(theme_id, done=self._rebuild)
 
     def _rebuild(self):
-        """Redraw this window in the new theme."""
+        """Redraw this window in the new theme (unless it was closed meanwhile)."""
+        if not self.winfo_exists():
+            return
         self._build()
         set_titlebar(self)
 
@@ -216,8 +205,30 @@ class OptionsDialog(tk.Toplevel):
                 "the theme and the canvases folder. Your canvases are not touched.",
                 parent=self, yes="Restore", no="Keep my options"):
             return
-        self.app.restore_defaults()
-        self.after_idle(self._rebuild)
+        self.app.restore_defaults(done=self._rebuild)
+
+    def _folder_row(self, parent, title, path, change=None, pady=(0, 0)):
+        """A folder shown as a name, its path and buttons to open it (and change it).
+        Returns the label that shows the path.
+        """
+        fam = self.app.base_font[0]
+        box = tk.Frame(parent, bg=T.CARD)
+        box.pack(fill="x", pady=pady)
+        head = tk.Frame(box, bg=T.CARD)
+        head.pack(fill="x")
+        tk.Label(head, text=title, bg=T.CARD, fg=T.TEXT,
+                 font=(fam, 10, "bold")).pack(side="left")
+        edge = tk.Frame(box, bg=T.BORDER)
+        edge.pack(fill="x", pady=(6, 0))
+        lbl = tk.Label(edge, text=path, bg=T.FIELD, fg=T.TEXT, font=(fam, 9), anchor="w",
+                       justify="left", wraplength=540, padx=10, pady=7)
+        lbl.pack(fill="x", padx=1, pady=1)
+        if change:
+            ttk.Button(head, text="Change…", style="Ghost.TButton",
+                       command=change).pack(side="right", padx=(8, 0))
+        ttk.Button(head, text="Open", style="Ghost.TButton",
+                   command=lambda: reveal_folder(lbl.cget("text"))).pack(side="right")
+        return lbl
 
     def _change_folder(self):
         """Pick another canvases folder."""
