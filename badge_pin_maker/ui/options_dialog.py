@@ -97,7 +97,7 @@ class OptionsDialog(tk.Toplevel):
         self._mascot_note.pack(anchor="w", pady=(10, 0))
 
         # ---- left: display
-        f = make_card(left, "Display", pady=(0, 0))
+        f = make_card(left, "Display", pady=(0, 14))
         self._setting(f, "Window", "Press F11 at any time to switch.")
         Segmented(f, app.v_window, [("fullscreen", "Full screen"), ("windowed", "Windowed")],
                   command=self._mode_changed).pack(fill="x", pady=(8, 0))
@@ -107,6 +107,16 @@ class OptionsDialog(tk.Toplevel):
         Toggle(row, app.v_anim, command=app.animations_changed, bg=T.CARD).pack(side="right")
         self._setting(row, "Smooth animations", "Pins glide when swapped and fade away "
                       "when cleared.", wrap=220, side="left")
+
+        # ---- left: the guide (tips and the tour)
+        f = make_card(left, "Guide", pady=(0, 0))
+        row = tk.Frame(f, bg=T.CARD)
+        row.pack(fill="x")
+        Toggle(row, app.v_tour, command=app.tour_toggled, bg=T.CARD).pack(side="right")
+        self._setting(row, "Show tips", "I'll show you around the first time you visit "
+                      "each screen.", wrap=220, side="left")
+        ttk.Button(f, text="Show the guide again", style="Ghost.TButton",
+                   command=self._replay).pack(fill="x", pady=(12, 0))
 
         # ---- right: themes, a light column and a dark column of preview tiles
         f = make_card(right, "Themes", pady=(0, 0))
@@ -156,6 +166,11 @@ class OptionsDialog(tk.Toplevel):
                    command=self.destroy).pack(side="right")
         ttk.Button(inner, text="Restore defaults", style="Soft.TButton",
                    command=self._restore).pack(side="left")
+
+    def _replay(self):
+        """Close Options and let the mascot give the tour again."""
+        self.destroy()
+        self.app.replay_guide()
 
     def _mascot_picked(self, mid):
         """A mascot card was clicked: switch to it (the card hops to say hello)."""

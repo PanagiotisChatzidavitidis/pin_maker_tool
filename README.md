@@ -47,6 +47,13 @@ export a PDF (or print straight away) ready to cut out.
   that fills the window (more columns on a wide screen), with a "New canvas" tile first, a search box (name, paper or pin size) and a sort menu: recently
   edited, recently opened, name A–Z / Z–A, oldest first, most pins. Thumbnails appear as they
   are ready, and your sort choice is remembered.
+- **A guided tour with the mascot.** The first time you see the start screen, and again the
+  first time you open the editor, Ozzie (or Mr / Ms Ozzie) walks you through it: a soft glowing
+  frame glides to each part of the screen and a card with the mascot says what it does. Use
+  Next / Back or the arrow keys, Esc or "Skip tour" to leave. The rest of the window is locked
+  while the tour runs, so nothing is clicked by accident. Switch on "Don't show tips again" in
+  the card, or turn "Show tips" off in Options, under Guide, to stop it for good. "Show the guide
+  again" in Options plays it again. The steps are in `ui/tour.py`.
 - **Zoom and pan the sheet.** Ctrl + scroll zooms in on the spot under the mouse (up to 8x), and
   so does the zoom bar under the sheet (slider, - / + and a Fit button). A small readout
   (the zoom HUD) pops up while you zoom and fades away. Zoomed in, scroll slides the sheet up
@@ -138,6 +145,7 @@ badge_pin_maker/          The program itself
     dialogs.py            Message boxes in the app's own style
     widgets.py            Cards, stat tiles, the on / off switch
     toast.py              The corner notes and their cute messages (one of each kind at a time)
+    tour.py               The guided tour: the steps, the glowing frame and the mascot card
     icons.py              Canvas thumbnails and the logo
     mascot.py             Ozzie, Mr Ozzie and Ms Ozzie: finding, cutting out and sizing the pictures
     theme.py              The light and dark themes (colours) and ttk styling
