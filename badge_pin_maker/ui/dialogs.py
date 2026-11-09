@@ -36,6 +36,13 @@ def set_titlebar(win):
     if platform.system() != "Windows":
         return
     try:
+        # Touching the title bar of a full-screen window makes Windows relayout and flash it
+        # (the "ugly zoom"), so wait until full screen ends, and skip when nothing changed.
+        if win.attributes("-fullscreen") or getattr(win, "_titlebar_dark", None) == T.IS_DARK:
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         import ctypes
         win.update_idletasks()
         hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
@@ -43,6 +50,7 @@ def set_titlebar(win):
         for attr in (20, 19):    # 20 = Windows 11 / 10 20H1+, 19 = older Windows 10
             if ctypes.windll.dwmapi.DwmSetWindowAttribute(
                     hwnd, attr, ctypes.byref(val), ctypes.sizeof(val)) == 0:
+                win._titlebar_dark = T.IS_DARK
                 break
     except Exception:  # noqa: BLE001
         pass
