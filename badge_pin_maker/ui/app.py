@@ -491,13 +491,27 @@ class BadgeApp(RootBase):
         showing = self.screen
         self.close_popup()
         self.toasts.reset()                      # the old notes have the old colours
-        self.home.destroy()
-        self.editor.destroy()
+        old_home, old_editor = self.home, self.editor
+        # Build the new screens underneath the old ones and let them lay out and draw there, so
+        # the swap is one step: nothing blank, resized or half-drawn is ever seen.
         self.editor = tk.Frame(self, bg=T.BG)
         self._build_ui()
         self._paper_changed()
         self._pin_changed()
         self.home = HomeScreen(self)
+        new = self.editor if showing == "editor" else self.home
+        if self.winfo_viewable():
+            new.place(x=0, y=0, relwidth=1, relheight=1)
+            new.lower()
+            self.update_idletasks()
+            if showing == "editor":
+                self.redraw()
+            else:
+                self.home.refresh()
+                self.update_idletasks()
+            new.place_forget()
+        old_home.destroy()
+        old_editor.destroy()
         self._show(showing)
         set_titlebar(self)
         self.toasts.raise_all()
