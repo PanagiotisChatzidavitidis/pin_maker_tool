@@ -50,7 +50,7 @@ from .crop_dialog import CropDialog
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
-from .morph import ThemeMorph
+from .cover import ThemeCover
 from .options_dialog import OptionsDialog
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
@@ -418,9 +418,9 @@ class BadgeApp(RootBase):
         self._apply_theme(done)
 
     def _apply_theme(self, done=None):
-        """Change to the current theme: remember it, blend every colour on screen into the new
-        ones, then apply the exact theme and rebuild the screens. A change that is asked for
-        while another is still blending runs right after it. ``done`` is called at the end.
+        """Change to the current theme: remember it, cover the window with a loading screen, then
+        apply the theme and rebuild the screens underneath. A change that is asked for
+        while another is still running runs right after it. ``done`` is called at the end.
         """
         if done:
             self._theme_done.append(done)
@@ -437,11 +437,11 @@ class BadgeApp(RootBase):
         if instant:
             self._theme_switch(name)
         else:
-            self._morph = ThemeMorph(self, old, name, lambda: self._theme_switch(name))
+            self._morph = ThemeCover(self, name)
+            self.after(60, lambda: self._theme_switch(name))
 
     def _theme_switch(self, name):
-        """The blend is over (or was skipped): use the exact theme."""
-        self._morph = None
+        """The cover is up (or the change is instant): use the exact theme."""
         T.apply_theme(name)
         self.base_font = T.setup_style(self)
         self.after_idle(self._theme_rebuilt)     # not inside the click that started it
@@ -454,6 +454,16 @@ class BadgeApp(RootBase):
         callbacks, self._theme_done = self._theme_done, []
         for callback in callbacks:
             callback()
+        cover = self._morph
+        if cover:
+            cover.lift()
+            cover.close(self._theme_finished)
+        else:
+            self._theme_finished()
+
+    def _theme_finished(self):
+        """The new theme is on screen. Run a change that was asked for in the meantime."""
+        self._morph = None
         if self._theme_again:
             self._theme_again = False
             if T.THEME_NAME != self.current_theme():
@@ -491,15 +501,31 @@ class BadgeApp(RootBase):
         showing = self.screen
         self.close_popup()
         self.toasts.reset()                      # the old notes have the old colours
-        self.home.destroy()
-        self.editor.destroy()
+        old_home, old_editor = self.home, self.editor
+        # Build the new screens underneath the old ones and let them lay out and draw there, so
+        # the swap is one step: nothing blank, resized or half-drawn is ever seen.
         self.editor = tk.Frame(self, bg=T.BG)
         self._build_ui()
         self._paper_changed()
         self._pin_changed()
         self.home = HomeScreen(self)
+        new = self.editor if showing == "editor" else self.home
+        if self.winfo_viewable():
+            new.place(x=0, y=0, relwidth=1, relheight=1)
+            new.lower()
+            self.update_idletasks()
+            if showing == "editor":
+                self.redraw()
+            else:
+                self.home.refresh()
+                self.update_idletasks()
+            new.place_forget()
+        old_home.destroy()
+        old_editor.destroy()
         self._show(showing)
         set_titlebar(self)
+        if self._morph:
+            self._morph.lift()
         self.toasts.raise_all()
 
     def canvases_dir(self):

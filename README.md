@@ -26,8 +26,8 @@ export a PDF (or print straight away) ready to cut out.
 - **Options in one place.** The **Options** button (start screen and editor) opens a window with
   full screen / windowed (full screen is the default), the mascot, the themes, a button to watch the
   tutorial again and where your files are kept. **Restore defaults** puts everything back,
-  **Return** closes the window. Changing a theme blends every colour on screen into the new ones,
-  with no flash and nothing covering the window.
+  **Return** closes the window. Changing a theme shows a quick loading screen with Ozzie while the app is re-coloured,
+  so nothing flickers.
 - **Themes.** Creamy, warm colours throughout. Four light themes (Oat Milk, Vanilla Latte,
   Cream & Denim, Strawberry Cream), four dark themes that are coffee and cream rather than steel
   (Espresso Mint, Cocoa Cream, Cocoa Denim, Mocha Orchid) and the original teal pair (Lagoon Sand and Lagoon Night). Each
@@ -142,7 +142,7 @@ badge_pin_maker/          The program itself
     app.py                The main window (editor, canvases, export)
     home_screen.py        The start screen with the canvas list
     options_dialog.py     The Options window (display mode, mascot, themes, tutorial, your files)
-    morph.py              The smooth blend from one theme to another
+    cover.py              The quick loading screen shown while the theme changes
     crop_dialog.py        The window for positioning an image under the pin
     dialogs.py            Message boxes in the app's own style
     widgets.py            Cards, stat tiles, the on / off switch
