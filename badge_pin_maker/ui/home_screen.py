@@ -1,4 +1,4 @@
-"""The start screen: a sidebar with the main actions and the list of saved canvases."""
+"""The start screen: a sidebar with the main actions and a grid of saved canvases."""
 
 import os
 import queue
@@ -22,8 +22,11 @@ SORTS = ("Recently edited", "Recently opened", "Name A–Z", "Name Z–A", "Olde
 
 class HomeScreen(tk.Frame):
     """Start screen: sidebar (brand, actions, options, exit) + canvases list."""
-    ICON = 56
+    ICON = 84                   # round thumbnail on each card
     SIDE_W = 320
+    CARD_MIN_W = 250            # cards are at least this wide; the grid fits as many as it can
+    CARD_H = 218
+    GAP = 18
 
     def __init__(self, app):
         """Build the sidebar (brand, actions, options) and the empty, scrollable canvas list.
@@ -33,7 +36,8 @@ class HomeScreen(tk.Frame):
         self._icons = {}                # (path, mtime, size) -> finished thumbnail
         self._pending = {}              # thumbnail key -> [(label, art)] still being made
         self.shown = []                 # names of the canvases listed, in order
-        self.recent_shown = []          # names in the "Jump back in" row
+        self._cards = []                # the card frames in the grid (the "New canvas" tile first)
+        self._cols = 0                  # columns the grid currently has
         self._items = []                # every canvas found in the folder
         self._gen = 0                   # bumped on every redraw, so old thumbnail jobs stop
         self._search_job = None
@@ -58,8 +62,8 @@ class HomeScreen(tk.Frame):
         tk.Label(brand, image=self._logo, bg=T.CARD).pack(side="left", padx=(0, 12))
         names = ttk.Frame(brand, style="Card.TFrame")
         names.pack(side="left")
-        ttk.Label(names, text="Badge Pin", style="Hero.TLabel").pack(anchor="w")
-        ttk.Label(names, text="Maker", style="Hero.TLabel").pack(anchor="w")
+        ttk.Label(names, text="Ozzie's", style="Hero.TLabel").pack(anchor="w")
+        ttk.Label(names, text="Pin Studio", style="Hero.TLabel").pack(anchor="w")
         ttk.Label(pad, text="Image sheets for your pin badges",
                   style="Muted.TLabel").pack(anchor="w", pady=(14, 22))
 
@@ -68,14 +72,20 @@ class HomeScreen(tk.Frame):
         ttk.Button(pad, text="Browse for a canvas…", style="Ghost.TButton",
                    command=app.open_canvas).pack(fill="x", pady=(10, 0))
 
-        ttk.Button(pad, text="Options", style="Ghost.TButton",
-                   command=app.open_options).pack(fill="x", pady=(10, 0))
+        more = ttk.Frame(pad, style="Card.TFrame")
+        more.pack(fill="x", pady=(10, 0))
+        more.columnconfigure(0, weight=3, uniform="more")
+        more.columnconfigure(1, weight=2, uniform="more")
+        ttk.Button(more, text="Options", style="Ghost.TButton",
+                   command=app.open_options).grid(row=0, column=0, sticky="ew")
+        ttk.Button(more, text="About", style="Ghost.TButton",
+                   command=app.open_about).grid(row=0, column=1, sticky="ew", padx=(10, 0))
 
         ttk.Button(pad, text="Exit", style="Ghost.TButton",
                    command=app.on_close).pack(side="bottom", fill="x")
 
         # ---- main area -----------------------------------------------------
-        main = ttk.Frame(self, padding=(34, 28, 34, 28))
+        main = ttk.Frame(self, padding=(40, 32, 40, 0))
         main.pack(side="left", fill="both", expand=True)
         top = ttk.Frame(main)
         top.pack(fill="x")
@@ -105,14 +115,28 @@ class HomeScreen(tk.Frame):
         self.cv.configure(yscrollcommand=self._on_scroll)
         self.cv.pack(side="left", fill="both", expand=True)
         self.list = tk.Frame(self.cv, bg=T.BG)
-        self._win = self.cv.create_window(0, 0, anchor="nw", window=self.list)
-        self.list.bind("<Configure>",
-                       lambda e: self.cv.configure(scrollregion=self.cv.bbox("all")))
-        self.cv.bind("<Configure>", lambda e: self.cv.itemconfigure(self._win, width=e.width))
+        # the list is a gap wider than the window and shifted left by half of it, so the equal
+        # half-gap margins around every card hang outside the visible area
+        self._win = self.cv.create_window(-self.GAP // 2, 0, anchor="nw", window=self.list)
+        self.list.bind("<Configure>", lambda e: self._fit_scrollregion())
+        self.cv.bind("<Configure>", self._canvas_resized)
         self._fam = fam
         # bind_all (without add=) so a rebuilt HomeScreen replaces the old handler
         for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self.bind_all(seq, self._on_wheel)
+
+    def _fit_scrollregion(self):
+        """The scrollable area is never smaller than the window, so a short list can't be
+        dragged up and away, leaving blank space.
+        """
+        h = max(self.list.winfo_reqheight(), self.cv.winfo_height())
+        self.cv.configure(scrollregion=(0, 0, max(1, self.cv.winfo_width()), h))
+
+    def _canvas_resized(self, e):
+        """The window changed size: stretch the list and re-flow the cards."""
+        self.cv.itemconfigure(self._win, width=e.width + self.GAP)
+        self._layout()
+        self._fit_scrollregion()
 
     def _on_scroll(self, lo, hi):
         """Show the scrollbar only when the list is taller than the window."""
@@ -138,7 +162,10 @@ class HomeScreen(tk.Frame):
                 step = 1
             else:
                 step = -1 if e.delta > 0 else 1
-            self.cv.yview_scroll(step, "units")
+            lo, hi = self.cv.yview()
+            if lo <= 0.0 and hi >= 1.0:           # everything fits: nothing to scroll
+                return
+            self.cv.yview_scroll(step * 2, "units")
         except tk.TclError:
             pass
 
@@ -187,7 +214,8 @@ class HomeScreen(tk.Frame):
             self._search_job = None
         self._gen += 1
         self._pending = {}
-        self.shown, self.recent_shown = [], []
+        self.shown = []
+        self._cards, self._cols = [], 0
         for w in self.list.winfo_children():
             w.destroy()
         query = self.v_search.get().strip().casefold()
@@ -205,11 +233,16 @@ class HomeScreen(tk.Frame):
         elif not items:
             self._empty_state("Nothing found", f"No canvas matches “{self.v_search.get().strip()}”.")
         else:
+            self.grid_host = tk.Frame(self.list, bg=T.BG)
+            self.grid_host.pack(fill="x", pady=(2, 0))
             if not query:
-                self._recent_strip(items)
+                self._cards.append(self._new_tile())
             for info in self._sorted(items):
                 self.shown.append(info["name"])
-                self._row(info)
+                self._cards.append(self._card(info))
+            self._layout(force=True)
+        self.update_idletasks()
+        self._fit_scrollregion()
         self.cv.yview_moveto(0)
         self._start_thumbs()
 
@@ -288,50 +321,122 @@ class HomeScreen(tk.Frame):
         if left:
             self.after(30, self._poll_thumbs, ready, gen, left)
 
-    # ---- the "Jump back in" row
-    def _recent_strip(self, items):
-        """A row of the last few canvases you opened, above the full list."""
-        by_path = {os.path.normcase(os.path.abspath(i["path"])): i for i in items}
-        recent = [by_path[k] for k in (os.path.normcase(p) for p in self.app.recent_paths())
-                  if k in by_path][:3]
-        if len(recent) < 2:
+    # ---- the card grid
+    def _layout(self, force=False):
+        """Flow the cards into as many equal columns as fit the window."""
+        if not self._cards:
             return
-        self.recent_shown = [i["name"] for i in recent]
-        self._heading("JUMP BACK IN", (0, 6))
-        row = tk.Frame(self.list, bg=T.BG)
-        row.pack(fill="x", pady=(0, 18))
-        for c in range(3):
-            row.columnconfigure(c, weight=1, uniform="recent")
-        for c, info in enumerate(recent):
-            outer = tk.Frame(row, bg=T.BORDER)
-            outer.grid(row=0, column=c, sticky="ew", padx=(0 if c == 0 else 10, 0))
-            card = tk.Frame(outer, bg=T.CARD)
-            card.pack(fill="x", padx=1, pady=1)
-            icon = self._thumb(card, info, T.CARD)
-            icon.pack(side="left", padx=(12, 10), pady=10)
-            text = tk.Frame(card, bg=T.CARD)
-            text.pack(side="left", fill="x", expand=True, padx=(0, 8))
-            name = tk.Label(text, text=info["name"], bg=T.CARD, fg=T.PETROL, anchor="w",
-                            font=("Georgia", 12, "bold"))
-            name.pack(fill="x")
-            n = info["pins"]
-            sub = tk.Label(text, text=f"{n} pin{'s' if n != 1 else ''}", bg=T.CARD,
-                           fg=T.MUTED, anchor="w", font=(self._fam, 9))
-            sub.pack(fill="x")
-            self._make_clickable(outer, (card, icon, text, name, sub), info["path"])
-        self._heading("ALL CANVASES", (0, 6))
+        width = max(self.cv.winfo_width(), 1)
+        cols = max(1, (width + self.GAP) // (self.CARD_MIN_W + self.GAP))
+        if cols == self._cols and not force:
+            return
+        host = self.grid_host
+        for c in range(max(cols, self._cols)):
+            host.columnconfigure(c, weight=1 if c < cols else 0,
+                                 uniform="cards" if c < cols else "")
+        for n, card in enumerate(self._cards):
+            r, c = divmod(n, cols)
+            card.grid(row=r, column=c, sticky="nsew",
+                      padx=self.GAP // 2,
+                      pady=(0, self.GAP))
+        self._cols = cols
 
-    def _heading(self, text, pady):
-        """A small section label on the page background."""
-        tk.Label(self.list, text=text, bg=T.BG, fg=T.MUTED, anchor="w",
-                 font=(self._fam, 8, "bold")).pack(fill="x", pady=pady)
+    def _shell(self, bg):
+        """An empty fixed-size card: a 1px border frame (lights up on hover) around the body."""
+        outer = tk.Frame(self.grid_host, bg=T.BORDER, height=self.CARD_H)
+        outer.pack_propagate(False)
+        card = tk.Frame(outer, bg=bg)
+        card.pack(fill="both", expand=True, padx=1, pady=1)
+        return outer, card
 
-    def _make_clickable(self, outer, widgets, path, skip=()):
-        """Make a card open ``path`` when clicked, and light up its border on hover."""
-        def paint(on):
-            outer.config(bg=T.TEAL if on else T.BORDER)
-            for w in widgets:
-                w.config(bg=T.HOVER if on else T.CARD)
+    def _new_tile(self):
+        """The first tile of the grid: a gentle "start a new canvas" invitation."""
+        outer, card = self._shell(T.BG)
+        S = self.ICON
+        plus = tk.Canvas(card, width=S, height=S, bg=T.BG, highlightthickness=0)
+        plus.create_oval(4, 4, S - 4, S - 4, outline=T.TEAL, width=2)
+        m, r = S // 2, S // 7 + 4
+        plus.create_line(m - r, m, m + r, m, fill=T.TEAL, width=3, capstyle="round")
+        plus.create_line(m, m - r, m, m + r, fill=T.TEAL, width=3, capstyle="round")
+        plus.pack(pady=(28, 12))
+        name = tk.Label(card, text="New canvas", bg=T.BG, fg=T.TEAL,
+                        font=("Georgia", 13, "bold"))
+        name.pack()
+        sub = tk.Label(card, text="Start a fresh sheet", bg=T.BG, fg=T.MUTED,
+                       font=(self._fam, 9))
+        sub.pack(pady=(2, 0))
+        self._make_clickable(outer, (card, plus, name, sub), self.app.new_canvas, rest=T.BG)
+        return outer
+
+    def _card(self, info):
+        """One canvas card: round thumbnail, name, details, date and a Delete link.
+        Clicking the card opens the canvas.
+        """
+        fam = self._fam
+        outer, card = self._shell(T.CARD)
+
+        foot = tk.Frame(card, bg=T.CARD)
+        foot.pack(side="bottom", fill="x", padx=16, pady=(0, 12))
+        when = time.strftime("%d %b %Y", time.localtime(info["mtime"]))
+        date = tk.Label(foot, text=when, bg=T.CARD, fg=T.MUTED, font=(fam, 9))
+        date.pack(side="left")
+        dele = tk.Label(foot, text="Delete", bg=T.CARD, fg=T.MUTED, cursor="hand2",
+                        font=(fam, 9, "underline"))
+        dele.pack(side="right")
+        dele.bind("<Button-1>", lambda e, i=info: self.delete(i))
+        dele.bind("<Enter>", lambda e: dele.config(fg=T.WARN))
+        dele.bind("<Leave>", lambda e: dele.config(fg=T.MUTED))
+
+        icon = self._thumb(card, info, T.CARD)
+        icon.pack(pady=(24, 10))
+        title = info["name"] if len(info["name"]) <= 22 else info["name"][:21].rstrip() + "…"
+        name = tk.Label(card, text=title, bg=T.CARD, fg=T.PETROL, font=("Georgia", 13, "bold"))
+        name.pack()
+        n = info["pins"]
+        sub = tk.Label(card, bg=T.CARD, fg=T.MUTED, font=(fam, 9),
+                       text=f"{info['paper']}  ·  {info['pin']}  ·  {n} pin{'s' if n != 1 else ''}")
+        sub.pack(pady=(3, 0))
+
+        self._make_clickable(outer, (card, icon, name, sub, foot, date, dele),
+                             lambda p=info["path"]: self.app.open_path(p), skip=(dele,))
+        return outer
+
+    def _make_clickable(self, outer, widgets, action, skip=(), rest=None):
+        """Make a card run ``action`` when clicked. Hovering fades its background and border
+        towards the theme's hover colours (and back), a few quick frames, nothing flashy.
+        ``rest`` is the card's normal colour (the theme's card colour unless given); colours
+        are read when the card is used, so they always match the current theme.
+        """
+        state = {"t": 0.0, "goal": 0.0, "job": None}
+        STEPS, MS = 7, 16
+
+        def paint(t):
+            base = rest or T.CARD
+            try:
+                outer.config(bg=T._mix(T.BORDER, T.TEAL, t))
+                col = T._mix(base, T.HOVER, t)
+                for w in widgets:
+                    w.config(bg=col)
+            except tk.TclError:                  # the card was destroyed mid-fade
+                state["job"] = None
+                return False
+            return True
+
+        def step():
+            state["job"] = None
+            d = 1.0 / STEPS
+            if state["t"] < state["goal"]:
+                state["t"] = min(state["goal"], state["t"] + d)
+            else:
+                state["t"] = max(state["goal"], state["t"] - d)
+            ease = state["t"] * state["t"] * (3 - 2 * state["t"])       # smoothstep
+            if paint(ease) and state["t"] != state["goal"]:
+                state["job"] = outer.after(MS, step)
+
+        def go(goal):
+            state["goal"] = goal
+            if state["job"] is None:
+                state["job"] = outer.after(0, step)
 
         def leave(_e):
             try:
@@ -340,54 +445,14 @@ class HomeScreen(tk.Frame):
             except (tk.TclError, KeyError):
                 under = None
             if under is None or not (under == outer or str(under).startswith(str(outer) + ".")):
-                paint(False)
+                go(0.0)
 
         for w in widgets:
-            w.bind("<Enter>", lambda e: paint(True), add="+")
+            w.bind("<Enter>", lambda e: go(1.0), add="+")
             w.bind("<Leave>", leave, add="+")
             if w not in skip:
                 w.config(cursor="hand2")
-                w.bind("<Button-1>", lambda e, p=path: self.app.open_path(p))
-
-    def _row(self, info):
-        """One canvas card: thumbnail, name, details, date and a Delete link. Clicking the
-        card opens the canvas.
-        """
-        fam = self._fam
-        outer = tk.Frame(self.list, bg=T.BORDER)          # 1px border that lights up on hover
-        outer.pack(fill="x", pady=(0, 10))
-        card = tk.Frame(outer, bg=T.CARD)
-        card.pack(fill="x", padx=1, pady=1)
-
-        icon = self._thumb(card, info, T.CARD)
-        icon.pack(side="left", padx=(16, 14), pady=12)
-
-        right = tk.Frame(card, bg=T.CARD)
-        right.pack(side="right", padx=16)
-        when = time.strftime("%d %b %Y", time.localtime(info["mtime"]))
-        date = tk.Label(right, text=f"Edited {when}", bg=T.CARD, fg=T.MUTED,
-                        font=(fam, 9), anchor="e")
-        date.pack(anchor="e")
-        dele = tk.Label(right, text="Delete", bg=T.CARD, fg=T.MUTED, cursor="hand2",
-                        font=(fam, 9, "underline"))
-        dele.pack(anchor="e", pady=(4, 0))
-        dele.bind("<Button-1>", lambda e, i=info: self.delete(i))
-        dele.bind("<Enter>", lambda e: dele.config(fg=T.WARN))
-        dele.bind("<Leave>", lambda e: dele.config(fg=T.MUTED))
-
-        text = tk.Frame(card, bg=T.CARD)
-        text.pack(side="left", fill="x", expand=True)
-        name = tk.Label(text, text=info["name"], bg=T.CARD, fg=T.PETROL, anchor="w",
-                        font=("Georgia", 14, "bold"))
-        name.pack(fill="x")
-        n = info["pins"]
-        sub = tk.Label(text, bg=T.CARD, fg=T.MUTED, anchor="w", font=(fam, 9),
-                       text=f"{info['paper']}  ·  {info['pin']}  ·  "
-                            f"{n} pin{'s' if n != 1 else ''}")
-        sub.pack(fill="x", pady=(2, 0))
-
-        self._make_clickable(outer, (card, icon, text, name, sub, right, date, dele),
-                             info["path"], skip=(dele,))
+                w.bind("<Button-1>", lambda e: action())
 
     def delete(self, info):
         """Ask first, then remove the canvas file. The images are never touched."""

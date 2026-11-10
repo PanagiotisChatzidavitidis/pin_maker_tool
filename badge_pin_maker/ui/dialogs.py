@@ -10,15 +10,22 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..paths import asset_path
-from . import theme as T
+from . import mascot, theme as T
 from .icons import load_logo
 from .widgets import round_rect
 
 
-def set_window_icon(win):
-    """Use the app icon in a window's title bar instead of the default Tk feather."""
+def set_window_icon(win, everywhere=False):
+    """Use the mascot as a window's icon (title bar, taskbar) instead of the default Tk
+    feather. Without the mascot pictures: assets/icon.ico on Windows. ``everywhere`` makes it
+    the icon of every window opened later too (used for the main window).
+    """
     try:
-        if platform.system() == "Windows":
+        photos = [mascot.photo(mascot.current, s) for s in (256, 64, 32)]
+        if all(photos):
+            win.iconphoto(everywhere, *photos)
+            win._icon_photos = photos                # Tk only keeps a reference to the name
+        elif platform.system() == "Windows":
             win.iconbitmap(asset_path("icon.ico"))
     except tk.TclError:
         pass
@@ -67,9 +74,9 @@ class ThemedDialog(tk.Toplevel):
         body.pack(fill="both", expand=True)
 
         # the hamster (does a little hop when the window opens)
-        self._logo = load_logo(52)
-        self._mascot = tk.Canvas(body, width=60, height=66, bg=T.CARD, highlightthickness=0)
-        self._mimg = self._mascot.create_image(30, 36, image=self._logo)
+        self._logo = load_logo(80)
+        self._mascot = tk.Canvas(body, width=92, height=98, bg=T.CARD, highlightthickness=0)
+        self._mimg = self._mascot.create_image(46, 54, image=self._logo)
         self._mascot.pack(side="left", anchor="s")
         self._anim = None
 
@@ -136,7 +143,7 @@ class ThemedDialog(tk.Toplevel):
             self._anim = None
             return
         try:
-            self._mascot.coords(self._mimg, 30, 36 + hops[step])
+            self._mascot.coords(self._mimg, 46, 54 + hops[step])
         except tk.TclError:
             return
         self._anim = self.after(70, self._bounce, step + 1)
@@ -150,6 +157,57 @@ class ThemedDialog(tk.Toplevel):
             value = self._var.get()
         self.result = value
         self.destroy()
+
+
+class AboutDialog(tk.Toplevel):
+    """A small, plain "About" box: the logo, the name, the version and the art credit."""
+    def __init__(self, parent, name, version, credit):
+        """Build it off-screen, centre it over ``parent``, then show it modally."""
+        super().__init__(parent)
+        self.withdraw()
+        self.title("About")
+        self.configure(bg=T.BG)
+        self.resizable(False, False)
+        set_window_icon(self)
+        try:
+            if parent is not None and parent.winfo_viewable():
+                self.transient(parent)
+        except tk.TclError:
+            pass
+        fam = "TkDefaultFont"
+        body = ttk.Frame(self, style="Card.TFrame", padding=(40, 26, 40, 20))
+        body.pack(fill="both", expand=True)
+        self._logo = load_logo(56)
+        tk.Label(body, image=self._logo, bg=T.CARD).pack()
+        tk.Label(body, text=name, bg=T.CARD, fg=T.PETROL,
+                 font=("Georgia", 15, "bold")).pack(pady=(10, 2))
+        tk.Label(body, text=version, bg=T.CARD, fg=T.MUTED, font=fam).pack()
+        tk.Frame(body, bg=T.BORDER, height=1, width=150).pack(pady=14)
+        tk.Label(body, text=credit, bg=T.CARD, fg=T.TEXT, font=fam).pack()
+        tk.Frame(self, bg=T.BORDER, height=1).pack(fill="x")
+        foot = ttk.Frame(self, padding=(16, 12))
+        foot.pack(fill="x")
+        close = ttk.Button(foot, text="Close", style="Accent.TButton", command=self.destroy)
+        close.pack(side="right")
+        self.bind("<Return>", lambda e: self.destroy())
+        self.bind("<Escape>", lambda e: self.destroy())
+
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        if parent is not None:
+            x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+            y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+        else:
+            x, y = (self.winfo_screenwidth() - w) // 2, (self.winfo_screenheight() - h) // 3
+        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        set_titlebar(self)
+        self.deiconify()
+        try:
+            self.wait_visibility()
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.focus_force()
 
 
 class _ThemedMessageBox:

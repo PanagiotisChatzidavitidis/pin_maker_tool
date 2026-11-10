@@ -118,3 +118,42 @@ def switch(w, h, on, track, knob, bg):
         x0 = w - h + pad if on else pad
         _oval(d, k, x0 + (h - 2 * pad) / 2, h / 2, (h - 2 * pad) / 2, knob)
     return _make(key, w, h, bg, paint)
+
+
+def plate(w, h, bg, fill, edge, edge_w, radius=14, badge=None):
+    """A rounded plate (colour ``fill``, outline ``edge``) with an optional round tick badge
+    ``badge = (cx, cy, circle colour, tick colour)`` for the item in use.
+    """
+    key = ("plate", w, h, bg, fill, edge, edge_w, radius, badge)
+
+    def paint(d, k):
+        d.rounded_rectangle([1.5 * k, 1.5 * k, (w - 1.5) * k - 1, (h - 1.5) * k - 1],
+                            radius=radius * k, fill=fill, outline=edge, width=round(edge_w * k))
+        if badge:
+            cx, cy, circle, mark = badge
+            _oval(d, k, cx, cy, 10, circle)
+            _line(d, k, [(cx - 5, cy), (cx - 1.5, cy + 4), (cx + 5, cy - 4)], mark, 2)
+    return _make(key, w, h, bg, paint)
+
+
+def stat_icon(kind, colour, bg, size=22):
+    """The little line icon on a statistic tile, in ``colour`` on ``bg``: a sheet of paper
+    ("paper"), a ring with a dot ("pins") or a circled tick ("done").
+    """
+    key = ("stat", kind, colour, bg, size)
+
+    def paint(d, k):
+        m, w = size / 2, 1.7
+        if kind == "paper":
+            pts = [(m - 6, 2.5), (m + 2, 2.5), (m + 6.5, 7), (m + 6.5, size - 2.5),
+                   (m - 6, size - 2.5), (m - 6, 2.5)]
+            _line(d, k, pts, colour, w)
+            _line(d, k, [(m - 2.5, m + 1), (m + 3, m + 1)], colour, w)
+            _line(d, k, [(m - 2.5, m + 5), (m + 3, m + 5)], colour, w)
+        elif kind == "pins":
+            _oval(d, k, m, m, size * 0.42, bg, outline=colour, width=w)
+            _oval(d, k, m, m, size * 0.2, colour)
+        else:
+            _oval(d, k, m, m, size * 0.42, bg, outline=colour, width=w)
+            _line(d, k, [(m - 3.6, m + 0.2), (m - 0.9, m + 3), (m + 3.8, m - 2.8)], colour, w)
+    return _make(key, size, size, bg, paint)
