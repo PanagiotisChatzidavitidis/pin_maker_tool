@@ -24,9 +24,10 @@ export a PDF (or print straight away) ready to cut out.
 - **Canvases.** Everything is saved as a `.pinproj` file so you can come back and edit it.
   Undo / redo, a light and a dark theme, and your last settings are remembered.
 - **Options in one place.** The **Options** button (start screen and editor) opens a window with
-  full screen / windowed (full screen is the default), smooth animations, the themes and the
-  canvases folder. **Restore defaults** puts everything back, **Return** closes the window.
-  Changing a theme cross-fades smoothly (when Smooth animations is on).
+  full screen / windowed (full screen is the default), the mascot, the themes, a button to watch the
+  tutorial again and where your files are kept. **Restore defaults** puts everything back,
+  **Return** closes the window. Changing a theme blends every colour on screen into the new ones,
+  with no flash and nothing covering the window.
 - **Themes.** Creamy, warm colours throughout. Four light themes (Oat Milk, Vanilla Latte,
   Cream & Denim, Strawberry Cream), four dark themes that are coffee and cream rather than steel
   (Espresso Mint, Cocoa Cream, Cocoa Denim, Mocha Orchid) and the original teal pair (Lagoon Sand and Lagoon Night). Each
@@ -52,8 +53,8 @@ export a PDF (or print straight away) ready to cut out.
   frame glides to each part of the screen and a card with the mascot says what it does. Use
   Next / Back or the arrow keys, Esc or "Skip tour" to leave. The rest of the window is locked
   while the tour runs, so nothing is clicked by accident. Switch on "Don't show tips again" in
-  the card, or turn "Show tips" off in Options, under Guide, to stop it for good. "Show the guide
-  again" in Options plays it again. The steps are in `ui/tour.py`.
+  the card to stop it for good. "Watch the tutorial again" in Options plays it again. The steps
+  are in `ui/tour.py`.
 - **Zoom and pan the sheet.** Ctrl + scroll zooms in on the spot under the mouse (up to 8x), and
   so does the zoom bar under the sheet (slider, - / + and a Fit button). A small readout
   (the zoom HUD) pops up while you zoom and fades away. Zoomed in, scroll slides the sheet up
@@ -61,7 +62,7 @@ export a PDF (or print straight away) ready to cut out.
   the middle button, moves it freely. Ctrl + / Ctrl - zoom and Ctrl 0, the Fit button or a click
   on the corner pill fits the whole sheet again.
 - **Quiet animations.** Pins glide into their new circles when swapped or moved and fade away
-  when cleared. They can be turned off with **Smooth animations** in Options.
+  when cleared (always on).
 - **Undo and redo arrows.** Two arrows next to the app name (greyed out when there is nothing to
   undo or redo) do the same as Ctrl+Z and Ctrl+Y.
 - **Held keys count once.** Holding Ctrl+S (or any other shortcut) runs it only once instead of
@@ -116,7 +117,7 @@ python scripts/build_exe.py
 ```
 
 Build on the system you are building for (Windows for a `.exe`, macOS for a `.app`). The
-result appears in `dist/`. Ozzie's pictures live in [`assets/`](assets/README.md); the build makes the app icon
+result appears in `dist/`; the spec file and the work files go into `build/`, so the top folder stays clean. Ozzie's pictures live in [`assets/`](assets/README.md); the build makes the app icon
 from Ozzie's picture.
 
 ## Project layout
@@ -140,7 +141,8 @@ badge_pin_maker/          The program itself
   ui/                     Everything you see on screen
     app.py                The main window (editor, canvases, export)
     home_screen.py        The start screen with the canvas list
-    options_dialog.py     The Options window (display mode, themes, canvases folder)
+    options_dialog.py     The Options window (display mode, mascot, themes, tutorial, your files)
+    morph.py              The smooth blend from one theme to another
     crop_dialog.py        The window for positioning an image under the pin
     dialogs.py            Message boxes in the app's own style
     widgets.py            Cards, stat tiles, the on / off switch
@@ -159,10 +161,16 @@ and the PDF output can be read, run and tested on their own.
 
 | What | Where |
 | --- | --- |
-| Canvases | `~/Badge Pin Maker Canvases/` (changeable from the start screen) |
-| Preferences | `~/.badge_pin_maker.json` |
-| Crash recovery | `~/.badge_pin_maker_recovery.pinproj` (deleted on save or normal close) |
+| Canvases | `Documents/Ozzie's Pin Studio/Canvases/` (changeable in Options) |
+| Exported PDFs | `Documents/Ozzie's Pin Studio/PDFs/` (the save box starts there) |
+| Preferences | `settings.json` in the app's own folder: `%APPDATA%\Ozzie's Pin Studio` on Windows, `~/Library/Application Support/Ozzie's Pin Studio` on macOS, `~/.config/ozzies-pin-studio` on Linux |
+| Crash recovery | `recovery.pinproj` in that same folder (deleted on save or normal close) |
 | Images | Stay where they are. A canvas stores only their location, so moving an image means the canvas has to find it again (it also looks next to the canvas file). |
+
+Older versions kept the canvases in `~/Badge Pin Maker Canvases/` and the preferences straight in
+the home folder. The preferences move to the new place by themselves, and the first start offers
+to tidy the canvases into Documents (nothing is deleted; a canvas folder you chose yourself is
+left alone).
 
 ## About and credits
 
