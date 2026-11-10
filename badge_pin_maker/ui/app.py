@@ -50,7 +50,7 @@ from .crop_dialog import CropDialog
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
-from .morph import ThemeMorph
+from .cover import ThemeCover
 from .options_dialog import OptionsDialog
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
@@ -437,11 +437,11 @@ class BadgeApp(RootBase):
         if instant:
             self._theme_switch(name)
         else:
-            self._morph = ThemeMorph(self, old, name, lambda: self._theme_switch(name))
+            self._morph = ThemeCover(self, name)
+            self.after(60, lambda: self._theme_switch(name))
 
     def _theme_switch(self, name):
-        """The blend is over (or was skipped): use the exact theme."""
-        self._morph = None
+        """The cover is up (or the change is instant): use the exact theme."""
         T.apply_theme(name)
         self.base_font = T.setup_style(self)
         self.after_idle(self._theme_rebuilt)     # not inside the click that started it
@@ -454,6 +454,16 @@ class BadgeApp(RootBase):
         callbacks, self._theme_done = self._theme_done, []
         for callback in callbacks:
             callback()
+        cover = self._morph
+        if cover:
+            cover.lift()
+            cover.close(self._theme_finished)
+        else:
+            self._theme_finished()
+
+    def _theme_finished(self):
+        """The new theme is on screen. Run a change that was asked for in the meantime."""
+        self._morph = None
         if self._theme_again:
             self._theme_again = False
             if T.THEME_NAME != self.current_theme():
@@ -514,6 +524,8 @@ class BadgeApp(RootBase):
         old_editor.destroy()
         self._show(showing)
         set_titlebar(self)
+        if self._morph:
+            self._morph.lift()
         self.toasts.raise_all()
 
     def canvases_dir(self):
