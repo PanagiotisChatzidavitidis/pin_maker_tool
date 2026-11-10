@@ -418,9 +418,9 @@ class BadgeApp(RootBase):
         self._apply_theme(done)
 
     def _apply_theme(self, done=None):
-        """Change to the current theme: remember it, blend every colour on screen into the new
-        ones, then apply the exact theme and rebuild the screens. A change that is asked for
-        while another is still blending runs right after it. ``done`` is called at the end.
+        """Change to the current theme: remember it, cover the window with a loading screen, then
+        apply the theme and rebuild the screens underneath. A change that is asked for
+        while another is still running runs right after it. ``done`` is called at the end.
         """
         if done:
             self._theme_done.append(done)
