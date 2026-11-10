@@ -21,31 +21,32 @@ from . import theme as T
 
 # What Ozzie says while waiting: one of these is picked at random each time.
 MESSAGES = (
-    "One moment, I'm fluffing up your new colours!",
-    "Hold tight, painting everything cosy for you...",
-    "Almost there, Ozzie is tidying the pins!",
+    "One moment, dressing everything in {theme}!",
+    "Hold tight, painting it all {theme} for you...",
+    "Almost there, Ozzie is tidying up in {theme}!",
 )
 MIN_SHOW_MS = int(os.environ.get("OZZIE_COVER_MS", 900))   # long enough to read the message
 FRAME_MS = 33
 
 
 def _cursor(theme_name, accent):
-    """A cute mouse pointer for the loading screen (Windows only, else None): a little Ozzie
-    in a ring in the theme's colour. Written once per theme as a .cur file.
+    """A mouse pointer for the loading screen (Windows only, else None): a loading circle in
+    the theme's colour. Written once per theme as a .cur file.
     """
     if platform.system() != "Windows":
         return None
-    path = os.path.join(tempfile.gettempdir(), f"ozzie_wait_{theme_name}.cur")
+    path = os.path.join(tempfile.gettempdir(), f"ozzie_ring_{theme_name}.cur")
     if not os.path.exists(path):
         try:
             n = 32
             im = Image.new("RGBA", (n * 4, n * 4), (0, 0, 0, 0))
             d = ImageDraw.Draw(im)
-            d.ellipse((4, 4, n * 4 - 5, n * 4 - 5), fill=(255, 255, 255, 235), outline=accent,
-                      width=14)
-            face = mascot.square(mascot.current, n * 4 - 36, pad=0.0)
-            if face is not None:
-                im.alpha_composite(face, (18, 18))
+            box = (14, 14, n * 4 - 15, n * 4 - 15)
+            track = Image.new("RGBA", im.size, (0, 0, 0, 0))
+            rgb = tuple(int(accent[i:i + 2], 16) for i in (1, 3, 5))
+            ImageDraw.Draw(track).ellipse(box, outline=rgb + (70,), width=16)
+            im.alpha_composite(track)
+            d.arc(box, -70, 130, fill=rgb + (255,), width=16)       # the bright, turning part
             small = im.resize((n, n), Image.LANCZOS)
             # a classic bitmap cursor (works on every Windows): 32-bit pixels, bottom row first,
             # then an all-zero mask (the transparency comes from the alpha channel)
@@ -78,7 +79,8 @@ class ThemeCover:
         bg, text, muted = pal["BG"], pal["TEXT"], pal["MUTED"]
         accent = pal.get("TEAL", text)
         self.cv = tk.Canvas(parent, bg=bg, highlightthickness=0, bd=0, cursor="watch")
-        self.message = random.choice(MESSAGES)
+        title = T.THEME_INFO.get(theme_name, (theme_name,))[0]
+        self.message = random.choice(MESSAGES).format(theme=title)
         cur = _cursor(theme_name, accent)
         if cur:
             try:
