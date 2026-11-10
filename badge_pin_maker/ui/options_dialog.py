@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import mascot, smooth, theme as T
+from .cover import ThemeCover
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from ..system_actions import reveal_folder
 from .widgets import MascotTile, Segmented, ThemeTile, make_card
@@ -23,6 +24,7 @@ class OptionsDialog(tk.Toplevel):
         super().__init__(app)
         self.withdraw()                      # build off-screen, then show centred
         self.app = app
+        self._cover = None
         self.title("Options")
         self.resizable(False, False)
         set_window_icon(self)
@@ -56,8 +58,10 @@ class OptionsDialog(tk.Toplevel):
         Layout: a header with the logo, then two columns: Display and Canvases folder on the
         left, the Themes on the right, and a footer bar with Restore defaults and Return.
         """
+        keep = self._cover.cv if self._cover else None      # the loading cover stays up
         for child in self.winfo_children():
-            child.destroy()
+            if child is not keep:
+                child.destroy()
         self.configure(bg=T.BG)
         app = self.app
         fam = app.base_font[0]
@@ -188,6 +192,8 @@ class OptionsDialog(tk.Toplevel):
         """A theme tile was clicked: use that theme."""
         if theme_id == self.app.current_theme():
             return
+        if not (self._cover and not self._cover.closed):
+            self._cover = ThemeCover(self.app, theme_id, parent=self)   # hides the rebuild
         self.app.choose_theme(theme_id, done=self._rebuild)
 
     def _rebuild(self):
@@ -196,6 +202,10 @@ class OptionsDialog(tk.Toplevel):
             return
         self._build()
         set_titlebar(self)
+        if self._cover:
+            self._cover.lift()
+            self._cover.close()
+            self._cover = None
 
     def _restore(self):
         """Ask first, then put every option back to its default."""

@@ -17,33 +17,39 @@ FRAME_MS = 33
 
 
 class ThemeCover:
-    """Covers the whole window. Make it to show it; close() takes it away."""
+    """Covers a whole window (the app by default, or e.g. the Options window). Make it to show
+    it; close() takes it away.
+    """
 
-    def __init__(self, app, theme_name):
+    def __init__(self, app, theme_name, parent=None):
         pal = T.THEMES[theme_name]
         self.app, self.job, self.closed = app, None, False
+        parent = parent or app
         self.font = (getattr(app, "base_font", None) or ("Helvetica",))[0]
         bg, text, muted = pal["BG"], pal["TEXT"], pal["MUTED"]
         accent = pal.get("TEAL", text)
-        self.cv = tk.Canvas(app, bg=bg, highlightthickness=0, bd=0, cursor="watch")
+        self.cv = tk.Canvas(parent, bg=bg, highlightthickness=0, bd=0, cursor="watch")
         self.cv.place(x=0, y=0, relwidth=1, relheight=1)
         tk.Misc.lift(self.cv)
         self._logo = None
         try:
-            self._logo = mascot.photo(mascot.current, 120)
+            self._logo = mascot.photo(mascot.current, 120 if parent is app else 84)
         except Exception:  # noqa: BLE001  (no picture: the text alone is fine)
             pass
         self.cv.bind("<Configure>", lambda e: self._frame())
         self._colours = (text, muted, accent)
         self.t0 = time.monotonic()
         self._frame()
-        app.update_idletasks()
-        app.update()                         # make sure it is really on screen before work starts
+        parent.update_idletasks()
+        parent.update()                         # make sure it is really on screen before work starts
 
     def lift(self):
         """Keep it above anything built while it is showing."""
         if not self.closed:
-            tk.Misc.lift(self.cv)
+            try:
+                tk.Misc.lift(self.cv)
+            except tk.TclError:
+                self.closed = True
 
     def _frame(self):
         """Draw one frame: the mascot hopping, a label and three bouncing dots."""
@@ -52,7 +58,11 @@ class ThemeCover:
             return
         cv = self.cv
         text, muted, accent = self._colours
-        w, h = max(cv.winfo_width(), 200), max(cv.winfo_height(), 200)
+        try:
+            w, h = max(cv.winfo_width(), 200), max(cv.winfo_height(), 200)
+        except tk.TclError:                  # the window under it was closed
+            self.closed = True
+            return
         t = time.monotonic() - self.t0
         cx, cy = w / 2, h / 2
         cv.delete("all")
