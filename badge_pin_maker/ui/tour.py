@@ -54,7 +54,7 @@ HOME_STEPS = [
     ("Ready when you are!",
      "That's the start screen! Click New canvas and I'll show you the editor too.\n\nIf you'd "
      "rather not see tips, switch on \"Don't show tips again\" below, or turn them off in "
-     "Options, under Guide.",
+     "Options, under Tutorial.",
      None),
 ]
 
@@ -108,8 +108,8 @@ EDITOR_STEPS = [
      "something you haven't saved yet.",
      lambda a: a.btn_back),
     ("You did it!",
-     "That's everything! You can replay this tour any time from Options, under Guide, or "
-     "switch the tips off there.\n\nNow go make something adorable!",
+     "That's everything! You can watch this tutorial again any time from Options, under "
+     "Tutorial.\n\nNow go make something adorable!",
      None),
 ]
 

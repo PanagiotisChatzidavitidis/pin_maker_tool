@@ -41,7 +41,8 @@ from ..imaging import Art, load_source, render_art
 from ..layout import compute_layout, fill_order, first_free
 from ..pdf_export import build_pdf
 from ..canvas_files import read_canvas_info
-from ..settings import RECOVERY_PATH, default_canvases_dir, load_settings, save_settings
+from ..settings import (RECOVERY_PATH, default_canvases_dir, default_pdf_dir, load_settings,
+                        save_settings, tidy_candidates, tidy_legacy)
 from ..system_actions import print_pdf, reveal_folder
 from ..version import ART_CREDIT, version_text
 from . import mascot, theme as T
@@ -49,6 +50,7 @@ from .crop_dialog import CropDialog
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
+from .cover import ThemeCover
 from .options_dialog import OptionsDialog
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
@@ -120,6 +122,8 @@ class BadgeApp(RootBase):
         self.selected = None
         self.popup = None
         self.tour = None               # the guided tour that is running, if any
+        self._morph = None             # the running theme change, if any
+        self._theme_again, self._theme_done = False, []
         self._image_cache = {}
         self._pil_cache = {}           # the same pictures as PIL images (for the fade-out)
         self._zoom, self._pan, self._fit = 1.0, (0.0, 0.0), 1.0   # sheet zoom and pan (pixels)
@@ -150,8 +154,6 @@ class BadgeApp(RootBase):
         self.v_pin = tk.StringVar(value=pin)
         self.v_d = tk.StringVar(value=str(s.get("d", "32")))
         self.v_guides = tk.BooleanVar(value=bool(s.get("guides", True)))
-        self.v_anim = tk.BooleanVar(value=bool(s.get("animations", True)))
-        self.v_tour = tk.BooleanVar(value=bool(s.get("tour_on", True)))   # show the tips?
 
         # ---- build the screens and connect the events ----
         self._build_ui()
@@ -172,6 +174,7 @@ class BadgeApp(RootBase):
             self.set_fullscreen(True, save=False)
         self._autosave_job = self.after(AUTOSAVE_MS, self._autosave_tick)
         self.after(600, self._offer_recovery)
+        self.after(900, self._offer_tidy)
 
     # ---- shortcuts (no menu bar; the buttons cover everything) -------------
     def _bind_shortcuts(self):
@@ -335,13 +338,11 @@ class BadgeApp(RootBase):
         self.settings["tour_seen"] = seen
         if never:
             self.settings["tour_on"] = False
-            self.v_tour.set(False)
         save_settings(self.settings)
 
-    def tour_toggled(self):
-        """The Tips switch in Options was flipped."""
-        self.settings["tour_on"] = bool(self.v_tour.get())
-        save_settings(self.settings)
+    def tour_on(self):
+        """True unless the person asked not to see tips any more."""
+        return bool(self.settings.get("tour_on", True))
 
     def start_tour(self, name=None):
         """Run the tour for a screen now, whatever the settings say."""
@@ -356,28 +357,31 @@ class BadgeApp(RootBase):
         """After a screen appears for the first time, offer its tour (a moment later, when the
         screen has settled).
         """
-        if os.environ.get("OZZIE_NO_TOUR") or not self.v_tour.get() or self.tour_seen(name):
+        if os.environ.get("OZZIE_NO_TOUR") or not self.tour_on() or self.tour_seen(name):
             return
         self.after(700, lambda: self._tour_due(name))
 
-    def _tour_due(self, name):
-        """Start the tour if nothing else is in the way."""
+    def _tour_due(self, name, tries=6):
+        """Start the tour if nothing else is in the way (a question box, say). If something
+        is, look again in a moment.
+        """
         try:
-            blocked = (self.screen != name or self.tour or self.grab_current() is not None
-                       or self._busy or self.popup)
+            if self.screen != name or self.tour or not self.tour_on() or self.tour_seen(name):
+                return
+            if self.grab_current() is not None or self._busy or self.popup:
+                if tries > 0:
+                    self.after(1500, lambda: self._tour_due(name, tries - 1))
+                return
         except tk.TclError:
-            return
-        if blocked or not self.v_tour.get() or self.tour_seen(name):
             return
         self.start_tour(name)
 
     def replay_guide(self):
-        """Options > "Show the guide again": tips on, every tour unseen, and the tour for the
+        """Options > "Watch the tutorial again": tips on, every tour unseen, and the tour for the
         screen you are on starts (the other one comes when you get there).
         """
         self.settings["tour_on"] = True
         self.settings["tour_seen"] = []
-        self.v_tour.set(True)
         save_settings(self.settings)
         self.after(250, lambda: self._tour_due(self.screen))
 
@@ -400,9 +404,10 @@ class BadgeApp(RootBase):
         """
         return self.dark_theme if self.v_dark.get() else self.light_theme
 
-    def choose_theme(self, theme_id):
+    def choose_theme(self, theme_id, done=None):
         """A theme was picked in the Options window. It becomes the light or the dark theme
-        (depending on what kind it is) and is shown straight away.
+        (depending on what kind it is) and is shown straight away. ``done`` is called once
+        the change is complete.
         """
         mode = T.THEMES[theme_id]["MODE"]
         if mode == "dark":
@@ -410,19 +415,59 @@ class BadgeApp(RootBase):
         else:
             self.light_theme = theme_id
         self.v_dark.set(mode == "dark")
-        self._apply_theme()
+        self._apply_theme(done)
 
-    def _apply_theme(self):
-        """Apply the current theme, remember the choice and rebuild the screens."""
+    def _apply_theme(self, done=None):
+        """Change to the current theme: remember it, cover the window with a loading screen, then
+        apply the theme and rebuild the screens underneath. A change that is asked for
+        while another is still running runs right after it. ``done`` is called at the end.
+        """
+        if done:
+            self._theme_done.append(done)
+        if self._morph:
+            self._theme_again = True
+            return
         name = self.current_theme()
-        cover = self._fade_begin()               # a picture of the window as it is now
-        T.apply_theme(name)
         self.settings.update(theme=name, light_theme=self.light_theme,
                              dark_theme=self.dark_theme)
         save_settings(self.settings)
+        old = T.THEME_NAME
+        instant = (old == name or os.environ.get("OZZIE_NO_MORPH") or self.state() == "iconic"
+                   or not self.winfo_viewable())
+        if instant:
+            self._theme_switch(name)
+        else:
+            self._morph = ThemeCover(self, name)
+            self.after(60, lambda: self._theme_switch(name))
+
+    def _theme_switch(self, name):
+        """The cover is up (or the change is instant): use the exact theme."""
+        T.apply_theme(name)
         self.base_font = T.setup_style(self)
-        self.after_idle(self._rebuild_ui)        # don't destroy the widget that fired us
-        self._fade_finish(cover)
+        self.after_idle(self._theme_rebuilt)     # not inside the click that started it
+
+    def _theme_rebuilt(self):
+        """Rebuild the screens in the new colours, tell whoever asked, and run a change that
+        was asked for in the meantime.
+        """
+        self._rebuild_ui()
+        callbacks, self._theme_done = self._theme_done, []
+        for callback in callbacks:
+            callback()
+        cover = self._morph
+        if cover:
+            cover.lift()
+            cover.close(self._theme_finished)
+        else:
+            self._theme_finished()
+
+    def _theme_finished(self):
+        """The new theme is on screen. Run a change that was asked for in the meantime."""
+        self._morph = None
+        if self._theme_again:
+            self._theme_again = False
+            if T.THEME_NAME != self.current_theme():
+                self._apply_theme()
 
     def choose_mascot(self, mid):
         """Ozzie, Mr Ozzie or Ms Ozzie was picked: remember it and show it as the logo, in the
@@ -435,83 +480,18 @@ class BadgeApp(RootBase):
         set_window_icon(self, everywhere=True)
         self.after_idle(self._rebuild_ui)
 
-    def _fade_begin(self):
-        """Cover the window with a picture of itself, so the rebuild underneath cannot be seen.
-        Returns the cover, or None (no animations, or the screen can't be captured here).
-        """
-        if not self.v_anim.get() or self.state() == "iconic":
-            return None
-        try:
-            from PIL import ImageGrab
-            self.update_idletasks()
-            x, y, w, h = (self.winfo_rootx(), self.winfo_rooty(),
-                          self.winfo_width(), self.winfo_height())
-            if w < 100 or h < 100:
-                return None
-            shot = ImageGrab.grab(bbox=(x, y, x + w, y + h))
-            if shot.size != (w, h):              # high-resolution screens
-                shot = shot.resize((w, h))
-            cover = tk.Toplevel(self)
-            cover.overrideredirect(True)
-            cover.geometry(f"{w}x{h}+{x}+{y}")
-            photo = ImageTk.PhotoImage(shot)
-            lbl = tk.Label(cover, image=photo, bd=0, highlightthickness=0)
-            lbl.image = photo
-            lbl.pack()
-            cover.attributes("-alpha", 1.0)       # not supported everywhere: then no fade
-            try:
-                cover.attributes("-topmost", True)
-            except tk.TclError:
-                pass
-            cover._focus = self.focus_get()
-            cover.update()
-            return cover
-        except Exception:
-            try:
-                cover.destroy()
-            except Exception:
-                pass
-            return None
-
-    def _fade_finish(self, cover, steps=12):
-        """Let the cover fade away, showing the rebuilt, re-coloured windows underneath."""
-        if cover is None:
-            return
-
-        def done():
-            try:
-                focus = getattr(cover, "_focus", None)
-                cover.destroy()
-                (focus or self).focus_force()
-            except (tk.TclError, KeyError):
-                pass
-
-        def step(k):
-            try:
-                cover.attributes("-alpha", max(0.0, 1 - (k / steps) ** 0.8))
-                if k < steps:
-                    self.after(18, step, k + 1)
-                else:
-                    done()
-            except tk.TclError:
-                pass
-
-        self.after(110, step, 1)                 # first let everything repaint underneath
-        self.after(2000, done)                   # never leave the cover stuck
-
-    def restore_defaults(self):
+    def restore_defaults(self, done=None):
         """Put every option back to its default: full screen, the Oat Milk theme (with the
         default dark theme for dark mode) and the standard canvases folder.
         """
         self.light_theme, self.dark_theme = T.DEFAULT_LIGHT, T.DEFAULT_DARK
         self.v_dark.set(False)
         for key in ("canvases_dir", "projects_dir", "sort", "animations", "mascot"):
-            self.settings.pop(key, None)
-        self.v_anim.set(True)
+            self.settings.pop(key, None)             # ("animations" is an old setting)
         mascot.set_current(mascot.DEFAULT)
         set_window_icon(self, everywhere=True)
         self.set_fullscreen(True)
-        self._apply_theme()
+        self._apply_theme(done)
         self.after_idle(lambda: self.toasts.show("defaults"))
 
     def _rebuild_ui(self):
@@ -521,15 +501,31 @@ class BadgeApp(RootBase):
         showing = self.screen
         self.close_popup()
         self.toasts.reset()                      # the old notes have the old colours
-        self.home.destroy()
-        self.editor.destroy()
+        old_home, old_editor = self.home, self.editor
+        # Build the new screens underneath the old ones and let them lay out and draw there, so
+        # the swap is one step: nothing blank, resized or half-drawn is ever seen.
         self.editor = tk.Frame(self, bg=T.BG)
         self._build_ui()
         self._paper_changed()
         self._pin_changed()
         self.home = HomeScreen(self)
+        new = self.editor if showing == "editor" else self.home
+        if self.winfo_viewable():
+            new.place(x=0, y=0, relwidth=1, relheight=1)
+            new.lower()
+            self.update_idletasks()
+            if showing == "editor":
+                self.redraw()
+            else:
+                self.home.refresh()
+                self.update_idletasks()
+            new.place_forget()
+        old_home.destroy()
+        old_editor.destroy()
         self._show(showing)
         set_titlebar(self)
+        if self._morph:
+            self._morph.lift()
         self.toasts.raise_all()
 
     def canvases_dir(self):
@@ -796,11 +792,20 @@ class BadgeApp(RootBase):
         save_settings(self.settings)
 
     def _dir(self, key):
-        """The folder last used for ``key`` ("image_dir" or "export_dir") if it still exists,
-        otherwise the home folder.
+        """The folder last used for ``key`` ("image_dir" or "export_dir") if it still exists.
+        Otherwise the PDFs folder (for exports) or the home folder.
         """
         d = self.settings.get(key)
-        return d if d and os.path.isdir(d) else os.path.expanduser("~")
+        if d and os.path.isdir(d):
+            return d
+        if key == "export_dir":                  # PDFs go to their own tidy folder
+            pdfs = default_pdf_dir()
+            try:
+                os.makedirs(pdfs, exist_ok=True)
+                return pdfs
+            except OSError:
+                pass
+        return os.path.expanduser("~")
 
     # ---- undo / dirty state -------------------------------------------------
     def _update_title(self):
@@ -1587,11 +1592,6 @@ class BadgeApp(RootBase):
         return True
 
     # ---- quiet animations ---------------------------------------------------
-    def animations_changed(self):
-        """The Smooth animations switch in Options was flipped."""
-        self.settings["animations"] = bool(self.v_anim.get())
-        save_settings(self.settings)
-
     def _stop_anim(self):
         """End any glide or fade at once (the sheet is redrawn in its final state)."""
         self._anim_id += 1
@@ -1605,7 +1605,7 @@ class BadgeApp(RootBase):
         """Pins glide to their new circles. ``moves`` is [(art, (x, y) from, (x, y) to)] in
         canvas pixels; the circles in ``hidden`` are drawn bare until the glide ends.
         """
-        if not self.v_anim.get() or not self.geo:
+        if not self.geo:
             self.schedule_redraw()
             return
         self._anim_id += 1
@@ -1644,7 +1644,7 @@ class BadgeApp(RootBase):
         """Redraw now, with the pins in ``gone`` [(art, (x, y))] already removed, then let
         copies of them fade away on top.
         """
-        if not self.v_anim.get() or not gone or not self.geo:
+        if not gone or not self.geo:
             self.schedule_redraw()
             return
         self.redraw()
@@ -1804,6 +1804,7 @@ class BadgeApp(RootBase):
         data["recovery"] = {"canvas_path": self.canvas_path, "time": time.time()}
         tmp = RECOVERY_PATH + ".tmp"
         try:
+            os.makedirs(os.path.dirname(RECOVERY_PATH), exist_ok=True)
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             os.replace(tmp, RECOVERY_PATH)
@@ -1854,6 +1855,32 @@ class BadgeApp(RootBase):
             self._clear_recovery()
             return
         self._restore_recovery(original)
+
+    def _offer_tidy(self):
+        """At start-up: if canvases are still in the old folder, offer to move them into the
+        tidy folder in Documents (once; asking again is up to Options).
+        """
+        if (os.environ.get("OZZIE_NO_TOUR") or self.settings.get("canvases_dir")
+                or self.settings.get("projects_dir") or self.settings.get("tidy_asked")):
+            return
+        names = tidy_candidates()
+        if not names or self.grab_current() is not None:
+            return
+        self.settings["tidy_asked"] = True
+        save_settings(self.settings)
+        n = len(names)
+        if not messagebox.askyesno(
+                "A tidier home",
+                f"Your {n} canvas{'es' if n != 1 else ''} live in an old folder. Shall I move "
+                f"{'them' if n != 1 else 'it'} to Documents/Ozzie's Pin Studio, with exported "
+                "PDFs in their own folder?\n\nNothing is deleted, and your pictures stay "
+                "where they are.", parent=self, yes="Tidy up!", no="Not now"):
+            return
+        tidy_legacy(self.settings)
+        save_settings(self.settings)
+        if self.screen == "home":
+            self.home.refresh()
+        self.toasts.show("folder", name=os.path.basename(self.canvases_dir()) or "Canvases")
 
     def _restore_recovery(self, original):
         """Load the recovered work. It counts as unsaved changes to the canvas it came from
