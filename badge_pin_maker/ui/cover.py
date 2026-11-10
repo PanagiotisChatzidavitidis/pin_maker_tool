@@ -25,7 +25,7 @@ MESSAGES = (
     "Hold tight, painting everything cosy for you...",
     "Almost there, Ozzie is tidying the pins!",
 )
-MIN_SHOW_MS = 1100           # long enough to read as a deliberate "one moment", not a flash
+MIN_SHOW_MS = int(os.environ.get("OZZIE_COVER_MS", 900))   # long enough to read the message
 FRAME_MS = 33
 
 
