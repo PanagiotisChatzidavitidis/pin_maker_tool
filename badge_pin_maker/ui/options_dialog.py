@@ -37,6 +37,7 @@ class OptionsDialog(tk.Toplevel):
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Return>", lambda e: self.destroy())
 
+        ThemeCover.warm(self)
         self.update_idletasks()
         w, h = self.winfo_reqwidth(), self.winfo_reqheight()
         x = app.winfo_rootx() + (app.winfo_width() - w) // 2
@@ -58,7 +59,7 @@ class OptionsDialog(tk.Toplevel):
         Layout: a header with the logo, then two columns: Display and Canvases folder on the
         left, the Themes on the right, and a footer bar with Restore defaults and Return.
         """
-        keep = self._cover.cv if self._cover else None      # the loading cover stays up
+        keep = getattr(self, "_cover_cv", None)             # the loading cover stays
         for child in self.winfo_children():
             if child is not keep:
                 child.destroy()

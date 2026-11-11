@@ -174,6 +174,7 @@ class BadgeApp(RootBase):
         if self.v_window.get() == "fullscreen":
             self.set_fullscreen(True, save=False)
         self._autosave_job = self.after(AUTOSAVE_MS, self._autosave_tick)
+        self.after(300, lambda: ThemeCover.warm(self))      # so the first cover can't flash
         self.after(600, self._offer_recovery)
         self.after(900, self._offer_tidy)
 
@@ -288,7 +289,12 @@ class BadgeApp(RootBase):
         if save:
             self.settings["fullscreen"] = full
             save_settings(self.settings)
+        self._titlebar_dark = None               # Windows drops the title bar colour on the way
         self.after_idle(lambda: set_titlebar(self))
+        if not full:
+            # the frame comes back in the system colours: repaint it while the cover is still up
+            for ms in (0, 60, 200, 450, 700):
+                self.after(ms, lambda: set_titlebar(self, force=True))
         if shield:
             shield.lift()
             self.after(400, lambda: shield.close(self._mode_cover_done))

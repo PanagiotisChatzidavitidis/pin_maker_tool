@@ -89,7 +89,7 @@ class ThemeCover:
         self.font = (getattr(app, "base_font", None) or ("Helvetica",))[0]
         bg, text, muted = pal["BG"], pal["TEXT"], pal["MUTED"]
         accent = pal.get("TEAL", text)
-        self.cv = tk.Canvas(parent, bg=bg, highlightthickness=0, bd=0, cursor="watch")
+        self.cv = self._canvas(parent, bg)
         title = T.THEME_INFO.get(theme_name, (theme_name,))[0]
         self.message = random.choice(messages or MESSAGES).format(theme=title)
         cur = _cursor(theme_name, accent)
@@ -98,20 +98,50 @@ class ThemeCover:
                 self.cv.configure(cursor=cur)
             except tk.TclError:
                 pass                              # keep the ordinary busy pointer
-        self.cv.place(x=0, y=0, relwidth=1, relheight=1)
-        tk.Misc.lift(self.cv)
+        self.cv.delete("all")
         self._logo = None
         self._big = parent is app
         try:
             self._logo = mascot.photo(mascot.current, 120 if parent is app else 84)
         except Exception:  # noqa: BLE001  (no picture: the text alone is fine)
             pass
-        self.cv.bind("<Configure>", lambda e: self._frame())
+        self.cv._owner = self
         self._colours = (text, muted, accent)
         self.t0 = time.monotonic()
-        self._frame()
+        self._frame()                           # the first picture is drawn before it is shown
+        self.cv.place(x=0, y=0, relwidth=1, relheight=1)
+        tk.Misc.lift(self.cv)
         parent.update_idletasks()
         parent.update()                         # make sure it is really on screen before work starts
+
+    @staticmethod
+    def _canvas(parent, bg):
+        """The window's cover canvas. It is made once and parked (1 pixel, behind everything)
+        between uses, so showing it never creates a new native window, which is what flashed
+        white for a moment on Windows.
+        """
+        cv = getattr(parent, "_cover_cv", None)
+        try:
+            alive = cv is not None and cv.winfo_exists()
+        except tk.TclError:
+            alive = False
+        if not alive:
+            cv = tk.Canvas(parent, bg=bg, highlightthickness=0, bd=0, cursor="watch")
+            cv._owner = None
+            cv.bind("<Configure>", lambda e: cv._owner and cv._owner._frame())
+            parent._cover_cv = cv
+        cv.configure(bg=bg)
+        return cv
+
+    @staticmethod
+    def warm(parent):
+        """Make the parked canvas ahead of time (call once the window is on screen)."""
+        try:
+            cv = ThemeCover._canvas(parent, T.BG)
+            cv.place(x=0, y=0, width=1, height=1, relwidth=0, relheight=0)
+            tk.Misc.lower(cv)
+        except tk.TclError:
+            pass
 
     def lift(self):
         """Keep it above anything built while it is showing."""
@@ -164,7 +194,10 @@ class ThemeCover:
             except tk.TclError:
                 pass
         try:
-            self.cv.destroy()
+            self.cv.delete("all")
+            self.cv._owner = None
+            self.cv.place(x=0, y=0, width=1, height=1, relwidth=0, relheight=0)       # park it, ready for next time
+            tk.Misc.lower(self.cv)
         except tk.TclError:
             pass
         if then:
