@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import mascot, smooth, theme as T
-from .cover import ThemeCover
+from .cover import FULLSCREEN_MESSAGES, WINDOWED_MESSAGES, ThemeCover
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from ..system_actions import reveal_folder
 from .widgets import MascotTile, Segmented, ThemeTile
@@ -190,7 +190,22 @@ class OptionsDialog(tk.Toplevel):
 
     def _mode_changed(self):
         """Full screen / Windowed was picked."""
-        self.app.set_fullscreen(self.app.v_window.get() == "fullscreen")
+        full = self.v_mode_full()
+        if full != self.app._is_full and not self.app._morph and not self._cover:
+            self._cover = ThemeCover(self.app, T.THEME_NAME, parent=self,
+                                     messages=FULLSCREEN_MESSAGES if full else WINDOWED_MESSAGES)
+            self.after(450, self._mode_cover_done)
+        self.app.set_fullscreen(full)
+
+    def v_mode_full(self):
+        """True if the Window switch is on "Full screen"."""
+        return self.app.v_window.get() == "fullscreen"
+
+    def _mode_cover_done(self):
+        """Take this window's loading screen away (it waits out its minimum time first)."""
+        if self._cover:
+            cover, self._cover = self._cover, None
+            cover.close()
 
     def _theme_picked(self, theme_id):
         """A theme tile was clicked: use that theme."""

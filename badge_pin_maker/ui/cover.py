@@ -25,6 +25,17 @@ MESSAGES = (
     "Hold tight, painting it all {theme} for you...",
     "Almost there, Ozzie is tidying up in {theme}!",
 )
+# What Ozzie says while the window changes size.
+FULLSCREEN_MESSAGES = (
+    "Stretching out to fill your whole screen!",
+    "Making everything big and roomy...",
+    "Full screen, coming right up!",
+)
+WINDOWED_MESSAGES = (
+    "Tucking everything into a cosy little window!",
+    "Shrinking down nice and snug...",
+    "Back to a window, one moment!",
+)
 MIN_SHOW_MS = int(os.environ.get("OZZIE_COVER_MS", 900))   # long enough to read the message
 FRAME_MS = 33
 
@@ -71,7 +82,7 @@ class ThemeCover:
     it; close() takes it away.
     """
 
-    def __init__(self, app, theme_name, parent=None):
+    def __init__(self, app, theme_name, parent=None, messages=None):
         pal = T.THEMES[theme_name]
         self.app, self.job, self.closed = app, None, False
         parent = parent or app
@@ -80,7 +91,7 @@ class ThemeCover:
         accent = pal.get("TEAL", text)
         self.cv = tk.Canvas(parent, bg=bg, highlightthickness=0, bd=0, cursor="watch")
         title = T.THEME_INFO.get(theme_name, (theme_name,))[0]
-        self.message = random.choice(MESSAGES).format(theme=title)
+        self.message = random.choice(messages or MESSAGES).format(theme=title)
         cur = _cursor(theme_name, accent)
         if cur:
             try:
