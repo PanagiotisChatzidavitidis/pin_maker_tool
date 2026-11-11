@@ -31,14 +31,18 @@ def set_window_icon(win, everywhere=False):
         pass
 
 
-def set_titlebar(win):
-    """Match the Windows title bar to the current theme (does nothing elsewhere)."""
+def set_titlebar(win, force=False):
+    """Match the Windows title bar to the current theme (does nothing elsewhere). ``force``
+    paints it again even if it was already set: Windows forgets the colour when a window
+    goes in and out of full screen.
+    """
     if platform.system() != "Windows":
         return
     try:
         # Touching the title bar of a full-screen window makes Windows relayout and flash it
         # (the "ugly zoom"), so wait until full screen ends, and skip when nothing changed.
-        if win.attributes("-fullscreen") or getattr(win, "_titlebar_dark", None) == T.IS_DARK:
+        if win.attributes("-fullscreen") or (
+                not force and getattr(win, "_titlebar_dark", None) == T.IS_DARK):
             return
     except Exception:  # noqa: BLE001
         pass
