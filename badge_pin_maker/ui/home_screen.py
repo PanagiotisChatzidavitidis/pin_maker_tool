@@ -1,6 +1,7 @@
 """The start screen: a sidebar with the main actions and a grid of saved canvases."""
 
 import os
+import random
 import queue
 import threading
 import time
@@ -20,6 +21,15 @@ from .icons import load_logo, make_icon, render_icon_image
 SORTS = ("Recently edited", "Recently opened", "Name A–Z", "Name Z–A", "Oldest first",
          "Most pins")
 
+
+# One of these greets you each time you come to the menu.
+TAGLINES = (
+    "Make your own badges, little and lovely!",
+    "Let's craft some teeny tiny cuties!",
+    "Your very own badges, made with love!",
+    "Pop out some sweet little pins!",
+    "Sparkly badges are just a click away!",
+)
 
 class HomeScreen(tk.Frame):
     """Start screen: sidebar (brand, actions, options, exit) + canvases list."""
@@ -65,8 +75,8 @@ class HomeScreen(tk.Frame):
         names.pack(side="left")
         ttk.Label(names, text="Ozzie's", style="Hero.TLabel").pack(anchor="w")
         ttk.Label(names, text="Pin Studio", style="Hero.TLabel").pack(anchor="w")
-        ttk.Label(pad, text="Make your very own cute badges!",
-                  style="Muted.TLabel").pack(anchor="w", pady=(14, 22))
+        self.tagline = ttk.Label(pad, text=random.choice(TAGLINES), style="Muted.TLabel")
+        self.tagline.pack(anchor="w", pady=(14, 22))
 
         self.btn_new = ttk.Button(pad, text="+  New canvas", style="Hero.TButton",
                                   command=app.new_canvas)
@@ -248,6 +258,11 @@ class HomeScreen(tk.Frame):
         self._fit_scrollregion()
         self.cv.yview_moveto(0)
         self._start_thumbs()
+
+    def new_tagline(self):
+        """Pick a different greeting (called each time the menu is shown)."""
+        others = [t for t in TAGLINES if t != self.tagline.cget("text")]
+        self.tagline.config(text=random.choice(others))
 
     def _empty_state(self, title, text, button=False):
         """The friendly message shown when there is nothing to list."""
