@@ -12,6 +12,7 @@ from PIL import ImageTk
 
 from ..settings import save_settings
 from ..system_actions import reveal_folder
+from ..version import version_text
 from . import smooth
 from . import theme as T
 from .dialogs import messagebox
@@ -31,10 +32,76 @@ TAGLINES = (
     "Sparkly badges are just a click away!",
 )
 
+class NavRow(tk.Frame):
+    """A sidebar row: a small line icon and a label, soft highlight on hover, click to run."""
+
+    def __init__(self, parent, kind, text, command, family):
+        super().__init__(parent, bg=T.CARD, cursor="hand2")
+        self.kind, self.command, self.t, self.goal, self.job = kind, command, 0.0, 0.0, None
+        self.icon = tk.Label(self, bg=T.CARD, bd=0)
+        self.icon.pack(side="left", padx=(12, 10), pady=9)
+        self.text = tk.Label(self, text=text, bg=T.CARD, fg=T.TEXT, font=(family, 10), anchor="w")
+        self.text.pack(side="left", fill="x", expand=True)
+        for w in (self, self.icon, self.text):
+            w.bind("<Enter>", lambda e: self._go(1.0), add="+")
+            w.bind("<Leave>", self._leave, add="+")
+            w.bind("<Button-1>", lambda e: self.command(), add="+")
+        self.bind("<Destroy>", self._stop, add="+")
+        self._paint(0.0)
+
+    def _stop(self, e):
+        """Stop the hover fade if the row goes away mid-way."""
+        if e.widget is self and self.job is not None:
+            try:
+                self.after_cancel(self.job)
+            except tk.TclError:
+                pass
+            self.job = None
+
+    def _paint(self, t):
+        col = T._mix(T.CARD, T.HOVER, t)
+        ink = T._mix(T.TEXT, T.TEAL, t)
+        try:
+            self._img = smooth.nav_icon(self.kind, ink, col)
+            self.config(bg=col)
+            self.icon.config(bg=col, image=self._img)
+            self.text.config(bg=col, fg=ink)
+        except tk.TclError:
+            return False
+        return True
+
+    def _go(self, goal):
+        self.goal = goal
+        if self.job is None:
+            try:
+                self.job = self.after(0, self._step)
+            except tk.TclError:                  # the window is closing
+                self.job = None
+
+    def _step(self):
+        self.job = None
+        d = 1 / 6
+        self.t = min(self.goal, self.t + d) if self.t < self.goal else max(self.goal, self.t - d)
+        if self._paint(self.t * self.t * (3 - 2 * self.t)) and self.t != self.goal:
+            try:
+                self.job = self.after(16, self._step)
+            except tk.TclError:
+                self.job = None
+
+    def _leave(self, _e):
+        try:
+            x, y = self.winfo_pointerxy()
+            under = self.winfo_containing(x, y)
+        except (tk.TclError, KeyError):
+            under = None
+        if under is None or not (under == self or str(under).startswith(str(self) + ".")):
+            self._go(0.0)
+
+
 class HomeScreen(tk.Frame):
     """Start screen: sidebar (brand, actions, options, exit) + canvases list."""
     ICON = 84                   # round thumbnail on each card
-    SIDE_W = 320
+    SIDE_W = 276
     CARD_MIN_W = 250            # cards are at least this wide; the grid fits as many as it can
     CARD_H = 218
     GAP = 18
@@ -64,38 +131,37 @@ class HomeScreen(tk.Frame):
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
         tk.Frame(self, bg=T.BORDER, width=1).pack(side="left", fill="y")
-        pad = ttk.Frame(side, style="Card.TFrame", padding=(26, 28, 26, 24))
+        pad = ttk.Frame(side, style="Card.TFrame", padding=(22, 26, 22, 18))
         pad.pack(fill="both", expand=True)
 
-        brand = ttk.Frame(pad, style="Card.TFrame")
-        brand.pack(fill="x")
-        self._logo = load_logo(46)
-        tk.Label(brand, image=self._logo, bg=T.CARD).pack(side="left", padx=(0, 12))
-        names = ttk.Frame(brand, style="Card.TFrame")
-        names.pack(side="left")
-        ttk.Label(names, text="Ozzie's", style="Hero.TLabel").pack(anchor="w")
-        ttk.Label(names, text="Pin Studio", style="Hero.TLabel").pack(anchor="w")
-        self.tagline = ttk.Label(pad, text=random.choice(TAGLINES), style="Muted.TLabel")
-        self.tagline.pack(anchor="w", pady=(14, 22))
+        # the header: the mascot big on a soft round plate, then the name and a cute line
+        self._hero = smooth.hero_logo(112, T._mix(T.CARD, T.TEAL, 0.16), T.CARD)
+        self.logo_lbl = tk.Label(pad, image=self._hero, bg=T.CARD, bd=0)
+        self.logo_lbl.pack(pady=(4, 12))
+        tk.Label(pad, text="Ozzie's Pin Studio", bg=T.CARD, fg=T.PETROL,
+                 font=("Georgia", 19, "bold")).pack()
+        self.tagline = tk.Label(pad, text=random.choice(TAGLINES), bg=T.CARD, fg=T.MUTED,
+                                font=(fam, 9), wraplength=self.SIDE_W - 60, justify="center")
+        self.tagline.pack(pady=(6, 22))
 
         self.btn_new = ttk.Button(pad, text="+  New canvas", style="Hero.TButton",
                                   command=app.new_canvas)
         self.btn_new.pack(fill="x")
-        self.btn_browse = ttk.Button(pad, text="Browse for a canvas…", style="Ghost.TButton",
-                                     command=app.open_canvas)
-        self.btn_browse.pack(fill="x", pady=(10, 0))
 
-        more = self.more_row = ttk.Frame(pad, style="Card.TFrame")
-        more.pack(fill="x", pady=(10, 0))
-        more.columnconfigure(0, weight=3, uniform="more")
-        more.columnconfigure(1, weight=2, uniform="more")
-        ttk.Button(more, text="Options", style="Ghost.TButton",
-                   command=app.open_options).grid(row=0, column=0, sticky="ew")
-        ttk.Button(more, text="About", style="Ghost.TButton",
-                   command=app.open_about).grid(row=0, column=1, sticky="ew", padx=(10, 0))
+        nav = tk.Frame(pad, bg=T.CARD)
+        nav.pack(fill="x", pady=(18, 0))
+        self.btn_browse = NavRow(nav, "folder", "Browse for a canvas…", app.open_canvas, fam)
+        self.btn_browse.pack(fill="x")
+        more = self.more_row = tk.Frame(nav, bg=T.CARD)
+        more.pack(fill="x", pady=(2, 0))
+        NavRow(more, "sliders", "Options", app.open_options, fam).pack(fill="x")
+        NavRow(more, "info", "About", app.open_about, fam).pack(fill="x", pady=(2, 0))
 
-        ttk.Button(pad, text="Exit", style="Ghost.TButton",
-                   command=app.on_close).pack(side="bottom", fill="x")
+        foot = tk.Frame(pad, bg=T.CARD)
+        foot.pack(side="bottom", fill="x")
+        NavRow(foot, "exit", "Exit", app.on_close, fam).pack(fill="x")
+        tk.Label(foot, text=version_text(), bg=T.CARD, fg=T.MUTED, font=(fam, 8),
+                 anchor="w").pack(fill="x", padx=12, pady=(8, 0))
 
         # ---- main area -----------------------------------------------------
         main = ttk.Frame(self, padding=(40, 32, 40, 0))
