@@ -195,6 +195,26 @@ def nav_icon(kind, colour, bg, size=20):
             _oval(d, k, m, m, size / 2 - 2, bg, outline=colour, width=w)
             _line(d, k, [(m, m - 0.5), (m, m + 3.8)], colour, w)
             _oval(d, k, m, m - 3.6, 1.1, colour)
+        elif kind == "monitor":
+            d.rounded_rectangle([2.5 * k, 3.5 * k, (size - 2.5) * k, (size - 7) * k], radius=2.5 * k,
+                                outline=colour, width=round(w * k))
+            _line(d, k, [(m, size - 7), (m, size - 3.5)], colour, w)
+            _line(d, k, [(m - 3.5, size - 3), (m + 3.5, size - 3)], colour, w)
+        elif kind == "play":
+            _oval(d, k, m, m, size / 2 - 2, bg, outline=colour, width=w)
+            _line(d, k, [(m - 2, m - 3.5), (m + 3.5, m), (m - 2, m + 3.5), (m - 2, m - 3.5)],
+                  colour, w)
+        elif kind == "palette":
+            _oval(d, k, m, m, size / 2 - 2, bg, outline=colour, width=w)
+            for x, y in ((m - 3.2, m - 1.8), (m + 0.2, m - 3.6), (m + 3.4, m - 0.6),
+                         (m - 1.2, m + 3.2)):
+                _oval(d, k, x, y, 1.25, colour)
+        elif kind == "face":
+            _oval(d, k, m, m, size / 2 - 2, bg, outline=colour, width=w)
+            _oval(d, k, m - 3, m - 1.5, 1.2, colour)
+            _oval(d, k, m + 3, m - 1.5, 1.2, colour)
+            _line(d, k, [(m - 3, m + 2.2), (m - 1.4, m + 3.6), (m + 1.4, m + 3.6),
+                         (m + 3, m + 2.2)], colour, w)
         else:                                     # exit: a doorway with an arrow leaving it
             _line(d, k, [(8, 3), (3, 3), (3, size - 3), (8, size - 3)], colour, w)
             _line(d, k, [(8, m), (size - 3, m)], colour, w)
