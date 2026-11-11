@@ -11,12 +11,14 @@ import tkinter as tk
 
 from PIL import Image, ImageDraw, ImageTk
 
+from . import mascot
+
 SS = 4                                   # paint at 4x, then shrink
 _cache = {}
 _cache_root = None                         # the Tk root the cached images belong to
 
 
-def _make(key, w, h, bg, paint):
+def _make(key, w, h, bg, paint, post=None):
     """The cached PhotoImage for ``key``, painted by ``paint(draw, k)`` on first use. ``k`` is
     the factor to multiply coordinates by; ``bg`` fills the picture first (the colour of what
     it sits on, so the soft edges blend in).
@@ -31,6 +33,8 @@ def _make(key, w, h, bg, paint):
             _cache.clear()
         big = Image.new("RGB", (w * SS, h * SS), bg)
         paint(ImageDraw.Draw(big), SS)
+        if post:
+            big = post(big)
         ph = _cache[key] = ImageTk.PhotoImage(big.resize((w, h), Image.LANCZOS))
     return ph
 
@@ -172,3 +176,47 @@ def plus_icon(colour, bg, size=84):
         _line(d, k, [(m - r, m), (m + r, m)], colour, 3)
         _line(d, k, [(m, m - r), (m, m + r)], colour, 3)
     return _make(key, size, size, bg, paint)
+
+
+def nav_icon(kind, colour, bg, size=20):
+    """A small line icon for a sidebar row: "folder", "sliders" (options), "info" or "exit"."""
+    key = ("nav", kind, colour, bg, size)
+
+    def paint(d, k):
+        m, w = size / 2, 1.7
+        if kind == "folder":
+            _line(d, k, [(2.5, 6), (2.5, size - 4.5), (size - 2.5, size - 4.5), (size - 2.5, 7),
+                         (m + 1, 7), (m - 1, 4.5), (2.5, 4.5), (2.5, 6)], colour, w)
+        elif kind == "sliders":
+            for y, x in ((5.5, m + 3), (m, m - 3), (size - 5.5, m + 1)):
+                _line(d, k, [(2.5, y), (size - 2.5, y)], colour, w)
+                _oval(d, k, x, y, 2.6, bg, outline=colour, width=w)
+        elif kind == "info":
+            _oval(d, k, m, m, size / 2 - 2, bg, outline=colour, width=w)
+            _line(d, k, [(m, m - 0.5), (m, m + 3.8)], colour, w)
+            _oval(d, k, m, m - 3.6, 1.1, colour)
+        else:                                     # exit: a doorway with an arrow leaving it
+            _line(d, k, [(8, 3), (3, 3), (3, size - 3), (8, size - 3)], colour, w)
+            _line(d, k, [(8, m), (size - 3, m)], colour, w)
+            _line(d, k, [(size - 7, m - 4), (size - 3, m), (size - 7, m + 4)], colour, w)
+    return _make(key, size, size, bg, paint)
+
+
+def hero_logo(size, plate, bg):
+    """The mascot on a soft round plate (colour ``plate``, on ``bg``): the sidebar's header.
+    Without the mascot pictures it is just the plate.
+    """
+    key = ("hero", mascot.current, size, plate, bg)
+
+    def paint(d, k):
+        _oval(d, k, size / 2, size / 2, size / 2 - 1, plate)
+
+    def post(big):
+        face = mascot.square(mascot.current, round(size * 0.8) * SS, pad=0.0)
+        if face is not None:
+            off = (big.width - face.width) // 2
+            big = big.convert("RGBA")
+            big.alpha_composite(face, (off, off + SS))
+            big = big.convert("RGB")
+        return big
+    return _make(key, size, size, bg, paint, post)
