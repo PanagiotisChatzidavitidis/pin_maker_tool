@@ -315,6 +315,7 @@ class BadgeApp(RootBase):
         self.editor.pack_forget()
         if name == "home":
             self.title("Ozzie's Pin Studio")
+            self.home.new_tagline()
             self.home.refresh()
             self.home.pack(fill="both", expand=True)
         else:
