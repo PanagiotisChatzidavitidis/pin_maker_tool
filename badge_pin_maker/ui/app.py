@@ -50,7 +50,7 @@ from .crop_dialog import CropDialog
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
-from .cover import ThemeCover
+from .cover import FULLSCREEN_MESSAGES, WINDOWED_MESSAGES, ThemeCover
 from .options_dialog import OptionsDialog
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
@@ -123,6 +123,7 @@ class BadgeApp(RootBase):
         self.popup = None
         self.tour = None               # the guided tour that is running, if any
         self._morph = None             # the running theme change, if any
+        self._mode_cover = None        # the loading screen of a full screen / windowed change
         self._theme_again, self._theme_done = False, []
         self._image_cache = {}
         self._pil_cache = {}           # the same pictures as PIL images (for the fade-out)
@@ -260,9 +261,22 @@ class BadgeApp(RootBase):
             self.set_fullscreen(False)
 
     # ---- window mode / options ---------------------------------------------
-    def set_fullscreen(self, full, save=True):
-        """Switch between full screen and a normal window (and remember the choice)."""
+    def set_fullscreen(self, full, save=True, cover=True):
+        """Switch between full screen and a normal window (and remember the choice). While the
+        window changes size a loading screen with a fitting message covers it.
+        """
         full = bool(full)
+        shield = None
+        if (cover and full != self._is_full and not self._morph and not self._mode_cover
+                and self.winfo_viewable() and self.state() != "iconic"):
+            shield = self._mode_cover = ThemeCover(
+                self, T.THEME_NAME, messages=FULLSCREEN_MESSAGES if full else WINDOWED_MESSAGES)
+            self.after(60, lambda: self._set_fullscreen(full, save, shield))
+            return
+        self._set_fullscreen(full, save, None)
+
+    def _set_fullscreen(self, full, save, shield):
+        """The real switch (see set_fullscreen); ``shield`` is the loading screen, if any."""
         if full and not self._is_full and self.winfo_ismapped():
             self._windowed_size = f"{self.winfo_width()}x{self.winfo_height()}"
         was_full, self._is_full = self._is_full, full
@@ -275,6 +289,13 @@ class BadgeApp(RootBase):
             self.settings["fullscreen"] = full
             save_settings(self.settings)
         self.after_idle(lambda: set_titlebar(self))
+        if shield:
+            shield.lift()
+            self.after(400, lambda: shield.close(self._mode_cover_done))
+
+    def _mode_cover_done(self):
+        """The loading screen for a window-mode change is gone."""
+        self._mode_cover = None
 
     def toggle_fullscreen(self):
         """F11: flip between full screen and windowed."""
@@ -502,7 +523,7 @@ class BadgeApp(RootBase):
             self.settings.pop(key, None)             # ("animations" is an old setting)
         mascot.set_current(mascot.DEFAULT)
         set_window_icon(self, everywhere=True)
-        self.set_fullscreen(True)
+        self.set_fullscreen(True, cover=False)
         self._apply_theme(done)
         self.after_idle(lambda: self.toasts.show("defaults"))
 
