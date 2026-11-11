@@ -305,6 +305,17 @@ class BadgeApp(RootBase):
         self.toasts.show("folder", name=os.path.basename(d.rstrip("/\\")) or d)
         return True
 
+    def choose_pdf_folder(self, parent=None):
+        """Let the user pick a different folder for exported PDFs. True if one was chosen."""
+        d = filedialog.askdirectory(title="Choose PDFs folder", initialdir=self._dir("export_dir"),
+                                    parent=parent or self)
+        if not d:
+            return False
+        self.settings["export_dir"] = d
+        save_settings(self.settings)
+        self.toasts.show("folder", name=os.path.basename(d.rstrip("/\\")) or d)
+        return True
+
     # ---- screens / theme / canvases folder ---------------------------------
     def _show(self, name):
         """Switch between the "home" and "editor" screens."""
@@ -487,7 +498,7 @@ class BadgeApp(RootBase):
         """
         self.light_theme, self.dark_theme = T.DEFAULT_LIGHT, T.DEFAULT_DARK
         self.v_dark.set(False)
-        for key in ("canvases_dir", "projects_dir", "sort", "animations", "mascot"):
+        for key in ("canvases_dir", "projects_dir", "export_dir", "sort", "animations", "mascot"):
             self.settings.pop(key, None)             # ("animations" is an old setting)
         mascot.set_current(mascot.DEFAULT)
         set_window_icon(self, everywhere=True)
