@@ -157,3 +157,18 @@ def stat_icon(kind, colour, bg, size=22):
             _oval(d, k, m, m, size * 0.42, bg, outline=colour, width=w)
             _line(d, k, [(m - 3.6, m + 0.2), (m - 0.9, m + 3), (m + 3.8, m - 2.8)], colour, w)
     return _make(key, size, size, bg, paint)
+
+
+def plus_icon(colour, bg, size=84):
+    """A ring with a plus in it, in ``colour`` on ``bg`` (the "New canvas" tile), drawn
+    smoothly instead of with the canvas's jagged lines.
+    """
+    key = ("plus", colour, bg, size)
+
+    def paint(d, k):
+        m = size / 2
+        _oval(d, k, m, m, size / 2 - 4, bg, outline=colour, width=2)
+        r = size / 7 + 4
+        _line(d, k, [(m - r, m), (m + r, m)], colour, 3)
+        _line(d, k, [(m, m - r), (m, m + r)], colour, 3)
+    return _make(key, size, size, bg, paint)

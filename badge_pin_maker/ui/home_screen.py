@@ -11,6 +11,7 @@ from PIL import ImageTk
 
 from ..settings import save_settings
 from ..system_actions import reveal_folder
+from . import smooth
 from . import theme as T
 from .dialogs import messagebox
 from .icons import load_logo, make_icon, render_icon_image
@@ -64,7 +65,7 @@ class HomeScreen(tk.Frame):
         names.pack(side="left")
         ttk.Label(names, text="Ozzie's", style="Hero.TLabel").pack(anchor="w")
         ttk.Label(names, text="Pin Studio", style="Hero.TLabel").pack(anchor="w")
-        ttk.Label(pad, text="Image sheets for your pin badges",
+        ttk.Label(pad, text="Make your very own cute badges!",
                   style="Muted.TLabel").pack(anchor="w", pady=(14, 22))
 
         self.btn_new = ttk.Button(pad, text="+  New canvas", style="Hero.TButton",
@@ -355,11 +356,8 @@ class HomeScreen(tk.Frame):
         """The first tile of the grid: a gentle "start a new canvas" invitation."""
         outer, card = self._shell(T.BG)
         S = self.ICON
-        plus = tk.Canvas(card, width=S, height=S, bg=T.BG, highlightthickness=0)
-        plus.create_oval(4, 4, S - 4, S - 4, outline=T.TEAL, width=2)
-        m, r = S // 2, S // 7 + 4
-        plus.create_line(m - r, m, m + r, m, fill=T.TEAL, width=3, capstyle="round")
-        plus.create_line(m, m - r, m, m + r, fill=T.TEAL, width=3, capstyle="round")
+        self._plus_img = smooth.plus_icon(T.TEAL, T.BG, S)
+        plus = tk.Label(card, image=self._plus_img, bg=T.BG, bd=0)
         plus.pack(pady=(28, 12))
         name = tk.Label(card, text="New canvas", bg=T.BG, fg=T.TEAL,
                         font=("Georgia", 13, "bold"))
@@ -367,7 +365,12 @@ class HomeScreen(tk.Frame):
         sub = tk.Label(card, text="Start a fresh sheet", bg=T.BG, fg=T.MUTED,
                        font=(self._fam, 9))
         sub.pack(pady=(2, 0))
-        self._make_clickable(outer, (card, plus, name, sub), self.app.new_canvas, rest=T.BG)
+
+        def recolour(col):                       # the picture has its background baked in
+            self._plus_img = smooth.plus_icon(T.TEAL, col, S)
+            plus.config(image=self._plus_img)
+        self._make_clickable(outer, (card, plus, name, sub), self.app.new_canvas, rest=T.BG,
+                             on_paint=recolour)
         return outer
 
     def _card(self, info):
@@ -403,7 +406,7 @@ class HomeScreen(tk.Frame):
                              lambda p=info["path"]: self.app.open_path(p), skip=(dele,))
         return outer
 
-    def _make_clickable(self, outer, widgets, action, skip=(), rest=None):
+    def _make_clickable(self, outer, widgets, action, skip=(), rest=None, on_paint=None):
         """Make a card run ``action`` when clicked. Hovering fades its background and border
         towards the theme's hover colours (and back), a few quick frames, nothing flashy.
         ``rest`` is the card's normal colour (the theme's card colour unless given); colours
@@ -419,6 +422,8 @@ class HomeScreen(tk.Frame):
                 col = T._mix(base, T.HOVER, t)
                 for w in widgets:
                     w.config(bg=col)
+                if on_paint:
+                    on_paint(col)
             except tk.TclError:                  # the card was destroyed mid-fade
                 state["job"] = None
                 return False
