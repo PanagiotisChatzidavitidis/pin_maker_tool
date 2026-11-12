@@ -60,6 +60,7 @@ class OptionsDialog(tk.Toplevel):
         left, the Themes on the right, and a footer bar with Restore defaults and Return.
         """
         keep = getattr(self, "_cover_cv", None)             # the loading cover stays
+        self._mascot_role = self._tour_note = None          # the old labels are about to go
         for child in self.winfo_children():
             if child is not keep:
                 child.destroy()
@@ -100,9 +101,13 @@ class OptionsDialog(tk.Toplevel):
                               lambda m=mid: self._mascot_picked(m), fam)
             tile.pack(side="left", padx=(0, 8) if i < 2 else 0)
             self._mascot_tiles[mid] = tile
-        self._mascot_note = ttk.Label(f, text=mascot.INFO[mascot.current][1],
-                                      style="Muted.TLabel")
-        self._mascot_note.pack(anchor="w", pady=(10, 0))
+        self._mascot_role = tk.Label(f, bg=T.CARD, fg=T.TEAL, anchor="w",
+                                     font=(fam, 11, "bold"))
+        self._mascot_role.pack(anchor="w", pady=(12, 0))
+        self._mascot_note = tk.Label(f, bg=T.CARD, fg=T.MUTED, anchor="w", justify="left",
+                                     font=(fam, 9), wraplength=300)
+        self._mascot_note.pack(anchor="w", pady=(2, 0))
+        self._mascot_text()
 
         # ---- left: display
         f = self._card(left, "monitor", "Display", pady=(0, 14))
@@ -112,9 +117,9 @@ class OptionsDialog(tk.Toplevel):
 
         # ---- left: the tutorial
         f = self._card(left, "play", "Tutorial", pady=(0, 0))
-        ttk.Label(f, text=f"Want a hand? {mascot.INFO[mascot.current][0]} shows you around "
-                          "the start screen and the editor.", style="Muted.TLabel", justify="left",
-                  wraplength=300).pack(anchor="w")
+        self._tour_note = ttk.Label(f, style="Muted.TLabel", justify="left", wraplength=300)
+        self._tour_note.pack(anchor="w")
+        self._mascot_text()
         ttk.Button(f, text="Watch the tutorial again", style="Ghost.TButton",
                    command=self._replay).pack(fill="x", pady=(12, 0))
 
@@ -173,12 +178,23 @@ class OptionsDialog(tk.Toplevel):
         """A mascot card was clicked: switch to it (the card hops to say hello)."""
         if mid != mascot.current:
             self.app.choose_mascot(mid)
-            self._logo = self.app.toasts.logo()
+            self._logo = smooth.hero_logo(68, T._mix(T.BG, T.TEAL, 0.16), T.BG)
             self._logo_lbl.config(image=self._logo)
             for m, tile in self._mascot_tiles.items():
                 tile.set_selected(m == mid)
-            self._mascot_note.config(text=mascot.INFO[mid][1])
+            self._mascot_text()
         self._mascot_tiles[mid].hop()
+
+    def _mascot_text(self):
+        """Show the picked mascot's role and cute line, and its name in the tutorial card."""
+        mid = mascot.current
+        name, note = mascot.INFO[mid]
+        if getattr(self, "_mascot_role", None) is not None:
+            self._mascot_role.config(text=mascot.ROLES[mid])
+            self._mascot_note.config(text=note)
+        if getattr(self, "_tour_note", None) is not None:
+            self._tour_note.config(text=f"Want a hand? {name} shows you around "
+                                        "the start screen and the editor.")
 
     def _setting(self, parent, title, note, wrap=300, side=None):
         """A setting's name in bold with a muted explanation under it (inside a card)."""

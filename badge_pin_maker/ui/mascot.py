@@ -13,12 +13,14 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps, ImageTk
 
 from ..paths import asset_path
 
-# (id, name shown, one line about it)
+# (id, name shown, one cute line about it)
 MASCOTS = [
-    ("ozzie", "Ozzie", "Just Ozzie, as always"),
-    ("mr_ozzie", "Mr Ozzie", "Dressed up in a bow tie"),
-    ("ms_ozzie", "Ms Ozzie", "With a bow in her hair"),
+    ("ozzie", "Ozzie", "Our fluffy original, always up for cuddles!"),
+    ("mr_ozzie", "Mr Ozzie", "Bow tie on, whiskers neat and ever so polite!"),
+    ("ms_ozzie", "Ms Ozzie", "A pretty bow and a little sparkle of charm!"),
 ]
+# what each one is called in the picker, shown above its line
+ROLES = {"ozzie": "Classic", "mr_ozzie": "Gentleman", "ms_ozzie": "Lady"}
 DEFAULT = "ozzie"
 INFO = {mid: (name, note) for mid, name, note in MASCOTS}
 EXTENSIONS = (".png", ".webp", ".jpg", ".jpeg")
