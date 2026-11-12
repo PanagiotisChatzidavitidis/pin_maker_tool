@@ -40,38 +40,60 @@ MIN_SHOW_MS = int(os.environ.get("OZZIE_COVER_MS", 900))   # long enough to read
 FRAME_MS = 33
 
 
+_TURN_STEPS = 12                      # pictures in one full turn of the pointer
+_TURN_JIFFIES = 4                     # how long each lasts, in 1/60 s (so a turn is 0.8 s)
+
+
+def _cur_bytes(frame, n):
+    """One pointer picture as the bytes of a .cur file: 32-bit pixels, bottom row first, then an
+    all-zero mask (the see-through parts come from the alpha channel). Hot spot: the middle.
+    """
+    px = bytearray()
+    for y in range(n - 1, -1, -1):
+        for x in range(n):
+            r_, g, b_, a_ = frame.getpixel((x, y))
+            px += bytes((b_, g, r_, a_))
+    data = struct.pack("<IiiHHIIiiII", 40, n, n * 2, 1, 32, 0, 0, 0, 0, 0, 0)
+    data += px + bytes(((n + 31) // 32 * 4) * n)
+    head = struct.pack("<HHH", 0, 2, 1) + struct.pack(
+        "<BBBBHHII", n, n, 0, 0, n // 2, n // 2, len(data), 22)
+    return head + data
+
+
+def _ani_bytes(frames, n):
+    """The bytes of an animated pointer (.ani): a RIFF file with a header, then every picture."""
+    def chunk(tag, body):
+        return tag + struct.pack("<I", len(body)) + body + (b"\0" if len(body) % 2 else b"")
+    anih = struct.pack("<IIIIIIIII", 36, len(frames), len(frames), n, n, 32, 1,
+                       _TURN_JIFFIES, 1)                  # flag 1: the pictures are .cur data
+    fram = b"fram" + b"".join(chunk(b"icon", _cur_bytes(f, n)) for f in frames)
+    body = b"ACON" + chunk(b"anih", anih) + chunk(b"LIST", fram)
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
 def _cursor(theme_name, accent):
     """A mouse pointer for the loading screen (Windows only, else None): a loading circle in
-    the theme's colour. Written once per theme as a .cur file.
+    the theme's colour that turns round. Written once per theme as an animated .ani file.
     """
     if platform.system() != "Windows":
         return None
-    path = os.path.join(tempfile.gettempdir(), f"ozzie_ring_{theme_name}.cur")
+    path = os.path.join(tempfile.gettempdir(), f"ozzie_spin_{theme_name}.ani")
     if not os.path.exists(path):
         try:
-            n = 32
-            im = Image.new("RGBA", (n * 4, n * 4), (0, 0, 0, 0))
-            d = ImageDraw.Draw(im)
-            box = (14, 14, n * 4 - 15, n * 4 - 15)
-            track = Image.new("RGBA", im.size, (0, 0, 0, 0))
+            n, k = 32, 4
+            box = (14, 14, n * k - 15, n * k - 15)
             rgb = tuple(int(accent[i:i + 2], 16) for i in (1, 3, 5))
-            ImageDraw.Draw(track).ellipse(box, outline=rgb + (70,), width=16)
-            im.alpha_composite(track)
-            d.arc(box, -70, 130, fill=rgb + (255,), width=16)       # the bright, turning part
-            small = im.resize((n, n), Image.LANCZOS)
-            # a classic bitmap cursor (works on every Windows): 32-bit pixels, bottom row first,
-            # then an all-zero mask (the transparency comes from the alpha channel)
-            px = bytearray()
-            for y in range(n - 1, -1, -1):
-                for x in range(n):
-                    r_, g, b_, a_ = small.getpixel((x, y))
-                    px += bytes((b_, g, r_, a_))
-            data = struct.pack("<IiiHHIIiiII", 40, n, n * 2, 1, 32, 0, 0, 0, 0, 0, 0)
-            data += px + bytes(((n + 31) // 32 * 4) * n)
-            head = struct.pack("<HHH", 0, 2, 1) + struct.pack(
-                "<BBBBHHII", n, n, 0, 0, n // 2, n // 2, len(data), 22)
+            frames = []
+            for i in range(_TURN_STEPS):
+                im = Image.new("RGBA", (n * k, n * k), (0, 0, 0, 0))
+                track = Image.new("RGBA", im.size, (0, 0, 0, 0))
+                ImageDraw.Draw(track).ellipse(box, outline=rgb + (70,), width=16)
+                im.alpha_composite(track)
+                start = -70 + i * (360 // _TURN_STEPS)       # the bright arc moves round the ring
+                ImageDraw.Draw(im).arc(box, start, start + 200, fill=rgb + (255,), width=16)
+                frames.append(im.resize((n, n), Image.LANCZOS))
             with open(path, "wb") as f:
-                f.write(head + data)
+                f.write(_ani_bytes(frames, n))
         except Exception:  # noqa: BLE001
             return None
     return "@" + path.replace("\\", "/")
