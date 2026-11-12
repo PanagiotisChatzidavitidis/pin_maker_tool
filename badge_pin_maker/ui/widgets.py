@@ -484,3 +484,205 @@ class MascotTile(tk.Canvas):
             except tk.TclError:
                 pass
         frame(0)
+
+
+class _Pill(tk.Canvas):
+    """A rounded pill-shaped control: a smooth background picture that changes with hover and
+    focus, and room for icons and text on top. The base of the search field and sort menu.
+    """
+    H = 40
+
+    def __init__(self, parent, width):
+        super().__init__(parent, width=width, height=self.H, bg=T.BG, highlightthickness=0, bd=0)
+        self.w, self.state = width, "rest"
+        self._bg_img = None
+        self._set_state("rest")
+
+    def _set_state(self, state):
+        """Redraw the pill for "rest", "hover" or "focus"."""
+        self.state = state
+        edge = {"rest": T.BORDER, "hover": T._mix(T.BORDER, T.TEAL, 0.5), "focus": T.TEAL}[state]
+        self._bg_img = smooth.pill(self.w, self.H, T.CARD, edge, T.BG, 2 if state == "focus" else 1)
+        if self.find_withtag("pillbg"):
+            self.itemconfig("pillbg", image=self._bg_img)
+        else:
+            self.create_image(0, 0, image=self._bg_img, anchor="nw", tags="pillbg")
+            self.tag_lower("pillbg")
+
+
+class SearchField(_Pill):
+    """A search box: a magnifier, the text you type (with a faint hint when empty) and a small
+    cross to clear it. ``variable`` holds the text.
+    """
+
+    def __init__(self, parent, variable, hint="Search canvases", width=340, family="TkDefaultFont"):
+        super().__init__(parent, width)
+        self.var = variable
+        self._icon = smooth.nav_icon("search", T.MUTED, T.CARD, 18)
+        self.create_image(16, self.H // 2, image=self._icon, anchor="w")
+        self.entry = tk.Entry(self, textvariable=variable, bd=0, relief="flat", bg=T.CARD,
+                              fg=T.TEXT, insertbackground=T.TEXT, highlightthickness=0,
+                              font=(family, 10), selectbackground=T._mix(T.CARD, T.TEAL, 0.4),
+                              selectforeground=T.TEXT)
+        self.create_window(44, self.H // 2, window=self.entry, anchor="w", width=width - 44 - 40,
+                           height=22)
+        self._hint = self.create_text(46, self.H // 2, text=hint, anchor="w", fill=T.MUTED,
+                                      font=(family, 10))
+        self._x_img = smooth.nav_icon("close", T.MUTED, T.CARD, 18)
+        self._x_hover = smooth.nav_icon("close", T.TEAL, T.CARD, 18)
+        self._x = self.create_image(width - 18, self.H // 2, image=self._x_img, tags="clear")
+        self.tag_bind("clear", "<Button-1>", lambda e: (variable.set(""), self.entry.focus_set()))
+        self.tag_bind("clear", "<Enter>", lambda e: (self.itemconfig(self._x, image=self._x_hover),
+                                                     self.config(cursor="hand2")))
+        self.tag_bind("clear", "<Leave>", lambda e: (self.itemconfig(self._x, image=self._x_img),
+                                                     self.config(cursor="")))
+        self.bind("<Button-1>", lambda e: self.entry.focus_set())
+        self.entry.bind("<Escape>", lambda e: (variable.set(""), "break")[1])
+        self.entry.bind("<FocusIn>", lambda e: self._set_state("focus"))
+        self.entry.bind("<FocusOut>", lambda e: self._set_state("rest"))
+        for w in (self, self.entry):
+            w.bind("<Enter>", lambda e: self.state == "rest" and self._set_state("hover"), add="+")
+            w.bind("<Leave>", lambda e: self.state == "hover" and self._set_state("rest"), add="+")
+        self._tid = variable.trace_add("write", lambda *_: self._sync())
+        self.bind("<Destroy>", self._on_destroy)
+        self._sync()
+
+    def _sync(self):
+        """Show the hint only when empty, and the clear cross only when there is text."""
+        try:
+            has = bool(self.var.get())
+            self.itemconfig(self._hint, state="hidden" if has else "normal")
+            self.itemconfig(self._x, state="normal" if has else "hidden")
+        except tk.TclError:
+            pass
+
+    def _on_destroy(self, e):
+        """Stop listening to the variable once this has been destroyed."""
+        if e.widget is self:
+            try:
+                self.var.trace_remove("write", self._tid)
+            except (tk.TclError, ValueError):
+                pass
+
+
+class SortMenu(_Pill):
+    """A "Sort by" pill: an icon, the current choice and a chevron. Clicking opens a small
+    rounded list of the choices (the current one ticked); picking one closes it.
+    """
+
+    def __init__(self, parent, variable, options, command=None, width=214, family="TkDefaultFont"):
+        super().__init__(parent, width)
+        self.var, self.options, self.command, self.family = variable, list(options), command, family
+        self.popup = None
+        self._imgs = {k: smooth.nav_icon(k, T.MUTED, T.CARD, 18) for k in ("sort", "chevron")}
+        self.create_image(16, self.H // 2, image=self._imgs["sort"], anchor="w")
+        self._text = self.create_text(44, self.H // 2, anchor="w", fill=T.TEXT, font=(family, 10))
+        self.create_image(width - 20, self.H // 2, image=self._imgs["chevron"])
+        self.config(cursor="hand2")
+        self.bind("<Button-1>", lambda e: self.toggle())
+        self.bind("<Enter>", lambda e: self.state == "rest" and self._set_state("hover"))
+        self.bind("<Leave>", lambda e: self.state == "hover" and self._set_state("rest"))
+        self._tid = variable.trace_add("write", lambda *_: self._sync())
+        self.bind("<Destroy>", self._on_destroy)
+        self._sync()
+
+    def _sync(self):
+        """Show what is chosen now."""
+        try:
+            self.itemconfig(self._text, text=self.var.get())
+        except tk.TclError:
+            pass
+
+    def _on_destroy(self, e):
+        """Close the list and stop listening when this goes away."""
+        if e.widget is self:
+            self.close()
+            try:
+                self.var.trace_remove("write", self._tid)
+            except (tk.TclError, ValueError):
+                pass
+
+    def toggle(self):
+        """Open the list, or close it if it is open."""
+        if self.popup is not None:
+            self.close()
+        else:
+            self.open()
+
+    def open(self):
+        """Show the choices in a small themed box just under the pill."""
+        self._set_state("focus")
+        pop = self.popup = tk.Toplevel(self)
+        pop.withdraw()
+        pop.overrideredirect(True)
+        pop.configure(bg=T.BORDER)
+        inner = tk.Frame(pop, bg=T.CARD)
+        inner.pack(padx=1, pady=1)
+        check = smooth.nav_icon("check", T.TEAL, T.CARD, 18)
+        blank = smooth.nav_icon("check", T.CARD, T.CARD, 18)
+        pop._imgs = [check, blank]
+        rows = []
+        for opt in self.options:
+            row = tk.Frame(inner, bg=T.CARD, cursor="hand2")
+            row.pack(fill="x", padx=6, pady=(6 if opt == self.options[0] else 0,
+                                             6 if opt == self.options[-1] else 0))
+            on = opt == self.var.get()
+            icon = tk.Label(row, image=check if on else blank, bg=T.CARD, bd=0)
+            icon.pack(side="left", padx=(8, 6), pady=7)
+            text = tk.Label(row, text=opt, bg=T.CARD, fg=T.TEAL if on else T.TEXT, anchor="w",
+                            font=(self.family, 10, "bold" if on else "normal"))
+            text.pack(side="left", fill="x", expand=True, padx=(0, 16))
+            rows.append((row, icon, text))
+            for w in (row, icon, text):
+                w.bind("<Button-1>", lambda e, o=opt: self._choose(o))
+                w.bind("<Enter>", lambda e, r=row: self._tint(r, True))
+                w.bind("<Leave>", lambda e, r=row: self._tint(r, False))
+        pop._rows = rows
+        pop.update_idletasks()
+        x = self.winfo_rootx() + self.winfo_width() - pop.winfo_reqwidth()
+        y = self.winfo_rooty() + self.winfo_height() + 6
+        pop.geometry(f"+{x}+{y}")
+        pop.deiconify()
+        pop.lift()
+        pop.bind("<Escape>", lambda e: self.close())
+        pop.bind("<FocusOut>", lambda e: self.after(80, self._lost_focus))
+        pop.focus_force()
+
+    def _tint(self, row, on):
+        """Light up the row under the pointer."""
+        if self.popup is None:
+            return
+        col = T.HOVER if on else T.CARD
+        for r, icon, text in self.popup._rows:
+            if r is row:
+                for w in (r, icon, text):
+                    w.config(bg=col)
+
+    def _lost_focus(self):
+        """Close the list when you click anywhere else."""
+        try:
+            if self.popup is not None and self.popup.focus_displayof() is None:
+                self.close()
+        except tk.TclError:
+            self.close()
+
+    def _choose(self, option):
+        """A choice was clicked."""
+        changed = option != self.var.get()
+        self.var.set(option)
+        self.close()
+        if changed and self.command:
+            self.command()
+
+    def close(self):
+        """Close the list (if open)."""
+        pop, self.popup = self.popup, None
+        if pop is not None:
+            try:
+                pop.destroy()
+            except tk.TclError:
+                pass
+        try:
+            self._set_state("rest")
+        except tk.TclError:
+            pass

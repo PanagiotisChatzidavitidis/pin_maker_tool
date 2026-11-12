@@ -195,6 +195,19 @@ def nav_icon(kind, colour, bg, size=20):
             _oval(d, k, m, m, size / 2 - 2, bg, outline=colour, width=w)
             _line(d, k, [(m, m - 0.5), (m, m + 3.8)], colour, w)
             _oval(d, k, m, m - 3.6, 1.1, colour)
+        elif kind == "search":
+            _oval(d, k, m - 1.5, m - 1.5, size / 2 - 4.5, bg, outline=colour, width=w)
+            _line(d, k, [(m + 3.6, m + 3.6), (size - 3, size - 3)], colour, w)
+        elif kind == "sort":
+            for y, half in ((5.5, size / 2 - 3), (m, size / 2 - 5.5), (size - 5.5, size / 2 - 8)):
+                _line(d, k, [(m - half, y), (m + half, y)], colour, w)
+        elif kind == "chevron":
+            _line(d, k, [(m - 3.8, m - 1.6), (m, m + 2.2), (m + 3.8, m - 1.6)], colour, w)
+        elif kind == "check":
+            _line(d, k, [(m - 4, m + 0.2), (m - 1.2, m + 3), (m + 4.2, m - 3)], colour, w + 0.3)
+        elif kind == "close":
+            _line(d, k, [(m - 3.2, m - 3.2), (m + 3.2, m + 3.2)], colour, w)
+            _line(d, k, [(m + 3.2, m - 3.2), (m - 3.2, m + 3.2)], colour, w)
         elif kind == "monitor":
             d.rounded_rectangle([2.5 * k, 3.5 * k, (size - 2.5) * k, (size - 7) * k], radius=2.5 * k,
                                 outline=colour, width=round(w * k))
@@ -240,3 +253,13 @@ def hero_logo(size, plate, bg):
             big = big.convert("RGB")
         return big
     return _make(key, size, size, bg, paint, post)
+
+
+def pill(w, h, fill, edge, bg, edge_w=1):
+    """A fully rounded "pill" ``w`` x ``h``: ``fill`` with an ``edge`` outline, on ``bg``."""
+    key = ("pill", w, h, fill, edge, bg, edge_w)
+
+    def paint(d, k):
+        d.rounded_rectangle([0, 0, w * k - 1, h * k - 1], radius=h * k / 2, fill=fill,
+                            outline=edge, width=round(edge_w * k))
+    return _make(key, w, h, bg, paint)
