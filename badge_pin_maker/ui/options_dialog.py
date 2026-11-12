@@ -180,6 +180,11 @@ class OptionsDialog(tk.Toplevel):
         moment and would otherwise keep the old text on screen.
         """
         if mid != mascot.current:
+            # wipe the old words first so the two never show together, paint, then write the new
+            for lbl in (self._mascot_role, self._mascot_note, self._tour_note):
+                if lbl is not None:
+                    lbl.config(text="")
+            self.update_idletasks()
             mascot.set_current(mid)
             self._logo = smooth.hero_logo(68, T._mix(T.BG, T.TEAL, 0.16), T.BG)
             self._logo_lbl.config(image=self._logo)
@@ -187,7 +192,8 @@ class OptionsDialog(tk.Toplevel):
                 tile.set_selected(m == mid)
             self._mascot_text()
             self.update_idletasks()                   # show it now
-            self.app.choose_mascot(mid)
+            # the app's own screens change a moment later, once all of this is on screen
+            self.after(80, lambda: self.app.choose_mascot(mid))
         self._mascot_tiles[mid].hop()
 
     def _mascot_text(self):
