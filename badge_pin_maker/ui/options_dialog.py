@@ -175,22 +175,27 @@ class OptionsDialog(tk.Toplevel):
         self.app.replay_guide()
 
     def _mascot_picked(self, mid):
-        """A mascot card was clicked: switch to it (the card hops to say hello)."""
+        """A mascot card was clicked: switch to it (the card hops to say hello). This window is
+        updated and painted first; only then does the app rebuild its own screens, which takes a
+        moment and would otherwise keep the old text on screen.
+        """
         if mid != mascot.current:
-            self.app.choose_mascot(mid)
+            mascot.set_current(mid)
             self._logo = smooth.hero_logo(68, T._mix(T.BG, T.TEAL, 0.16), T.BG)
             self._logo_lbl.config(image=self._logo)
             for m, tile in self._mascot_tiles.items():
                 tile.set_selected(m == mid)
             self._mascot_text()
+            self.update_idletasks()                   # show it now
+            self.app.choose_mascot(mid)
         self._mascot_tiles[mid].hop()
 
     def _mascot_text(self):
-        """Show the picked mascot's role and cute line, and its name in the tutorial card."""
+        """Show the picked mascot's name and cute line, and its name in the tutorial card."""
         mid = mascot.current
         name, note = mascot.INFO[mid]
         if getattr(self, "_mascot_role", None) is not None:
-            self._mascot_role.config(text=mascot.ROLES[mid])
+            self._mascot_role.config(text=name)
             self._mascot_note.config(text=note)
         if getattr(self, "_tour_note", None) is not None:
             self._tour_note.config(text=f"Want a hand? {name} shows you around "
