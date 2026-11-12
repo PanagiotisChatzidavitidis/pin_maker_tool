@@ -11,11 +11,11 @@ from tkinter import ttk
 from PIL import ImageTk
 
 from ..settings import save_settings
-from ..system_actions import reveal_folder
 from ..version import version_text
 from . import smooth
 from . import theme as T
 from .dialogs import messagebox
+from .widgets import SearchField, SortMenu
 from .icons import load_logo, make_icon, render_icon_image
 
 # the choices of the "Sort by" box; the first one is the default
@@ -169,23 +169,14 @@ class HomeScreen(tk.Frame):
         top = ttk.Frame(main)
         top.pack(fill="x")
         ttk.Label(top, text="Your canvases", style="Page.TLabel").pack(side="left")
-        ttk.Button(top, text="Open folder", style="Ghost.TButton",
-                   command=lambda: reveal_folder(app.canvases_dir())).pack(side="right")
         self.count_lbl = ttk.Label(main, style="Hint.TLabel")
         self.count_lbl.pack(anchor="w", pady=(2, 0))
 
         bar = self.search_row = ttk.Frame(main)
-        bar.pack(fill="x", pady=(14, 0))
-        ttk.Label(bar, text="Search", style="Hint.TLabel").pack(side="left", padx=(0, 8))
-        entry = ttk.Entry(bar, textvariable=self.v_search, width=30)
-        entry.pack(side="left")
-        entry.bind("<Escape>", lambda e: (self.v_search.set(""), "break")[1])
+        bar.pack(fill="x", pady=(16, 0))
+        SearchField(bar, self.v_search, family=fam).pack(side="left")
         self.v_search.trace_add("write", lambda *_: self._search_changed())
-        sort = ttk.Combobox(bar, textvariable=self.v_sort, values=SORTS, state="readonly",
-                            width=16)
-        sort.pack(side="right")
-        ttk.Label(bar, text="Sort by", style="Hint.TLabel").pack(side="right", padx=(0, 8))
-        sort.bind("<<ComboboxSelected>>", lambda e: self._sort_changed())
+        SortMenu(bar, self.v_sort, SORTS, command=self._sort_changed, family=fam).pack(side="right")
 
         body = self.body = ttk.Frame(main)
         body.pack(fill="both", expand=True, pady=(16, 0))
