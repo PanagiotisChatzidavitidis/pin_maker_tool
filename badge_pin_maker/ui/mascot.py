@@ -19,8 +19,6 @@ MASCOTS = [
     ("mr_ozzie", "Mr Ozzie", "Bow tie on, whiskers neat and ever so polite!"),
     ("ms_ozzie", "Ms Ozzie", "A pretty bow and a little sparkle of charm!"),
 ]
-# what each one is called in the picker, shown above its line
-ROLES = {"ozzie": "Classic", "mr_ozzie": "Gentleman", "ms_ozzie": "Lady"}
 DEFAULT = "ozzie"
 INFO = {mid: (name, note) for mid, name, note in MASCOTS}
 EXTENSIONS = (".png", ".webp", ".jpg", ".jpeg")
