@@ -31,6 +31,21 @@ def set_window_icon(win, everywhere=False):
         pass
 
 
+def keep_titlebar(win, delays=(0, 60, 200, 450, 700, 1100)):
+    """Paint a window's title bar again a few times over the next moments. Windows resets it to
+    the light default when the window below changes size or mode, which shows as a white flash.
+    """
+    def again():
+        try:
+            if win.winfo_exists():
+                set_titlebar(win, force=True)
+        except tk.TclError:
+            pass
+    owner = win.master or win          # the main window outlives this one, so no stray timers
+    for ms in delays:
+        owner.after(ms, again)
+
+
 def set_titlebar(win, force=False):
     """Match the Windows title bar to the current theme (does nothing elsewhere). ``force``
     paints it again even if it was already set: Windows forgets the colour when a window

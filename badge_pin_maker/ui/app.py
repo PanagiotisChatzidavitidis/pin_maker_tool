@@ -112,6 +112,7 @@ class BadgeApp(RootBase):
         self.v_dark = tk.BooleanVar(value=(T.mode_of(s.get("theme")) == "dark"))
         T.apply_theme(self.current_theme())        # must come before setup_style
         self.base_font = T.setup_style(self)
+        self.configure(bg=T.BG)          # the window itself: never the system's light grey
         self.editor = tk.Frame(self, bg=T.BG)
 
         # ---- the canvas in memory ----
@@ -483,6 +484,7 @@ class BadgeApp(RootBase):
         """The cover is up (or the change is instant): use the exact theme."""
         T.apply_theme(name)
         self.base_font = T.setup_style(self)
+        self.configure(bg=T.BG)          # the window itself: never the system's light grey
         self.after_idle(self._theme_rebuilt)     # not inside the click that started it
 
     def _theme_rebuilt(self):

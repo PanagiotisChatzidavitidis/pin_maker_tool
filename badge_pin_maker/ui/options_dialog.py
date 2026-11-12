@@ -10,7 +10,7 @@ from tkinter import ttk
 
 from . import mascot, smooth, theme as T
 from .cover import FULLSCREEN_MESSAGES, WINDOWED_MESSAGES, ThemeCover
-from .dialogs import messagebox, set_titlebar, set_window_icon
+from .dialogs import keep_titlebar, messagebox, set_titlebar, set_window_icon
 from ..system_actions import reveal_folder
 from .widgets import MascotTile, Segmented, ThemeTile
 
@@ -196,7 +196,9 @@ class OptionsDialog(tk.Toplevel):
             self._cover = ThemeCover(self.app, T.THEME_NAME, parent=self,
                                      messages=FULLSCREEN_MESSAGES if full else WINDOWED_MESSAGES)
             self.after(450, self._mode_cover_done)
+        set_titlebar(self, force=True)              # dark/light bar before the change...
         self.app.set_fullscreen(full)
+        keep_titlebar(self)                         # ...and again while the window settles
 
     def v_mode_full(self):
         """True if the Window switch is on "Full screen"."""
@@ -221,7 +223,8 @@ class OptionsDialog(tk.Toplevel):
         if not self.winfo_exists():
             return
         self._build()
-        set_titlebar(self)
+        set_titlebar(self, force=True)
+        keep_titlebar(self, (60, 200, 450, 800))
         if self._cover:
             self._cover.lift()
             self._cover.close()
