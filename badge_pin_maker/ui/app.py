@@ -24,6 +24,7 @@ How this file is organised
 import functools
 import glob
 import json
+from concurrent.futures import ThreadPoolExecutor
 import math
 import os
 import re
@@ -2082,25 +2083,34 @@ class BadgeApp(RootBase):
         photos = data.get("photos", [])
         prog = {"done": 0, "total": len(photos)}
 
+        def open_one(ph):
+            """Open one picture: at its saved path, else next to the canvas. None if not found."""
+            orig = ph.get("path") or ""
+            rel = ph.get("rel") or ""
+            for cand in (orig, os.path.join(base, rel) if rel else "",
+                         os.path.join(base, os.path.basename(orig)) if orig else ""):
+                if cand and os.path.isfile(cand):
+                    try:
+                        return load_source(cand)
+                    except Exception:  # noqa: BLE001
+                        pass
+            return None
+
         def load_all():
-            """Runs in a background thread: open every picture the canvas uses."""
-            sources, missing = [], []
-            for ph in photos:
-                orig = ph.get("path") or ""
-                rel = ph.get("rel") or ""
-                src = None
-                for cand in (orig, os.path.join(base, rel) if rel else "",
-                             os.path.join(base, os.path.basename(orig)) if orig else ""):
-                    if cand and os.path.isfile(cand):
-                        try:
-                            src = load_source(cand)
-                            break
-                        except Exception:  # noqa: BLE001
-                            pass
-                if src is None:
-                    missing.append(os.path.basename(orig) or "?")
-                sources.append(src)
+            """Runs in a background thread: open every picture the canvas uses, several at a
+            time (decoding a photo mostly happens outside Python's lock, so they overlap).
+            """
+            def work(ph):
+                src = open_one(ph)
                 prog["done"] += 1
+                return src
+            if len(photos) > 1:
+                with ThreadPoolExecutor(max_workers=min(4, len(photos))) as pool:
+                    sources = list(pool.map(work, photos))
+            else:
+                sources = [work(ph) for ph in photos]
+            missing = [os.path.basename(ph.get("path") or "") or "?"
+                       for ph, src in zip(photos, sources) if src is None]
             return sources, missing
 
         sources, missing = self._run_busy(

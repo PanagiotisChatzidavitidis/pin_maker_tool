@@ -72,16 +72,55 @@ def _cut_out(im):
     bg = corners[0]
     if any(max(abs(c[i] - bg[i]) for i in range(3)) > 28 for c in corners):
         return im                                    # not a flat background
-    diff = ImageChops.difference(rgb, Image.new("RGB", (w, h), bg)).convert("L")
+    # the flood fill is slow in pure Python, so it runs on a small copy (about 256 px) and the
+    # result is scaled back up and sharpened again; that is plenty for a soft cut-out edge
+    k = max(1, max(w, h) // 256)
+    sw, sh = max(1, w // k), max(1, h // k)
+    small = rgb.resize((sw, sh), Image.BILINEAR)
+    diff = ImageChops.difference(small, Image.new("RGB", (sw, sh), bg)).convert("L")
     mask = diff.point(lambda v: 255 if v > 26 else 0)        # 255 = part of the picture
-    edge = [(x, 0) for x in range(w)] + [(x, h - 1) for x in range(w)] \
-        + [(0, y) for y in range(h)] + [(w - 1, y) for y in range(h)]
+    edge = [(x, 0) for x in range(sw)] + [(x, sh - 1) for x in range(sw)] \
+        + [(0, y) for y in range(sh)] + [(sw - 1, y) for y in range(sh)]
     for p in edge:
         if mask.getpixel(p) == 0:
             ImageDraw.floodfill(mask, p, 128)        # the background reachable from the edge
     alpha = mask.point(lambda v: 0 if v == 128 else 255)
+    if k > 1:
+        alpha = alpha.resize((w, h), Image.BICUBIC).point(
+            lambda v: max(0, min(255, (v - 96) * 4)))
     alpha = alpha.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.8))
     im.putalpha(alpha)
+    return im
+
+
+def _load_cutout(path, stamp):
+    """The cut-out of the picture at ``path``. It is made once and kept in a cache folder (named
+    after the file's date and size, so a changed picture is cut out again); later starts just
+    read it back, which is much quicker than cutting it out.
+    """
+    from .. import settings
+    folder = os.path.join(settings.DATA_DIR, "cache")
+    key = f"{_key(os.path.splitext(os.path.basename(path))[0])}-{int(stamp)}-" \
+          f"{os.path.getsize(path)}.png"
+    kept = os.path.join(folder, key)
+    try:
+        if os.path.exists(kept):
+            im = Image.open(kept)
+            im.load()
+            return im
+    except (OSError, ValueError):
+        pass
+    im = Image.open(path)
+    im.thumbnail((1024, 1024), Image.LANCZOS)
+    im = _cut_out(im)
+    try:
+        os.makedirs(folder, exist_ok=True)
+        for old in os.listdir(folder):                 # drop out-of-date versions of this one
+            if old.split("-")[0] == key.split("-")[0] and old != key:
+                os.remove(os.path.join(folder, old))
+        im.save(kept)
+    except OSError:
+        pass
     return im
 
 
@@ -96,9 +135,7 @@ def image(mid=None):
         hit = _cache.get(mid)
         if hit and hit[0] == path and hit[1] == stamp:
             return hit[2]
-        im = Image.open(path)
-        im.thumbnail((1024, 1024), Image.LANCZOS)
-        im = _cut_out(im)
+        im = _load_cutout(path, stamp)
         _cache[mid] = (path, stamp, im)
         return im
     except (OSError, ValueError):

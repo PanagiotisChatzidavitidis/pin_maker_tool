@@ -34,8 +34,25 @@ class Source:
         """
         self.full = img
         self.path = path
-        self.small = img.copy()
-        self.small.thumbnail((1200, 1200), Image.LANCZOS)
+        # nothing ever changes these pictures in place, so a small one that needs no shrinking
+        # can simply be the full one (no copy)
+        w, h = img.size
+        scale = 1200 / max(w, h)
+        self.small = img if scale >= 1 else img.resize(
+            (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS, reducing_gap=2.0)
+        self._mips = {0: self.small}
+
+    def mip(self, level):
+        """The small picture shrunk ``2 ** level`` times (made once). Drawing a tiny preview
+        from one of these is many times quicker than from the 1200 px picture.
+        """
+        level = max(0, min(level, 4))
+        while level > 0 and min(self.small.size) // (2 ** level) < 96:
+            level -= 1                       # never so small that previews would look soft
+        pic = self._mips.get(level)
+        if pic is None:
+            pic = self._mips[level] = self.small.reduce(2 ** level)
+        return pic
 
 
 class Art:
@@ -70,12 +87,18 @@ def load_source(path):
     white and cap huge images at 4000 px.
     """
     img = Image.open(path)
-    img = ImageOps.exif_transpose(img) or img
+    if max(img.size) > 8000:
+        img.draft("RGB", (4000, 4000))       # JPEGs can be decoded already shrunk
+    if img.getexif().get(0x0112, 1) != 1:    # only a picture with a rotation tag needs turning
+        img = ImageOps.exif_transpose(img) or img
     if img.mode in ("RGBA", "LA", "P"):
         img = img.convert("RGBA")
         img = Image.alpha_composite(Image.new("RGBA", img.size, (255, 255, 255, 255)), img)
-    img = img.convert("RGB")
-    img.thumbnail((4000, 4000), Image.LANCZOS)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    if max(img.size) > 4000:
+        img.thumbnail((4000, 4000), Image.LANCZOS)
+    img.load()
     return Source(img, os.path.abspath(path))
 
 
@@ -97,7 +120,8 @@ def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None,
         ck = (id(img), round(m, 3))
         small = cache.get(ck) if cache is not None else None
         if small is None:
-            small = img.resize((max(1, round(iw / m)), max(1, round(ih / m))), Image.LANCZOS)
+            small = img.resize((max(1, round(iw / m)), max(1, round(ih / m))), Image.LANCZOS,
+                               reducing_gap=2.0)      # shrinks by whole steps first: much faster
             if cache is not None:
                 # Only the latest shrunk copy is kept: memory stays small, and dragging in
                 # the crop window reuses it.
@@ -122,8 +146,13 @@ def render_art(art, d_mm, px_per_mm, small=False):
     """Render one pin's picture as a square, ``d_mm`` millimetres wide at ``px_per_mm`` pixels
     per mm. ``small=True`` uses the small preview copy of the image.
     """
-    img = art.source.small if small else art.source.full
-    iw, ih = img.size
     t = max(1, int(d_mm * px_per_mm))
+    if small:
+        # pick the shrunk copy of the picture that is still at least as sharp as the output
+        k0 = base_crop(art.source.small.size) / art.zoom / t
+        img = art.source.mip(int(math.log2(k0)) if k0 >= 2 else 0)
+    else:
+        img = art.source.full
+    iw, ih = img.size
     k = base_crop(img.size) / art.zoom / t
     return render_transform(img, t, t, k, art.cx * iw, art.cy * ih, art.angle)
