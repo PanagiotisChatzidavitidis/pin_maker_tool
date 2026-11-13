@@ -6,13 +6,19 @@ circles stay blank so they don't waste ink.
 """
 
 import io
+from concurrent.futures import ThreadPoolExecutor
 
+from reportlab import rl_config
 from reportlab.lib.colors import Color
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as pdfcanvas
 
 from .constants import BADGE_GAP, EXPORT_DPI, MM, SAFE_INSET
 from .imaging import render_art
+
+# reportlab turns every image into ASCII text by default, in slow pure Python (it was most of the
+# time of an export) and 25% bigger. Raw binary streams are perfectly normal in a PDF.
+rl_config.useA85 = 0
 
 
 def _pdf_image(art, d, dpi):
@@ -35,20 +41,25 @@ def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None
     W, H = layout["page_w"], layout["page_h"]
     c = pdfcanvas.Canvas(path, pagesize=(W * MM, H * MM))
     c.setTitle("Pin sheet")
-    cache = {}
     w = d * MM
     r = w / 2
     total = sum(1 for i in range(len(layout["points"])) if i in slots)
     done = 0
+    # Rendering the pictures is the slow part. An image + view used on several pins is rendered
+    # only once, and several are rendered at the same time (Pillow does that work outside
+    # Python's lock). The pins are still drawn in order, each as soon as its picture is ready.
+    pool = ThreadPoolExecutor(max_workers=4)
+    cache = {}
+    for idx in range(len(layout["points"])):
+        art = slots.get(idx)
+        if art is not None and art.key() not in cache:
+            cache[art.key()] = pool.submit(_pdf_image, art, d, dpi)
 
     for idx, (cx, cy) in enumerate(layout["points"]):
         art = slots.get(idx)
         if art is None:
             continue
-        # An image + view that is used on several pins is rendered only once.
         k = art.key()
-        if k not in cache:
-            cache[k] = _pdf_image(art, d, dpi)
         # Our layout measures from the top-left corner; PDF measures from the bottom-left.
         # Flip y.
         x, y = cx * MM, (H - cy) * MM
@@ -58,7 +69,7 @@ def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None
         p = c.beginPath()
         p.circle(x, y, r)
         c.clipPath(p, stroke=0, fill=0)
-        c.drawImage(cache[k], x - r, y - r, w, w)
+        c.drawImage(cache[k].result(), x - r, y - r, w, w)
         c.restoreState()
 
         # cut line
@@ -89,5 +100,6 @@ def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None
         if progress:
             progress(done, total)
 
+    pool.shutdown()
     c.showPage()
     c.save()
