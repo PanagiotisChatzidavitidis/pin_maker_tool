@@ -291,7 +291,7 @@ class HomeScreen(tk.Frame):
         query = self.v_search.get().strip().casefold()
         total = len(self._items)
         items = [i for i in self._items
-                 if not query or query in f"{i['name']} {i['paper']} {i['pin']}".casefold()]
+                 if not query or query in i["name"].casefold()]
         noun = "canvas" if total == 1 else "canvases"
         if query:
             self.count_lbl.config(text=f"{len(items)} of {total} {noun}")
