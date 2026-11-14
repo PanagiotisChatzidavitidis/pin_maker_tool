@@ -36,7 +36,7 @@ WINDOWED_MESSAGES = (
     "Shrinking down nice and snug...",
     "Back to a window, one moment!",
 )
-MIN_SHOW_MS = int(os.environ.get("OZZIE_COVER_MS", 900))   # long enough to read the message
+MIN_SHOW_MS = int(os.environ.get("OZZIE_COVER_MS", 450))   # long enough to read a short message
 FRAME_MS = 33
 
 
@@ -209,6 +209,34 @@ class ThemeCover:
         if left > 0:
             self.app.after(int(left), lambda: self.close(then))
             return
+        self._reveal(then)
+
+    def _reveal(self, then):
+        """Lift the cover away like a curtain (about 0.15 s). The screens underneath are already
+        built, laid out and drawn, so all that is left is to uncover them.
+        """
+        app = self.app
+        try:
+            app.update_idletasks()
+        except tk.TclError:
+            pass
+        steps = 8
+
+        def frame(i):
+            t = i / steps
+            t = t * t * (3 - 2 * t)                       # smooth start and end
+            try:
+                self.cv.place_configure(y=0, rely=-t)
+            except tk.TclError:
+                i = steps
+            if i < steps:
+                app.after(16, lambda: frame(i + 1))
+            else:
+                self._park(then)
+        frame(1)
+
+    def _park(self, then):
+        """Hide the cover for good (it is kept, tiny and out of sight, for next time)."""
         self.closed = True
         if self.job is not None:
             try:
@@ -218,7 +246,7 @@ class ThemeCover:
         try:
             self.cv.delete("all")
             self.cv._owner = None
-            self.cv.place(x=0, y=0, width=1, height=1, relwidth=0, relheight=0)       # park it, ready for next time
+            self.cv.place(x=0, y=0, width=1, height=1, relwidth=0, relheight=0, rely=0)  # park it
             tk.Misc.lower(self.cv)
         except tk.TclError:
             pass

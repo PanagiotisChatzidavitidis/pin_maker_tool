@@ -126,6 +126,8 @@ class BadgeApp(RootBase):
         self.tour = None               # the guided tour that is running, if any
         self._morph = None             # the running theme change, if any
         self._mode_cover = None        # the loading screen of a full screen / windowed change
+        self._cfg_t = 0.0              # when the window last changed size
+        self.bind("<Configure>", self._note_resize, add="+")
         self._theme_again, self._theme_done = False, []
         self._image_cache = {}
         self._pil_cache = {}           # the same pictures as PIL images (for the fade-out)
@@ -299,7 +301,41 @@ class BadgeApp(RootBase):
                 self.after(ms, lambda: set_titlebar(self, force=True))
         if shield:
             shield.lift()
-            self.after(400, lambda: shield.close(self._mode_cover_done))
+            self._settled(lambda: shield.close(self._mode_cover_done), quiet=0.14)
+
+    def _note_resize(self, e):
+        """Remember when the window last changed size (see _settled)."""
+        if e.widget is self:
+            self._cfg_t = time.monotonic()
+
+    def _settled(self, then, quiet=0.12, limit=2.0):
+        """Call ``then`` once the window has stopped changing size and nothing is waiting to be
+        redrawn (or after ``limit`` seconds whatever happens). Used to take a loading screen
+        away only when what is underneath is really ready.
+        """
+        started = time.monotonic()
+        self._cfg_t = max(self._cfg_t, started)
+
+        def check():
+            now = time.monotonic()
+            calm = now - self._cfg_t >= quiet and self._after is None \
+                and self._view_job is None
+            if calm or now - started >= limit:
+                self._ready_view()
+                then()
+            else:
+                self.after(25, check)
+        self.after(25, check)
+
+    def _ready_view(self):
+        """Make sure the screen that shows is drawn at its final size, right now."""
+        try:
+            self.update_idletasks()
+            if self.screen == "editor" and self.cv.winfo_width() > 1:
+                self.redraw()
+            self.update_idletasks()
+        except tk.TclError:
+            pass
 
     def _mode_cover_done(self):
         """The loading screen for a window-mode change is gone."""
@@ -499,7 +535,7 @@ class BadgeApp(RootBase):
         cover = self._morph
         if cover:
             cover.lift()
-            cover.close(self._theme_finished)
+            self._settled(lambda: cover.close(self._theme_finished), quiet=0.05)
         else:
             self._theme_finished()
 
