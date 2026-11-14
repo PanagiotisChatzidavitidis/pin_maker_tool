@@ -222,7 +222,7 @@ class OptionsDialog(tk.Toplevel):
         if full != self.app._is_full and not self.app._morph and not self._cover:
             self._cover = ThemeCover(self.app, T.THEME_NAME, parent=self,
                                      messages=FULLSCREEN_MESSAGES if full else WINDOWED_MESSAGES)
-            self.after(450, self._mode_cover_done)
+            self.after(100, self._mode_cover_done)
         set_titlebar(self, force=True)              # dark/light bar before the change...
         self.app.set_fullscreen(full)
         keep_titlebar(self)                         # ...and again while the window settles
@@ -233,6 +233,11 @@ class OptionsDialog(tk.Toplevel):
 
     def _mode_cover_done(self):
         """Take this window's loading screen away (it waits out its minimum time first)."""
+        if not self.winfo_exists():
+            return
+        if self.app._mode_cover is not None:          # the main window is still changing
+            self.after(40, self._mode_cover_done)
+            return
         if self._cover:
             cover, self._cover = self._cover, None
             cover.close()
