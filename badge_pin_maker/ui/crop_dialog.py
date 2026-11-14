@@ -462,7 +462,8 @@ class CropDialog(tk.Toplevel):
         k = base_crop(img.size) / zoom / self.vw
         bright = render_transform(img, self.cw, self.ch, k, self.cx * iw, self.cy * ih,
                                   angle, self._cache,
-                                  resample=Image.BILINEAR if fast else Image.BICUBIC)
+                                  resample=Image.BILINEAR if fast else Image.BICUBIC,
+                                  fill=self.src.bg)
         final = Image.composite(self.dim, bright, self.alpha)
         self._image = ImageTk.PhotoImage(final)
         self.cv.itemconfigure(self._img_item, image=self._image)

@@ -41,6 +41,16 @@ class Source:
         self.small = img if scale >= 1 else img.resize(
             (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS, reducing_gap=2.0)
         self._mips = {0: self.small}
+        self._bg = None
+
+    @property
+    def bg(self):
+        """The picture's background colour (an RGB tuple), found once from its edges. It fills
+        any part of a pin the picture doesn't reach, so there is never a stray white gap.
+        """
+        if self._bg is None:
+            self._bg = edge_colour(self.small)
+        return self._bg
 
     def mip(self, level):
         """The small picture shrunk ``2 ** level`` times (made once). Drawing a tiny preview
@@ -82,6 +92,33 @@ class Art:
         return ppi_for(self.source.full.size, self.zoom, d_mm)
 
 
+def edge_colour(img):
+    """The dominant colour along the picture's border: the background that a pin shows where
+    the picture runs out. The most common (coarsely grouped) edge colour wins, and the exact
+    colour is the average of the edge pixels in that group, so noise and JPEG speckle don't
+    matter. A busy photo with no clear background still gets a sensible, average colour.
+    """
+    w, h = img.size
+    t = max(1, min(w, h) // 50)                     # border strip about 2 % wide
+    strips = [img.crop((0, 0, w, t)), img.crop((0, h - t, w, h)),
+              img.crop((0, t, t, h - t)), img.crop((w - t, t, w, h - t))]
+    px = []
+    for strip in strips:
+        if strip.size[0] and strip.size[1]:
+            px.extend(strip.getdata())
+    if not px:
+        return (255, 255, 255)
+    if len(px) > 6000:
+        px = px[::len(px) // 6000]                  # plenty for finding the main colour
+    bins = {}
+    for r, g, b in px:
+        bins.setdefault((r >> 4, g >> 4, b >> 4), []).append((r, g, b))
+    best = max(bins.values(), key=len)
+    n = len(best)
+    return (sum(c[0] for c in best) // n, sum(c[1] for c in best) // n,
+            sum(c[2] for c in best) // n)
+
+
 def load_source(path):
     """Open an image file ready for use: fix phone-camera rotation, flatten transparency onto
     white and cap huge images at 4000 px.
@@ -103,14 +140,14 @@ def load_source(path):
 
 
 def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None,
-                     resample=Image.BICUBIC):
+                     resample=Image.BICUBIC, fill=(255, 255, 255)):
     """
     Render `img` into an out_w x out_h picture.
     k   = source pixels per output pixel (bigger = more zoomed out)
     cxp, cyp = source pixel shown at the output centre
     angle = clockwise rotation in degrees
     resample = Pillow filter; the crop window passes a cheaper one while you drag
-    Areas the image doesn't reach are white.
+    fill = colour for areas the image doesn't reach (the picture's own background).
     """
     iw, ih = img.size
     # When zoomed far out, shrink the image in one clean step first. Shrinking by a big
@@ -139,7 +176,7 @@ def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None,
     c = cxp - (a * out_w / 2 + b * out_h / 2)
     f = cyp - (d * out_w / 2 + e * out_h / 2)
     return img.transform((out_w, out_h), AFFINE, (a, b, c, d, e, f),
-                         resample=resample, fillcolor=(255, 255, 255))
+                         resample=resample, fillcolor=tuple(fill))
 
 
 def render_art(art, d_mm, px_per_mm, small=False):
@@ -155,4 +192,5 @@ def render_art(art, d_mm, px_per_mm, small=False):
         img = art.source.full
     iw, ih = img.size
     k = base_crop(img.size) / art.zoom / t
-    return render_transform(img, t, t, k, art.cx * iw, art.cy * ih, art.angle)
+    return render_transform(img, t, t, k, art.cx * iw, art.cy * ih, art.angle,
+                            fill=art.source.bg)
