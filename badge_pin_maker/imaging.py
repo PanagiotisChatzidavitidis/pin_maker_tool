@@ -67,25 +67,26 @@ class Source:
 
 class Art:
     """One pin's image + view: zoom, normalised centre (cx, cy), rotation."""
-    def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0):
+    def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0, invert=False):
         """zoom 1.0 = the image just covers the pin. cx / cy = the point of the image that sits
         in the middle of the pin, as a fraction (0 to 1) of its width and height. angle is
         in degrees, clockwise.
         """
         self.source, self.zoom, self.cx, self.cy, self.angle = source, zoom, cx, cy, angle
+        self.invert = invert               # True = colours reversed (a photo negative)
 
     def copy(self):
         """A separate copy of the view (used for undo snapshots). The image itself is shared,
         not duplicated.
         """
-        return Art(self.source, self.zoom, self.cx, self.cy, self.angle)
+        return Art(self.source, self.zoom, self.cx, self.cy, self.angle, self.invert)
 
     def key(self):
         """A hashable summary of this view, used to cache rendered images. Values are rounded
         so tiny float noise doesn't defeat the cache.
         """
         return (id(self.source), round(self.zoom, 4), round(self.cx, 4),
-                round(self.cy, 4), round(self.angle, 2))
+                round(self.cy, 4), round(self.angle, 2), bool(self.invert))
 
     def ppi(self, d_mm):
         """Effective print resolution of the image on a pin of d_mm."""
@@ -192,5 +193,6 @@ def render_art(art, d_mm, px_per_mm, small=False):
         img = art.source.full
     iw, ih = img.size
     k = base_crop(img.size) / art.zoom / t
-    return render_transform(img, t, t, k, art.cx * iw, art.cy * ih, art.angle,
-                            fill=art.source.bg)
+    out = render_transform(img, t, t, k, art.cx * iw, art.cy * ih, art.angle,
+                           fill=art.source.bg)
+    return ImageOps.invert(out) if art.invert else out

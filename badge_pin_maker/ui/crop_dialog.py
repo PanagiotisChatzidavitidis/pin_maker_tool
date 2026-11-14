@@ -5,7 +5,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw, ImageOps, ImageTk
 
 from ..constants import LOW_PPI, SAFE_INSET
 from ..imaging import base_crop, ppi_for, render_transform
@@ -68,6 +68,7 @@ class CropDialog(tk.Toplevel):
         self.cy = art.cy if art else 0.5
         self.v_zoom = tk.DoubleVar(value=math.log(start_zoom))
         self.v_angle = tk.DoubleVar(value=art.angle if art else 0.0)
+        self.v_invert = tk.BooleanVar(value=bool(art.invert) if art else False)
         self.v_copies = tk.IntVar(value=1)
         self._bold = tkfont.nametofont("TkDefaultFont").copy()
         self._bold.configure(weight="bold")
@@ -144,6 +145,8 @@ class CropDialog(tk.Toplevel):
             side="left", padx=6)
         ttk.Button(r3, text="Reset", style="Soft.TButton", command=self.reset).pack(
             side="left")
+        ttk.Checkbutton(r3, text="Invert colours", variable=self.v_invert, style="Card.TCheckbutton",
+                        command=self.update_view).pack(side="left", padx=(14, 0))
         if max_copies > 0:
             ttk.Label(r3, text="Copies", style="Card.TLabel").pack(side="left", padx=(22, 6))
             ttk.Spinbox(r3, from_=1, to=max_copies, textvariable=self.v_copies,
@@ -464,6 +467,8 @@ class CropDialog(tk.Toplevel):
                                   angle, self._cache,
                                   resample=Image.BILINEAR if fast else Image.BICUBIC,
                                   fill=self.src.bg)
+        if self.v_invert.get():
+            bright = ImageOps.invert(bright)
         final = Image.composite(self.dim, bright, self.alpha)
         self._image = ImageTk.PhotoImage(final)
         self.cv.itemconfigure(self._img_item, image=self._image)
@@ -512,5 +517,6 @@ class CropDialog(tk.Toplevel):
                     ok="Okay, add them", cancel="Go back"):
                 return
         copies = max(1, min(self.max_copies, copies)) if self.max_copies > 0 else 1
-        self.result = (self.zoom, self.cx, self.cy, self.v_angle.get(), copies)
+        self.result = (self.zoom, self.cx, self.cy, self.v_angle.get(), copies,
+                       bool(self.v_invert.get()))
         self.destroy()
