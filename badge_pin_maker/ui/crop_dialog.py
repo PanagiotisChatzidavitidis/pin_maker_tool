@@ -5,7 +5,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
-from PIL import Image, ImageDraw, ImageOps, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 from ..constants import LOW_PPI, SAFE_INSET
 from ..imaging import base_crop, ppi_for, render_transform
@@ -68,7 +68,7 @@ class CropDialog(tk.Toplevel):
         self.cy = art.cy if art else 0.5
         self.v_zoom = tk.DoubleVar(value=math.log(start_zoom))
         self.v_angle = tk.DoubleVar(value=art.angle if art else 0.0)
-        self.v_invert = tk.BooleanVar(value=bool(art.invert) if art else False)
+        self.flipped = bool(art.flip) if art else False     # mirrored left to right
         self.v_copies = tk.IntVar(value=1)
         self._bold = tkfont.nametofont("TkDefaultFont").copy()
         self._bold.configure(weight="bold")
@@ -145,8 +145,8 @@ class CropDialog(tk.Toplevel):
             side="left", padx=6)
         ttk.Button(r3, text="Reset", style="Soft.TButton", command=self.reset).pack(
             side="left")
-        ttk.Checkbutton(r3, text="Invert colours", variable=self.v_invert, style="Card.TCheckbutton",
-                        command=self.update_view).pack(side="left", padx=(14, 0))
+        ttk.Button(r3, text="Flip ⇆", style="Soft.TButton", command=self.flip_h).pack(
+            side="left", padx=(6, 0))
         if max_copies > 0:
             ttk.Label(r3, text="Copies", style="Card.TLabel").pack(side="left", padx=(22, 6))
             ttk.Spinbox(r3, from_=1, to=max_copies, textvariable=self.v_copies,
@@ -415,6 +415,17 @@ class CropDialog(tk.Toplevel):
         for g in self._guides:
             self.cv.itemconfigure(g, state="hidden")
 
+    def flip_h(self):
+        """Mirror the picture left to right. What you see is exactly the old view, mirrored:
+        the centre moves to the other side and the turn angle reverses.
+        """
+        self._stop_anim()
+        self.flipped = not self.flipped
+        self.cx = 1.0 - self.cx
+        a = -self.v_angle.get()
+        self.v_angle.set(((a + 180) % 360) - 180 if a != 180 else 180)   # triggers the redraw
+        self.update_view()
+
     def on_press(self, e):
         """Remember where a drag started."""
         self._last = (e.x, e.y)
@@ -460,15 +471,13 @@ class CropDialog(tk.Toplevel):
         else:
             self.q_pill.config(text=f"{ppi:.0f} dpi · Low, may print soft", fg=T.WARN)
 
-        img = self.src.small
+        img = self.src.flipped(self.src.small) if self.flipped else self.src.small
         iw, ih = img.size
         k = base_crop(img.size) / zoom / self.vw
         bright = render_transform(img, self.cw, self.ch, k, self.cx * iw, self.cy * ih,
                                   angle, self._cache,
                                   resample=Image.BILINEAR if fast else Image.BICUBIC,
                                   fill=self.src.bg)
-        if self.v_invert.get():
-            bright = ImageOps.invert(bright)
         final = Image.composite(self.dim, bright, self.alpha)
         self._image = ImageTk.PhotoImage(final)
         self.cv.itemconfigure(self._img_item, image=self._image)
@@ -518,5 +527,5 @@ class CropDialog(tk.Toplevel):
                 return
         copies = max(1, min(self.max_copies, copies)) if self.max_copies > 0 else 1
         self.result = (self.zoom, self.cx, self.cy, self.v_angle.get(), copies,
-                       bool(self.v_invert.get()))
+                       self.flipped)
         self.destroy()

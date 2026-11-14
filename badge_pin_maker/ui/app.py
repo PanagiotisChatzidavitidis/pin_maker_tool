@@ -1263,7 +1263,7 @@ class BadgeApp(RootBase):
                 break
             if dlg.result is None:
                 continue
-            zoom, cx, cy, angle, copies, invert = dlg.result
+            zoom, cx, cy, angle, copies, flip = dlg.result
             if start is not None and start not in occupied:
                 s, start = start, None
             else:
@@ -1273,7 +1273,7 @@ class BadgeApp(RootBase):
                 self._push_undo()
                 pushed = True
             for i in fill_order(n, occupied, s, copies):
-                self.slots[i] = Art(source, zoom, cx, cy, angle, invert)
+                self.slots[i] = Art(source, zoom, cx, cy, angle, flip)
             placed += copies
             self.redraw()
         if placed:
@@ -1292,7 +1292,7 @@ class BadgeApp(RootBase):
         if dlg.result is not None:
             self._push_undo()
             art.zoom, art.cx, art.cy, art.angle = dlg.result[:4]
-            art.invert = dlg.result[5]
+            art.flip = dlg.result[5]
             self.schedule_redraw()
 
     def clear_slot(self, idx):
@@ -2056,7 +2056,7 @@ class BadgeApp(RootBase):
             "guides": bool(self.v_guides.get()),
             "photos": images,  # key name kept so older saves still open
             "slots": [{"slot": i, "photo": index[a.source.path], "zoom": a.zoom,
-                       "cx": a.cx, "cy": a.cy, "angle": a.angle, "invert": bool(a.invert)}
+                       "cx": a.cx, "cy": a.cy, "angle": a.angle, "flip": bool(a.flip)}
                       for i, a in sorted(self.slots.items())],
         }
         return data
@@ -2163,7 +2163,7 @@ class BadgeApp(RootBase):
                 slots[int(sl["slot"])] = Art(src, float(sl.get("zoom", 1.0)),
                                              float(sl.get("cx", 0.5)), float(sl.get("cy", 0.5)),
                                              float(sl.get("angle", 0.0)),
-                                             bool(sl.get("invert", False)))
+                                             bool(sl.get("flip", False)))
             except (KeyError, ValueError, TypeError, IndexError):
                 continue
 

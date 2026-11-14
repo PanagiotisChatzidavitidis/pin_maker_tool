@@ -42,6 +42,7 @@ class Source:
             (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS, reducing_gap=2.0)
         self._mips = {0: self.small}
         self._bg = None
+        self._flips = {}
 
     @property
     def bg(self):
@@ -51,6 +52,15 @@ class Source:
         if self._bg is None:
             self._bg = edge_colour(self.small)
         return self._bg
+
+    def flipped(self, img):
+        """``img`` (the full or a small copy of this picture) mirrored left to right. Made once
+        per copy and kept, so a flipped pin costs nothing extra to redraw.
+        """
+        pic = self._flips.get(id(img))
+        if pic is None:
+            pic = self._flips[id(img)] = ImageOps.mirror(img)
+        return pic
 
     def mip(self, level):
         """The small picture shrunk ``2 ** level`` times (made once). Drawing a tiny preview
@@ -67,26 +77,26 @@ class Source:
 
 class Art:
     """One pin's image + view: zoom, normalised centre (cx, cy), rotation."""
-    def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0, invert=False):
+    def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0, flip=False):
         """zoom 1.0 = the image just covers the pin. cx / cy = the point of the image that sits
         in the middle of the pin, as a fraction (0 to 1) of its width and height. angle is
         in degrees, clockwise.
         """
         self.source, self.zoom, self.cx, self.cy, self.angle = source, zoom, cx, cy, angle
-        self.invert = invert               # True = colours reversed (a photo negative)
+        self.flip = flip                   # True = the picture is mirrored left to right
 
     def copy(self):
         """A separate copy of the view (used for undo snapshots). The image itself is shared,
         not duplicated.
         """
-        return Art(self.source, self.zoom, self.cx, self.cy, self.angle, self.invert)
+        return Art(self.source, self.zoom, self.cx, self.cy, self.angle, self.flip)
 
     def key(self):
         """A hashable summary of this view, used to cache rendered images. Values are rounded
         so tiny float noise doesn't defeat the cache.
         """
         return (id(self.source), round(self.zoom, 4), round(self.cx, 4),
-                round(self.cy, 4), round(self.angle, 2), bool(self.invert))
+                round(self.cy, 4), round(self.angle, 2), bool(self.flip))
 
     def ppi(self, d_mm):
         """Effective print resolution of the image on a pin of d_mm."""
@@ -193,6 +203,7 @@ def render_art(art, d_mm, px_per_mm, small=False):
         img = art.source.full
     iw, ih = img.size
     k = base_crop(img.size) / art.zoom / t
-    out = render_transform(img, t, t, k, art.cx * iw, art.cy * ih, art.angle,
-                           fill=art.source.bg)
-    return ImageOps.invert(out) if art.invert else out
+    if art.flip:
+        img = art.source.flipped(img)
+    return render_transform(img, t, t, k, art.cx * iw, art.cy * ih, art.angle,
+                            fill=art.source.bg)
