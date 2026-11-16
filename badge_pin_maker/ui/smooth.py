@@ -201,6 +201,13 @@ def nav_icon(kind, colour, bg, size=20):
         elif kind == "sort":
             for y, half in ((5.5, size / 2 - 3), (m, size / 2 - 5.5), (size - 5.5, size / 2 - 8)):
                 _line(d, k, [(m - half, y), (m + half, y)], colour, w)
+        elif kind == "page":                      # a sheet of paper with a folded corner
+            _line(d, k, [(4.5, 2.5), (4.5, size - 2.5), (size - 4.5, size - 2.5),
+                         (size - 4.5, 7.5), (size - 9.5, 2.5), (4.5, 2.5)], colour, w)
+            _line(d, k, [(size - 9.5, 2.5), (size - 9.5, 7.5), (size - 4.5, 7.5)], colour, w)
+        elif kind == "badge":                     # a round pin: a ring with a smaller disc
+            _oval(d, k, m, m, size / 2 - 2, bg, outline=colour, width=w)
+            _oval(d, k, m, m, size / 2 - 5.6, colour)
         elif kind == "chevron":
             _line(d, k, [(m - 3.8, m - 1.6), (m, m + 2.2), (m + 3.8, m - 1.6)], colour, w)
         elif kind == "check":
