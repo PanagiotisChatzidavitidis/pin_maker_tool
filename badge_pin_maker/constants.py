@@ -11,7 +11,7 @@ MM = 72.0 / 25.4  # points per millimetre
 
 # Fixed layout settings (millimetres)
 PAGE_MARGIN = 5.0
-BADGE_GAP = 3.0
+BADGE_GAP = 6.0     # space between neighbouring pin circles: room to cut each one out by hand
 EXTRA_EDGE = 11.0  # extra paper (total, mm) a custom pin needs so it can wrap around the back
 
 # Print quality
