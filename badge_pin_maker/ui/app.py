@@ -57,7 +57,8 @@ from .cover import FULLSCREEN_MESSAGES, WINDOWED_MESSAGES, ThemeCover
 from .options_dialog import OptionsDialog
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
-from .widgets import Dropdown, FlatSlider, IconButton, StatTile, Toggle, make_card, round_rect
+from .size_guide import SizeGuide
+from .widgets import Dropdown, InfoButton, FlatSlider, IconButton, StatTile, Toggle, make_card, round_rect
 
 
 AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
@@ -355,6 +356,11 @@ class BadgeApp(RootBase):
         self.close_popup()
         dlg = OptionsDialog(self)
         self.wait_window(dlg)
+
+    def open_size_guide(self):
+        """Ozzie's pop-up sheet about finished pin sizes and the paper circles."""
+        self.close_popup()
+        self.wait_window(SizeGuide(self, self.v_pin.get()))
 
     def open_about(self):
         """The About box: the version (and build date) and who drew Ozzie."""
@@ -715,6 +721,8 @@ class BadgeApp(RootBase):
 
         f = make_card(left, "2 · Pin size")
         self.card_pin = f.master
+        InfoButton(f, self.open_size_guide, tip="Ozzie's size guide", on_tip=self._tip).place(
+            relx=1.0, x=0, y=-4, anchor="ne")
         Dropdown(f, self.v_pin, list(PIN_SIZES), icon="badge", outer=T.CARD, fill=T.FIELD,
                  width=262, family=self.base_font[0]).pack(anchor="w")
         self.pin_custom = ttk.Frame(f, style="Card.TFrame")
