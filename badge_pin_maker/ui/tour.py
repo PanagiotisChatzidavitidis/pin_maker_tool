@@ -69,7 +69,8 @@ EDITOR_STEPS = [
      "straight away.",
      lambda a: a.card_paper),
     ("2 · Pick your pin size",
-     "Choose the size of your badge, like 32 mm or 44 mm. The circles are packed in a "
+     "Choose the size of your finished badge, like 32 mm or 44 mm. I print a slightly bigger "
+     "circle so the paper can wrap around the back. The circles are packed in a "
      "honeycomb pattern, so as many as possible fit and no paper is wasted. How many fit "
      "updates by itself.",
      lambda a: a.card_pin),

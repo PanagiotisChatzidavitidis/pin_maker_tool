@@ -12,7 +12,7 @@ MM = 72.0 / 25.4  # points per millimetre
 # Fixed layout settings (millimetres)
 PAGE_MARGIN = 5.0
 BADGE_GAP = 3.0
-SAFE_INSET = 3.0   # the ring that folds behind the pin; outside it is not visible
+EXTRA_EDGE = 11.0  # extra paper (total, mm) a custom pin needs so it can wrap around the back
 
 # Print quality
 EXPORT_DPI = 600   # resolution of the images inside the exported PDF
@@ -42,14 +42,26 @@ PAPER_SIZES = {
     "Custom...": None,
 }
 
-# name -> (diameter, caption)
+# name -> (finished pin size, caption, size of the paper circle to print and cut)
+# The paper has to be bigger than the pin so it can wrap around the edge and fold behind. The
+# printed sizes follow what pin-badge machine makers publish for each finished size.
 PIN_SIZES = {
-    "25 mm pin": (25, "Small pin"),
-    "32 mm pin": (32, "Pin badge"),
-    "38 mm pin": (38, "Medium"),
-    "44 mm pin": (44, "Classic"),
-    "50 mm pin": (50, "Large"),
-    "58 mm pin": (58, "Most popular"),
-    "75 mm pin": (75, "Extra large"),
+    "25 mm pin": (25, "Small pin", 35),
+    "32 mm pin": (32, "Pin badge", 44),
+    "38 mm pin": (38, "Medium", 50),
+    "44 mm pin": (44, "Classic", 55),
+    "50 mm pin": (50, "Large", 60),
+    "58 mm pin": (58, "Most popular", 70),
+    "75 mm pin": (75, "Extra large", 85),
     "Custom...": None,
 }
+
+
+def cut_size(finished):
+    """The paper circle (mm) to print and cut for a pin that ends up ``finished`` mm across:
+    the published size for the standard pins, and the same extra edge for any other size.
+    """
+    for fin, _, cut in filter(None, PIN_SIZES.values()):
+        if abs(fin - finished) < 1e-6:
+            return float(cut)
+    return finished + EXTRA_EDGE

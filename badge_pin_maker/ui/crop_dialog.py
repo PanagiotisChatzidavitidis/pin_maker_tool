@@ -7,7 +7,7 @@ from tkinter import ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
-from ..constants import LOW_PPI, SAFE_INSET
+from ..constants import LOW_PPI
 from ..imaging import base_crop, ppi_for, render_transform
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
@@ -30,10 +30,11 @@ class CropDialog(tk.Toplevel):
     WHEEL_STEP = 1.12            # zoom factor of one wheel notch or + / - press
 
     def __init__(self, parent, source, d, max_copies=0, art=None, title="Crop image",
-                 batch=None):
+                 batch=None, inset=3.0):
         """Build the window: the picture area, the zoom / rotate controls and the buttons.
         """
         super().__init__(parent)
+        self.ins_mm = inset                  # mm of paper that wraps around the back
         self.withdraw()                      # build off-screen, then show centred
         self.configure(bg=T.BG)
         self.title(title)
@@ -229,7 +230,7 @@ class CropDialog(tk.Toplevel):
         """
         cw, ch = self.cw, self.ch
         self.vw = max(120, int(min(cw, ch) * self.FILL))
-        self.inset = SAFE_INSET * (self.vw / self.d)
+        self.inset = self.ins_mm * (self.vw / self.d)
         self.vx0, self.vy0 = (cw - self.vw) / 2, (ch - self.vw) / 2
 
         # One mask says how strongly each pixel is dimmed: 0 inside the visible area, a

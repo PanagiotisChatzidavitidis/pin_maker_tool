@@ -13,7 +13,7 @@ from reportlab.lib.colors import Color
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as pdfcanvas
 
-from .constants import BADGE_GAP, EXPORT_DPI, MM, SAFE_INSET
+from .constants import BADGE_GAP, EXPORT_DPI, MM
 from .imaging import render_art
 
 # reportlab turns every image into ASCII text by default, in slow pure Python (it was most of the
@@ -30,10 +30,11 @@ def _pdf_image(art, d, dpi):
     return ImageReader(buf)
 
 
-def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None):
+def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None,
+              inset=5.0):
     """Write the sheet to ``path`` as a PDF.
 
-    layout comes from compute_layout(), d is the pin diameter in mm and slots maps a circle
+    layout comes from compute_layout(), d is the printed circle in mm (inset of it wraps around the back) and slots maps a circle
     number to its Art. guides draws the dotted safe-area ring, dpi is the resolution of the
     embedded images, and progress (optional) is called as progress(done, total) after each
     pin.
@@ -79,7 +80,7 @@ def build_pdf(path, layout, d, slots, guides=True, dpi=EXPORT_DPI, progress=None
 
         # safe-area ring (optional)
         if guides:
-            ins = SAFE_INSET * MM
+            ins = inset * MM
             if r - ins > 0:
                 c.setStrokeColor(Color(0.75, 0.75, 0.75))
                 c.setLineWidth(0.2)
