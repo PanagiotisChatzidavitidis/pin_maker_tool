@@ -492,8 +492,13 @@ class _Pill(tk.Canvas):
     """
     H = 40
 
-    def __init__(self, parent, width):
-        super().__init__(parent, width=width, height=self.H, bg=T.BG, highlightthickness=0, bd=0)
+    def __init__(self, parent, width, outer=None, fill=None):
+        """``outer`` is the colour behind the pill's rounded corners (the page it sits on) and
+        ``fill`` the pill's own colour.
+        """
+        self.outer, self.fill = outer or T.BG, fill or T.CARD
+        super().__init__(parent, width=width, height=self.H, bg=self.outer,
+                         highlightthickness=0, bd=0)
         self.w, self.state = width, "rest"
         self._bg_img = None
         self._set_state("rest")
@@ -502,7 +507,8 @@ class _Pill(tk.Canvas):
         """Redraw the pill for "rest", "hover" or "focus"."""
         self.state = state
         edge = {"rest": T.BORDER, "hover": T._mix(T.BORDER, T.TEAL, 0.5), "focus": T.TEAL}[state]
-        self._bg_img = smooth.pill(self.w, self.H, T.CARD, edge, T.BG, 2 if state == "focus" else 1)
+        self._bg_img = smooth.pill(self.w, self.H, self.fill, edge, self.outer,
+                                   2 if state == "focus" else 1)
         if self.find_withtag("pillbg"):
             self.itemconfig("pillbg", image=self._bg_img)
         else:
@@ -565,17 +571,19 @@ class SearchField(_Pill):
                 pass
 
 
-class SortMenu(_Pill):
-    """A "Sort by" pill: an icon, the current choice and a chevron. Clicking opens a small
-    rounded list of the choices (the current one ticked); picking one closes it.
+class Dropdown(_Pill):
+    """A pill-shaped choice menu: an icon, the current choice and a chevron. Clicking opens a
+    small rounded list of the choices (the current one ticked); picking one closes it. The
+    "Sort by" menu and the paper / pin size pickers are all this.
     """
 
-    def __init__(self, parent, variable, options, command=None, width=214, family="TkDefaultFont"):
-        super().__init__(parent, width)
+    def __init__(self, parent, variable, options, command=None, width=214, family="TkDefaultFont",
+                 icon="sort", outer=None, fill=None):
+        super().__init__(parent, width, outer, fill)
         self.var, self.options, self.command, self.family = variable, list(options), command, family
         self.popup = None
-        self._imgs = {k: smooth.nav_icon(k, T.MUTED, T.CARD, 18) for k in ("sort", "chevron")}
-        self.create_image(16, self.H // 2, image=self._imgs["sort"], anchor="w")
+        self._imgs = {k: smooth.nav_icon(k, T.MUTED, self.fill, 18) for k in (icon, "chevron")}
+        self.create_image(16, self.H // 2, image=self._imgs[icon], anchor="w")
         self._text = self.create_text(44, self.H // 2, anchor="w", fill=T.TEXT, font=(family, 10))
         self.create_image(width - 20, self.H // 2, image=self._imgs["chevron"])
         self.config(cursor="hand2")
@@ -617,7 +625,7 @@ class SortMenu(_Pill):
         pop.overrideredirect(True)
         pop.configure(bg=T.BORDER)
         inner = tk.Frame(pop, bg=T.CARD)
-        inner.pack(padx=1, pady=1)
+        inner.pack(padx=1, pady=1, fill="both", expand=True)
         check = smooth.nav_icon("check", T.TEAL, T.CARD, 18)
         blank = smooth.nav_icon("check", T.CARD, T.CARD, 18)
         pop._imgs = [check, blank]
@@ -639,9 +647,10 @@ class SortMenu(_Pill):
                 w.bind("<Leave>", lambda e, r=row: self._tint(r, False))
         pop._rows = rows
         pop.update_idletasks()
-        x = self.winfo_rootx() + self.winfo_width() - pop.winfo_reqwidth()
+        w = max(pop.winfo_reqwidth(), self.winfo_width())   # never narrower than the pill
+        x = self.winfo_rootx() + self.winfo_width() - w
         y = self.winfo_rooty() + self.winfo_height() + 6
-        pop.geometry(f"+{x}+{y}")
+        pop.geometry(f"{w}x{pop.winfo_reqheight()}+{x}+{y}")
         pop.deiconify()
         pop.lift()
         pop.bind("<Escape>", lambda e: self.close())
@@ -686,3 +695,8 @@ class SortMenu(_Pill):
             self._set_state("rest")
         except tk.TclError:
             pass
+
+
+
+class SortMenu(Dropdown):
+    """The "Sort by" pill on the start screen."""

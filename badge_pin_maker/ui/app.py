@@ -37,7 +37,9 @@ from tkinter import filedialog, ttk
 from PIL import Image, ImageDraw, ImageTk
 
 from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABEL,
-                         PAGE_MARGIN, PAPER_SIZES, PIN_SIZES, CANVAS_EXT, cut_size)
+                         PAGE_MARGIN, PAPER_SIZES, PIN_SIZES, CANVAS_EXT, cut_size,
+                         DEFAULT_PAPER, DEFAULT_PIN, paper_from_saved, pin_from_saved,
+                         paper_short)
 from ..imaging import Art, load_source, render_art
 from ..layout import compute_layout, fill_order, first_free
 from ..pdf_export import build_pdf
@@ -55,7 +57,7 @@ from .cover import FULLSCREEN_MESSAGES, WINDOWED_MESSAGES, ThemeCover
 from .options_dialog import OptionsDialog
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
-from .widgets import FlatSlider, IconButton, StatTile, Toggle, make_card, round_rect
+from .widgets import Dropdown, FlatSlider, IconButton, StatTile, Toggle, make_card, round_rect
 
 
 AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
@@ -151,8 +153,10 @@ class BadgeApp(RootBase):
         self.toasts = Toasts(self)
 
         # ---- the settings boxes, restored from last time ----
-        paper = s.get("paper") if s.get("paper") in PAPER_SIZES else "A4"
-        pin = s.get("pin") if s.get("pin") in PIN_SIZES else "32 mm pin"
+        paper, old_dims = paper_from_saved(s.get("paper", DEFAULT_PAPER))
+        if old_dims:                       # a paper that has left the list becomes "Custom"
+            s["pw"], s["ph"] = f"{old_dims[0]:g}", f"{old_dims[1]:g}"
+        pin = pin_from_saved(s.get("pin", DEFAULT_PIN))
         self.v_paper = tk.StringVar(value=paper)
         self.v_pw = tk.StringVar(value=str(s.get("pw", "210")))
         self.v_ph = tk.StringVar(value=str(s.get("ph", "297")))
@@ -701,8 +705,8 @@ class BadgeApp(RootBase):
 
         f = make_card(left, "1 · Paper size")
         self.card_paper = f.master
-        ttk.Combobox(f, textvariable=self.v_paper, values=list(PAPER_SIZES),
-                     state="readonly", width=30).pack(fill="x")
+        Dropdown(f, self.v_paper, list(PAPER_SIZES), icon="page", outer=T.CARD, fill=T.FIELD,
+                 width=262, family=self.base_font[0]).pack(anchor="w")
         self.paper_custom = ttk.Frame(f, style="Card.TFrame")
         for lbl, var in (("W", self.v_pw), ("H", self.v_ph)):
             ttk.Label(self.paper_custom, text=lbl, style="Card.TLabel").pack(side="left")
@@ -711,8 +715,8 @@ class BadgeApp(RootBase):
 
         f = make_card(left, "2 · Pin size")
         self.card_pin = f.master
-        ttk.Combobox(f, textvariable=self.v_pin, values=list(PIN_SIZES),
-                     state="readonly", width=30).pack(fill="x")
+        Dropdown(f, self.v_pin, list(PIN_SIZES), icon="badge", outer=T.CARD, fill=T.FIELD,
+                 width=262, family=self.base_font[0]).pack(anchor="w")
         self.pin_custom = ttk.Frame(f, style="Card.TFrame")
         ttk.Label(self.pin_custom, text="Diameter", style="Card.TLabel").pack(side="left")
         ttk.Entry(self.pin_custom, textvariable=self.v_d, width=6).pack(side="left", padx=4)
@@ -1775,7 +1779,7 @@ class BadgeApp(RootBase):
     def _update_stats(self, L, n, filled, low):
         """Refresh the three tiles above the preview."""
         W, H = L["page_w"], L["page_h"]
-        short = self.v_paper.get().split(" (")[0].replace("Custom...", "Custom")
+        short = paper_short(self.v_paper.get())
         self.t_sheet.set(short, f"{W:g} × {H:g} mm" + (" · Landscape" if L["orientation"] ==
                                                           "landscape" else ""))
         self.t_pins.set(str(n), f"pin{'s' if n != 1 else ''} per sheet")
@@ -2177,14 +2181,16 @@ class BadgeApp(RootBase):
         # while loading.
         self._loading = True
         self.close_popup()
-        paper = data.get("paper")
-        paper = paper if paper in PAPER_SIZES else "Custom..."
+        paper, old_dims = paper_from_saved(data.get("paper"))
         self.v_paper.set(paper)
-        if PAPER_SIZES[paper] is None:
+        if old_dims:
+            self.v_pw.set(f"{old_dims[0]:g}")
+            self.v_ph.set(f"{old_dims[1]:g}")
+        elif PAPER_SIZES[paper] is None:
             self.v_pw.set(str(data.get("paper_w", "210")))
             self.v_ph.set(str(data.get("paper_h", "297")))
         pin = data.get("pin")
-        pin = pin if pin in PIN_SIZES else "Custom..."
+        pin = pin_from_saved(pin)
         self.v_pin.set(pin)
         if PIN_SIZES[pin] is None:
             self.v_d.set(str(data.get("diameter", "32")))

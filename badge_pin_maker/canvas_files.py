@@ -7,6 +7,8 @@ loads a full-size image, so listing many canvases stays fast.
 import json
 import os
 
+from .constants import paper_from_saved, paper_short, pin_from_saved, pin_short
+
 
 def _resolve_image(ph, base):
     """Find an image referenced by a canvas (absolute path, relative path, same folder)."""
@@ -31,8 +33,8 @@ def read_canvas_info(path):
         return None
     paper = str(data.get("paper", ""))
     pin = str(data.get("pin", ""))
-    paper = "Custom paper" if paper.startswith("Custom") else paper.split(" (")[0]
-    pin = f"{data.get('diameter', '?')} mm pin" if pin.startswith("Custom") else pin
+    paper = paper_short(paper_from_saved(paper)[0])
+    pin = pin_short(pin_from_saved(pin), data.get("diameter"))
     info = dict(path=path, name=os.path.splitext(os.path.basename(path))[0],
                 mtime=mtime, paper=paper, pin=pin, pins=0, art=None)
     slots = [s for s in data.get("slots", []) if isinstance(s, dict)]
