@@ -7,7 +7,7 @@ export a PDF (or print straight away) ready to cut out.
 ## What it does
 
 - **Automatic layout.** Choose a paper size (A3 to A6, Letter, Legal, Tabloid, photo-paper sizes
-  or your own) and a pin size (25 to 75 mm or your own). The app tries a plain grid and a
+  or your own) and a finished pin size (25 to 75 mm or your own; the paper circle that is printed is bigger, e.g. 44 mm for a 32 mm pin, so it wraps around the back). The app tries a plain grid and a
   staggered "honeycomb" packing, in portrait and landscape, and keeps whichever fits the
   most pins.
 - **Crop under the pin.** Drag to move, scroll to zoom (it zooms toward the cursor), rotate in
@@ -20,7 +20,7 @@ export a PDF (or print straight away) ready to cut out.
   (drag and drop needs the optional `tkinterdnd2` package). One image can be copied onto
   several circles.
 - **PDF export and printing.** Images are embedded at 600 dpi, with a thin cut line, crop
-  ticks and an optional safe-area ring. Empty circles print blank.
+  ticks and an optional ring showing the visible face of the pin. Empty circles print blank.
 - **Canvases.** Everything is saved as a `.pinproj` file so you can come back and edit it.
   Undo / redo, a light and a dark theme, and your last settings are remembered.
 - **Options in one place.** The **Options** button (start screen and editor) opens a window with

@@ -37,7 +37,7 @@ from tkinter import filedialog, ttk
 from PIL import Image, ImageDraw, ImageTk
 
 from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABEL,
-                         PAGE_MARGIN, PAPER_SIZES, PIN_SIZES, CANVAS_EXT, SAFE_INSET)
+                         PAGE_MARGIN, PAPER_SIZES, PIN_SIZES, CANVAS_EXT, cut_size)
 from ..imaging import Art, load_source, render_art
 from ..layout import compute_layout, fill_order, first_free
 from ..pdf_export import build_pdf
@@ -837,19 +837,24 @@ class BadgeApp(RootBase):
         data = PIN_SIZES.get(self.v_pin.get())
         if data is None:
             self.pin_custom.pack(anchor="w", pady=(8, 0))
-            self.pin_note.config(text="Enter the cut diameter of your pin.")
+            self.pin_note.config(text="Enter the finished size of your pin. The extra paper "
+                                      "that wraps around the back is added for you.")
         else:
             self.pin_custom.pack_forget()
             self.v_d.set(str(data[0]))
-            self.pin_note.config(text=data[1])
+            self.pin_note.config(text=f"{data[1]} · prints as a {data[2]} mm circle")
 
     def _params(self):
         """Paper width / height and pin diameter in mm, with sensible minimums so a typo can't
         break the layout.
         """
+        fin = max(1.0, self._num(self.v_d, 32))
+        cut = cut_size(fin)
+        # d = the paper circle that is printed and cut, fin = the finished pin, ins = the
+        # ring between them that wraps around the back
         return dict(pw=max(10.0, self._num(self.v_pw, 210)),
                     ph=max(10.0, self._num(self.v_ph, 297)),
-                    d=max(1.0, self._num(self.v_d, 32)))
+                    d=cut, fin=fin, ins=(cut - fin) / 2)
 
     def compute(self):
         """Work out the layout for the current settings. Returns the parameters that were used.
@@ -1256,7 +1261,7 @@ class BadgeApp(RootBase):
                     f"I couldn't open this picture:\n{os.path.basename(path)}\n\n{ex}")
                 continue
             title = f"Crop image {j} of {total}" if total > 1 else "Crop image"
-            dlg = CropDialog(self, source, p["d"], max_copies=free, title=title,
+            dlg = CropDialog(self, source, p["d"], max_copies=free, title=title, inset=p["ins"],
                              batch=(j, total))
             self.wait_window(dlg)
             if dlg.stop:
@@ -1287,7 +1292,8 @@ class BadgeApp(RootBase):
         if art is None:
             return
         p = self._params()
-        dlg = CropDialog(self, art.source, p["d"], max_copies=0, art=art, title="Modify crop")
+        dlg = CropDialog(self, art.source, p["d"], max_copies=0, art=art, title="Modify crop",
+                         inset=p["ins"])
         self.wait_window(dlg)
         if dlg.result is not None:
             self._push_undo()
@@ -1381,7 +1387,7 @@ class BadgeApp(RootBase):
         cv.create_rectangle(ox, oy, ox + W * s, oy + H * s, fill=T.PAPER, outline=T.PAPER_EDGE)
 
         w = p["d"] * s
-        ins = SAFE_INSET * s
+        ins = p["ins"] * s
         tick, off = min(2.0, BADGE_GAP * 0.6) * s, 0.4 * s
         guides = self.v_guides.get()
         low = 0
@@ -2182,6 +2188,8 @@ class BadgeApp(RootBase):
         self.v_pin.set(pin)
         if PIN_SIZES[pin] is None:
             self.v_d.set(str(data.get("diameter", "32")))
+        else:
+            self.v_d.set(str(PIN_SIZES[pin][0]))
         self.v_guides.set(bool(data.get("guides", True)))
         self.slots = slots
         self._undo.clear()
@@ -2247,6 +2255,7 @@ class BadgeApp(RootBase):
         try:
             self._run_busy(
                 lambda: build_pdf(path, layout, p["d"], active, guides=guides, dpi=EXPORT_DPI,
+                                  inset=p["ins"],
                                   progress=lambda d, t: prog.update(done=d, total=t)),
                 "exporting", delay=0.0, prog=prog, on_tick=tick)
             return True
