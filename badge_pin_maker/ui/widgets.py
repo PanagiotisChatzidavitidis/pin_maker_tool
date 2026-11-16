@@ -347,6 +347,26 @@ class ThemeTile(tk.Canvas):
                          font=(self.fam, 9))
 
 
+class InfoButton(tk.Canvas):
+    """A small round "i" button that lights up teal when the pointer is over it."""
+    SIZE = 26
+
+    def __init__(self, parent, command, tip="", on_tip=None):
+        super().__init__(parent, width=self.SIZE, height=self.SIZE, bg=T.CARD,
+                         highlightthickness=0, cursor="hand2")
+        self._imgs = {on: smooth.nav_icon("info", T.TEAL if on else T.MUTED, T.CARD, 20)
+                      for on in (False, True)}
+        self._pic = self.create_image(self.SIZE // 2, self.SIZE // 2, image=self._imgs[False])
+        self.bind("<Button-1>", lambda e: command())
+        self.bind("<Enter>", lambda e: self._hover(True, tip, on_tip))
+        self.bind("<Leave>", lambda e: self._hover(False, tip, on_tip))
+
+    def _hover(self, on, tip, on_tip):
+        self.itemconfigure(self._pic, image=self._imgs[on])
+        if on_tip:
+            on_tip(tip if on else None)
+
+
 class IconButton(tk.Canvas):
     """A small square button with a drawn icon ("undo" or "redo": a curved arrow). Drawn
     rather than typed, so it looks the same on every system and font. It can be greyed out
