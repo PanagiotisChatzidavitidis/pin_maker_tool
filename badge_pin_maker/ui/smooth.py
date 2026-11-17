@@ -205,6 +205,11 @@ def nav_icon(kind, colour, bg, size=20):
             _line(d, k, [(4.5, 2.5), (4.5, size - 2.5), (size - 4.5, size - 2.5),
                          (size - 4.5, 7.5), (size - 9.5, 2.5), (4.5, 2.5)], colour, w)
             _line(d, k, [(size - 9.5, 2.5), (size - 9.5, 7.5), (size - 4.5, 7.5)], colour, w)
+        elif kind == "shapes":                    # a circle and a square, overlapping
+            _oval(d, k, size * 0.38, size * 0.40, size * 0.26, bg, outline=colour, width=w)
+            _line(d, k, [(size * 0.46, size * 0.46), (size * 0.88, size * 0.46),
+                         (size * 0.88, size * 0.88), (size * 0.46, size * 0.88),
+                         (size * 0.46, size * 0.46)], colour, w)
         elif kind == "badge":                     # a round pin: a ring with a smaller disc
             _oval(d, k, m, m, size / 2 - 2, bg, outline=colour, width=w)
             _oval(d, k, m, m, size / 2 - 5.6, colour)

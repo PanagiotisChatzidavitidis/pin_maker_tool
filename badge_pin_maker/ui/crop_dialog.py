@@ -1,4 +1,4 @@
-"""The window where you position an image under the pin circle."""
+"""The window where you position an image under the pin shape."""
 
 import math
 import tkinter as tk
@@ -7,6 +7,7 @@ from tkinter import ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
+from .. import shapes
 from ..constants import LOW_PPI
 from ..imaging import base_crop, ppi_for, render_transform
 from . import theme as T
@@ -29,12 +30,11 @@ class CropDialog(tk.Toplevel):
     FOLD_A, OUT_A = 97, 196      # how strongly (0-255) the fold ring / outside is dimmed
     WHEEL_STEP = 1.12            # zoom factor of one wheel notch or + / - press
 
-    def __init__(self, parent, source, d, max_copies=0, art=None, title="Crop image",
-                 batch=None, inset=3.0):
+    def __init__(self, parent, source, pin, max_copies=0, art=None, title="Crop image",
+                 batch=None):
         """Build the window: the picture area, the zoom / rotate controls and the buttons.
         """
         super().__init__(parent)
-        self.ins_mm = inset                  # mm of paper that wraps around the back
         self.withdraw()                      # build off-screen, then show centred
         self.configure(bg=T.BG)
         self.title(title)
@@ -47,7 +47,10 @@ class CropDialog(tk.Toplevel):
         self.result = None
         self.stop = False
         self.src = source
-        self.d = d
+        self.pin = pin                       # shape, paper size (w x h) and finished size (fw x fh)
+        self.shape = pin["shape"]
+        self.d, self.dh = pin["w"], pin["h"]
+        self.aspect = self.d / self.dh
         self.max_copies = max_copies
         self._cache = {}
         self._last = None
@@ -60,7 +63,8 @@ class CropDialog(tk.Toplevel):
 
         # zoom limits: "fit" shows the whole picture inside the pin, which for a wide image
         # needs a zoom below the usual minimum
-        self.fit_zoom = base_crop(source.small.size) / max(source.small.size)
+        sw, sh = source.small.size
+        self.fit_zoom = base_crop((sw, sh), self.aspect) / max(sw, sh * self.aspect)
         start_zoom = art.zoom if art else 1.0
         self.zmin = min(self.ZMIN, self.fit_zoom, start_zoom)
         self.zmax = max(self.ZMAX, start_zoom)
@@ -83,7 +87,7 @@ class CropDialog(tk.Toplevel):
         titles = ttk.Frame(head)
         titles.pack(side="left")
         ttk.Label(titles, text="Position your image", style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(titles, text=f"{self._d_text()} pin  ·  the circle stays put, "
+        ttk.Label(titles, text=f"{self._d_text()}  ·  the pin stays put, "
                                "the picture moves", style="Sub.TLabel").pack(anchor="w")
         self.q_pill = tk.Label(head, bg=T.CARD, fg=T.TEAL, font=self._bold, padx=12, pady=5,
                                highlightthickness=1, highlightbackground=T.BORDER)
@@ -152,7 +156,7 @@ class CropDialog(tk.Toplevel):
             ttk.Label(r3, text="Copies", style="Card.TLabel").pack(side="left", padx=(22, 6))
             ttk.Spinbox(r3, from_=1, to=max_copies, textvariable=self.v_copies,
                         width=5).pack(side="left")
-            ttk.Label(r3, text=f"of {max_copies} free circle{'s' if max_copies != 1 else ''}",
+            ttk.Label(r3, text=f"of {max_copies} free spot{'s' if max_copies != 1 else ''}",
                       style="Muted.TLabel").pack(side="left", padx=6)
 
         # ---- the picture area (gets all the spare room when the window grows)
@@ -206,38 +210,60 @@ class CropDialog(tk.Toplevel):
 
     # ---- helpers
     def _d_text(self):
-        """The pin size as text, e.g. "58 mm"."""
-        try:
-            return f"{float(self.d):g} mm"
-        except (TypeError, ValueError):
-            return str(self.d)
+        """The pin as text, e.g. "58 mm pin" or "Heart pin, 53 × 57.5 mm"."""
+        fw, fh = self.pin["fw"], self.pin["fh"]
+        if self.shape == "Round":
+            return f"{fw:g} mm pin"
+        return f"{self.shape} pin, {fw:g} × {fh:g} mm"
 
-    def _circle_mask(self, inset):
-        """A mask of the pin circle shrunk by ``inset`` pixels. Used to light up the part of
+    def _shape_pts(self, finished=False):
+        """The pin's outline in picture-area pixels: the paper shape (``finished`` False) or the
+        smaller finished face inside it.
+        """
+        sx, sy = self.vw / self.d, self.vh / self.dh
+        w, h = (self.pin["fw"], self.pin["fh"]) if finished else (self.d, self.dh)
+        mx, my = self.vx0 + self.vw / 2, self.vy0 + self.vh / 2
+        return [(mx + x * sx, my + y * sy) for x, y in shapes.outline(self.shape, w, h)]
+
+    def _shape_mask(self, finished=False):
+        """A mask of the pin's shape (or of its finished face). Used to light up the part of
         the image that stays visible.
         """
         s = 2  # supersample for smooth edges
         m = Image.new("L", (self.cw * s, self.ch * s), 0)
-        x0, y0 = (self.vx0 + inset) * s, (self.vy0 + inset) * s
-        x1, y1 = (self.vx0 + self.vw - inset) * s, (self.vy0 + self.vw - inset) * s
-        if x1 > x0 and y1 > y0:
-            ImageDraw.Draw(m).ellipse((x0, y0, x1, y1), fill=255)
+        ImageDraw.Draw(m).polygon([(x * s, y * s) for x, y in self._shape_pts(finished)],
+                                  fill=255)
         return m.resize((self.cw, self.ch), Image.LANCZOS)
 
+    @staticmethod
+    def _chord(pts, at, vertical):
+        """Where the line x = ``at`` (or y = ``at``) crosses the outline: its lowest and highest
+        crossing, or None.
+        """
+        hits, n = [], len(pts)
+        for i in range(n):
+            (x1, y1), (x2, y2) = pts[i], pts[(i + 1) % n]
+            a1, a2, b1, b2 = (x1, x2, y1, y2) if vertical else (y1, y2, x1, x2)
+            if (a1 - at) * (a2 - at) <= 0 and a1 != a2:
+                hits.append(b1 + (b2 - b1) * (at - a1) / (a2 - a1))
+        return (min(hits), max(hits)) if hits else None
+
     def _layout(self):
-        """Work out where the pin circle sits for the current picture-area size, rebuild the
+        """Work out where the pin sits for the current picture-area size, rebuild the
         dimming mask and redraw the outlines. Runs at start-up and after a window resize.
         """
         cw, ch = self.cw, self.ch
-        self.vw = max(120, int(min(cw, ch) * self.FILL))
-        self.inset = self.ins_mm * (self.vw / self.d)
-        self.vx0, self.vy0 = (cw - self.vw) / 2, (ch - self.vw) / 2
+        self.vw = max(120, int(min(cw * self.FILL, ch * self.FILL * self.aspect)))
+        self.vh = self.vw / self.aspect
+        self.vx0, self.vy0 = (cw - self.vw) / 2, (ch - self.vh) / 2
+        face = self.pin["fw"] < self.d - 0.01 and self.pin["fh"] < self.dh - 0.01
 
         # One mask says how strongly each pixel is dimmed: 0 inside the visible area, a
         # little in the ring that folds behind the pin, a lot outside the pin. That makes
         # drawing a frame a single blend.
         size = (cw, ch)
-        cut, safe = self._circle_mask(0), self._circle_mask(self.inset)
+        cut = self._shape_mask(False)
+        safe = self._shape_mask(True) if face else cut
         ring = Image.composite(Image.new("L", size, self.FOLD_A),
                                Image.new("L", size, self.OUT_A), cut)
         self.alpha = Image.composite(Image.new("L", size, 0), ring, safe)
@@ -245,16 +271,19 @@ class CropDialog(tk.Toplevel):
 
         self.cv.delete("all")
         self._img_item = self.cv.create_image(0, 0, anchor="nw")
-        x0, y0 = self.vx0, self.vy0
-        x1, y1 = x0 + self.vw, y0 + self.vw
-        mx, my, r = (x0 + x1) / 2, (y0 + y1) / 2, self.vw / 2
+        outer = self._shape_pts(False)
+        mx, my = self.vx0 + self.vw / 2, self.vy0 + self.vh / 2
 
         # thirds + centre guides, only shown while you are moving things
         self._guides = []
-        for t in (-r / 3, r / 3):
-            h = math.sqrt(max(0.0, r * r - t * t))
-            self._guides.append(self.cv.create_line(mx + t, my - h, mx + t, my + h))
-            self._guides.append(self.cv.create_line(mx - h, my + t, mx + h, my + t))
+        for t in (-self.vw / 6, self.vw / 6):
+            c = self._chord(outer, mx + t, True)
+            if c:
+                self._guides.append(self.cv.create_line(mx + t, c[0], mx + t, c[1]))
+        for t in (-self.vh / 6, self.vh / 6):
+            c = self._chord(outer, my + t, False)
+            if c:
+                self._guides.append(self.cv.create_line(c[0], my + t, c[1], my + t))
         self._guides.append(self.cv.create_line(mx - 9, my, mx + 9, my, width=2))
         self._guides.append(self.cv.create_line(mx, my - 9, mx, my + 9, width=2))
         for g in self._guides:
@@ -262,13 +291,13 @@ class CropDialog(tk.Toplevel):
         for g in self._guides[:-2]:
             self.cv.itemconfigure(g, dash=(3, 4))
 
-        self.cv.create_oval(x0, y0, x1, y1, outline=T.CROP_HALO, width=5)  # readable on any image
-        self.cv.create_oval(x0, y0, x1, y1, outline=T.CROP_LINE, width=2)
-        i = self.inset
-        if self.vw - 2 * i > 2:
-            box = (x0 + i, y0 + i, x1 - i, y1 - i)
-            self.cv.create_oval(*box, outline="#000000", width=3, dash=(6, 4))
-            self.cv.create_oval(*box, outline="#FFE2C4", width=1, dash=(6, 4))
+        flat = [v for p in outer for v in p]
+        self.cv.create_polygon(flat, outline=T.CROP_HALO, width=5, fill="")  # readable on any image
+        self.cv.create_polygon(flat, outline=T.CROP_LINE, width=2, fill="")
+        if face:
+            inner = [v for p in self._shape_pts(True) for v in p]
+            self.cv.create_polygon(inner, outline="#000000", width=3, dash=(6, 4), fill="")
+            self.cv.create_polygon(inner, outline="#FFE2C4", width=1, dash=(6, 4), fill="")
 
     def _on_canvas_resize(self, e):
         """The window was resized: lay the pin out again once the resizing settles."""
@@ -315,7 +344,7 @@ class CropDialog(tk.Toplevel):
         z = self._clamp_zoom(z)
         img = self.src.small
         iw, ih = img.size
-        b = base_crop(img.size)
+        b = base_crop(img.size, self.aspect)
         dk = b / self.zoom / self.vw - b / z / self.vw        # change in source px per pixel
         t = math.radians(self.v_angle.get())
         cs, sn = math.cos(t), math.sin(t)
@@ -447,7 +476,7 @@ class CropDialog(tk.Toplevel):
         iw, ih = img.size
         # k = source pixels per screen pixel. The sine / cosine turn a mouse move into a
         # move across the (possibly rotated) image.
-        k = base_crop(img.size) / self.zoom / self.vw
+        k = base_crop(img.size, self.aspect) / self.zoom / self.vw
         t = math.radians(self.v_angle.get())
         cs, sn = math.cos(t), math.sin(t)
         # moving the picture with the mouse = moving the crop centre the other way
@@ -464,7 +493,7 @@ class CropDialog(tk.Toplevel):
         self.zoom_lbl.config(text=f"{zoom * 100:.0f}%")
         self.angle_lbl.config(text=f"{angle:.0f}°")
 
-        ppi = ppi_for(self.src.full.size, zoom, self.d)
+        ppi = ppi_for(self.src.full.size, zoom, self.d, self.aspect)
         if ppi >= 300:
             self.q_pill.config(text=f"{ppi:.0f} dpi · Sharp", fg=T.TEAL)
         elif ppi >= LOW_PPI:
@@ -474,7 +503,7 @@ class CropDialog(tk.Toplevel):
 
         img = self.src.flipped(self.src.small) if self.flipped else self.src.small
         iw, ih = img.size
-        k = base_crop(img.size) / zoom / self.vw
+        k = base_crop(img.size, self.aspect) / zoom / self.vw
         bright = render_transform(img, self.cw, self.ch, k, self.cx * iw, self.cy * ih,
                                   angle, self._cache,
                                   resample=Image.BILINEAR if fast else Image.BICUBIC,
@@ -521,7 +550,7 @@ class CropDialog(tk.Toplevel):
             free = self.max_copies
             if not messagebox.askokcancel(
                     "Squeak! Too many copies",
-                    f"Squeak! You asked for {copies} copies but only {free} circle"
+                    f"Squeak! You asked for {copies} copies but only {free} spot"
                     f"{' is' if free == 1 else 's are'} free.\n\n"
                     f"Is it okay if I only add {free}?", parent=self,
                     ok="Okay, add them", cancel="Go back"):

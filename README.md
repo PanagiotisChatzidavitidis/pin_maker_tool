@@ -7,7 +7,7 @@ export a PDF (or print straight away) ready to cut out.
 ## What it does
 
 - **Automatic layout.** Choose a paper size (A3 to A6, Letter, Legal, Tabloid, photo-paper sizes
-  or your own) and a finished pin size (25 to 75 mm or your own; the paper circle that is printed is bigger, e.g. 44 mm for a 32 mm pin, so it wraps around the back). The app tries a plain grid and a
+  or your own) and a pin shape (round, square, rectangle, oval, pentagon, hexagon, triangle or heart) and a finished pin size from the list of real pin-machine sizes for that shape (or your own). The paper shape that is printed is bigger than the pin, e.g. 44 mm for a 32 mm round pin, so it wraps around the back; the size guide (the little i button) shows every size. The app tries a plain grid and a
   staggered "honeycomb" packing, in portrait and landscape, and keeps whichever fits the
   most pins.
 - **Crop under the pin.** Drag to move, scroll to zoom (it zooms toward the cursor), rotate in
