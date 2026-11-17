@@ -68,25 +68,25 @@ EDITOR_STEPS = [
      "type your own width and height in millimetres. The sheet on the right changes "
      "straight away.",
      lambda a: a.card_paper),
-    ("2 · Pick your pin size",
-     "Choose the size of your finished badge, like 32 mm or 44 mm. I print a slightly bigger "
-     "circle so the paper can wrap around the back. The circles are packed in a "
-     "honeycomb pattern, so as many as possible fit and no paper is wasted. How many fit "
-     "updates by itself.",
+    ("2 · Pick your pin",
+     "Choose a shape, like round, heart or hexagon, then the size of your finished badge. "
+     "The sizes come from real pin machines. I print a slightly bigger paper shape so it "
+     "can wrap around the back, and pack as many as possible on the sheet. How many fit "
+     "updates by itself. The little i button has my size guide.",
      lambda a: a.card_pin),
     ("3 · Add your pictures",
-     "Click a circle on the sheet to add a picture. Pick several files at once to fill lots "
-     "of circles in one go{drop}. Clear all empties the whole sheet, and Undo can bring it "
+     "Click a pin on the sheet to add a picture. Pick several files at once to fill lots "
+     "of pins in one go{drop}. Clear all empties the whole sheet, and Undo can bring it "
      "back.",
      lambda a: a.card_images),
     ("Your sheet",
      "This is your sheet, just as it will print. After you choose a picture, a little crop "
      "window opens: drag to position it, scroll to zoom and rotate it until it's perfect.\n\n"
-     "Drag a finished pin onto an empty circle to move it, or onto another pin to swap them. "
+     "Drag a finished pin onto an empty spot to move it, or onto another pin to swap them. "
      "Press Delete while pointing at a pin to clear it.",
      lambda a: a.cv),
     ("Keep an eye on progress",
-     "These cards show your paper size, how many pins fit on one sheet and how many circles "
+     "These cards show your paper size, how many pins fit on one sheet and how many spots "
      "you've filled so far. The thin bar fills up as you go, and I'll warn you if a picture "
      "is too small and might print blurry.",
      lambda a: a.stat_row),

@@ -14,16 +14,18 @@ from PIL import Image, ImageOps
 AFFINE = getattr(Image, "Transform", Image).AFFINE
 
 
-def base_crop(size):
-    """Side (source px) of the square 'cover' crop at zoom 1."""
-    return min(size)
-
-
-def ppi_for(size, zoom, d_mm):
-    """Effective print resolution (pixels per inch) of an image of ``size`` pixels, at ``zoom``,
-    on a pin ``d_mm`` wide.
+def base_crop(size, aspect=1.0):
+    """Width (source px) of the 'cover' crop at zoom 1: the biggest frame of the pin's shape
+    (``aspect`` = width / height, 1 for a square) that fits inside the picture.
     """
-    return base_crop(size) / zoom / (d_mm / 25.4)
+    return min(size[0], size[1] * aspect)
+
+
+def ppi_for(size, zoom, d_mm, aspect=1.0):
+    """Effective print resolution (pixels per inch) of an image of ``size`` pixels, at ``zoom``,
+    on a pin ``d_mm`` wide whose width / height is ``aspect``.
+    """
+    return base_crop(size, aspect) / zoom / (d_mm / 25.4)
 
 
 class Source:
@@ -98,9 +100,9 @@ class Art:
         return (id(self.source), round(self.zoom, 4), round(self.cx, 4),
                 round(self.cy, 4), round(self.angle, 2), bool(self.flip))
 
-    def ppi(self, d_mm):
-        """Effective print resolution of the image on a pin of d_mm."""
-        return ppi_for(self.source.full.size, self.zoom, d_mm)
+    def ppi(self, d_mm, aspect=1.0):
+        """Effective print resolution of the image on a pin d_mm wide (width / height = aspect)."""
+        return ppi_for(self.source.full.size, self.zoom, d_mm, aspect)
 
 
 def edge_colour(img):
@@ -190,20 +192,24 @@ def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None,
                          resample=resample, fillcolor=tuple(fill))
 
 
-def render_art(art, d_mm, px_per_mm, small=False):
-    """Render one pin's picture as a square, ``d_mm`` millimetres wide at ``px_per_mm`` pixels
-    per mm. ``small=True`` uses the small preview copy of the image.
+def render_art(art, d_mm, px_per_mm, small=False, h_mm=None):
+    """Render one pin's picture as a rectangle ``d_mm`` wide and ``h_mm`` tall (the same as the
+    width when left out) at ``px_per_mm`` pixels per mm. The shape of the pin is cut out of
+    it later. ``small=True`` uses the small preview copy of the image.
     """
+    h_mm = d_mm if h_mm is None else h_mm
+    aspect = d_mm / h_mm
     t = max(1, int(d_mm * px_per_mm))
+    th = max(1, int(h_mm * px_per_mm))
     if small:
         # pick the shrunk copy of the picture that is still at least as sharp as the output
-        k0 = base_crop(art.source.small.size) / art.zoom / t
+        k0 = base_crop(art.source.small.size, aspect) / art.zoom / t
         img = art.source.mip(int(math.log2(k0)) if k0 >= 2 else 0)
     else:
         img = art.source.full
     iw, ih = img.size
-    k = base_crop(img.size) / art.zoom / t
+    k = base_crop(img.size, aspect) / art.zoom / t
     if art.flip:
         img = art.source.flipped(img)
-    return render_transform(img, t, t, k, art.cx * iw, art.cy * ih, art.angle,
+    return render_transform(img, t, th, k, art.cx * iw, art.cy * ih, art.angle,
                             fill=art.source.bg)

@@ -52,7 +52,7 @@ MESSAGES = {
     ],
     "cleared_one": [
         ("Pin removed", "One less pin. Undo if that was a slip."),
-        ("Pin cleared", "That circle is empty again. Undo brings it back."),
+        ("Pin cleared", "That spot is empty again. Undo brings it back."),
     ],
     "added": [
         ("{n} new pin{s}!", "They look great on the sheet."),

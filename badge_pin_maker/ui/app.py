@@ -34,13 +34,14 @@ import time
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageTk
 
 from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABEL,
-                         PAGE_MARGIN, PAPER_SIZES, PIN_SIZES, CANVAS_EXT, cut_size,
-                         DEFAULT_PAPER, DEFAULT_PIN, paper_from_saved, pin_from_saved,
-                         paper_short)
+                         PAGE_MARGIN, PAPER_SIZES, CANVAS_EXT, cut_dims,
+                         DEFAULT_PAPER, paper_from_saved, pin_from_saved, paper_short,
+                         default_pin, sizes_for)
 from ..imaging import Art, load_source, render_art
+from ..shapes import DEFAULT_SHAPE, ONE_SIZE, SHAPES, canvas_points, contains, mask
 from ..layout import compute_layout, fill_order, first_free
 from ..pdf_export import build_pdf
 from ..canvas_files import read_canvas_info
@@ -157,23 +158,29 @@ class BadgeApp(RootBase):
         paper, old_dims = paper_from_saved(s.get("paper", DEFAULT_PAPER))
         if old_dims:                       # a paper that has left the list becomes "Custom"
             s["pw"], s["ph"] = f"{old_dims[0]:g}", f"{old_dims[1]:g}"
-        pin = pin_from_saved(s.get("pin", DEFAULT_PIN))
+        shape = s.get("shape") if s.get("shape") in SHAPES else DEFAULT_SHAPE
+        pin = pin_from_saved(s.get("pin", default_pin(shape)), shape)
         self.v_paper = tk.StringVar(value=paper)
         self.v_pw = tk.StringVar(value=str(s.get("pw", "210")))
         self.v_ph = tk.StringVar(value=str(s.get("ph", "297")))
+        self.v_shape = tk.StringVar(value=shape)
         self.v_pin = tk.StringVar(value=pin)
-        self.v_d = tk.StringVar(value=str(s.get("d", "32")))
+        self.v_d = tk.StringVar(value=str(s.get("d", "32")))       # finished width (or diameter)
+        self.v_h = tk.StringVar(value=str(s.get("h", s.get("d", "32"))))   # finished height
         self.v_guides = tk.BooleanVar(value=bool(s.get("guides", True)))
 
         # ---- build the screens and connect the events ----
         self._build_ui()
         self.home = HomeScreen(self)
         self._bind_shortcuts()
-        for v in (self.v_paper, self.v_pw, self.v_ph, self.v_pin, self.v_d, self.v_guides):
+        for v in (self.v_paper, self.v_pw, self.v_ph, self.v_shape, self.v_pin, self.v_d,
+                  self.v_h, self.v_guides):
             v.trace_add("write", self._on_setting)
         self.v_paper.trace_add("write", lambda *_: self._paper_changed())
+        self.v_shape.trace_add("write", lambda *_: self._shape_changed())
         self.v_pin.trace_add("write", lambda *_: self._pin_changed())
         self._paper_changed()
+        self._shape_changed(keep=True)
         self._pin_changed()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self._loading = False
@@ -360,7 +367,7 @@ class BadgeApp(RootBase):
     def open_size_guide(self):
         """Ozzie's pop-up sheet about finished pin sizes and the paper circles."""
         self.close_popup()
-        self.wait_window(SizeGuide(self, self.v_pin.get()))
+        self.wait_window(SizeGuide(self, self.v_shape.get(), self.v_pin.get()))
 
     def open_about(self):
         """The About box: the version (and build date) and who drew Ozzie."""
@@ -719,22 +726,30 @@ class BadgeApp(RootBase):
             ttk.Entry(self.paper_custom, textvariable=var, width=6).pack(side="left", padx=4)
         ttk.Label(self.paper_custom, text="mm", style="Muted.TLabel").pack(side="left")
 
-        f = make_card(left, "2 · Pin size")
+        f = make_card(left, "2 · Pin")
         self.card_pin = f.master
         InfoButton(f, self.open_size_guide, tip="Ozzie's size guide", on_tip=self._tip).place(
             relx=1.0, x=0, y=-4, anchor="ne")
-        Dropdown(f, self.v_pin, list(PIN_SIZES), icon="badge", outer=T.CARD, fill=T.FIELD,
+        Dropdown(f, self.v_shape, SHAPES, icon="shapes", outer=T.CARD, fill=T.FIELD,
                  width=262, family=self.base_font[0]).pack(anchor="w")
+        self.size_dd = Dropdown(f, self.v_pin, list(sizes_for(self.v_shape.get())), icon="badge",
+                                outer=T.CARD, fill=T.FIELD, width=262,
+                                family=self.base_font[0])
+        self.size_dd.pack(anchor="w", pady=(8, 0))
         self.pin_custom = ttk.Frame(f, style="Card.TFrame")
-        ttk.Label(self.pin_custom, text="Diameter", style="Card.TLabel").pack(side="left")
+        self.lbl_d = ttk.Label(self.pin_custom, text="Diameter", style="Card.TLabel")
+        self.lbl_d.pack(side="left")
         ttk.Entry(self.pin_custom, textvariable=self.v_d, width=6).pack(side="left", padx=4)
-        ttk.Label(self.pin_custom, text="mm", style="Muted.TLabel").pack(side="left")
-        self.pin_note = ttk.Label(f, style="Muted.TLabel")
+        self.pin_h = ttk.Frame(self.pin_custom, style="Card.TFrame")
+        ttk.Label(self.pin_h, text="×", style="Muted.TLabel").pack(side="left")
+        ttk.Entry(self.pin_h, textvariable=self.v_h, width=6).pack(side="left", padx=4)
+        ttk.Label(self.pin_custom, text="mm", style="Muted.TLabel").pack(side="right")
+        self.pin_note = ttk.Label(f, style="Muted.TLabel", wraplength=262, justify="left")
         self.pin_note.pack(anchor="w", pady=(6, 0))
 
         f = make_card(left, "3 · Images")
         self.card_images = f.master
-        tip = "Click a circle to add images. Select several files to fill many circles at once."
+        tip = "Click a pin to add images. Select several files to fill many pins at once."
         if DND_FILES:
             tip += " You can also drop image files onto the sheet."
         ttk.Label(f, style="Muted.TLabel", justify="left", wraplength=250,
@@ -791,7 +806,7 @@ class BadgeApp(RootBase):
     # ---- status bar -----------------------------------------------------------
     def _idle_text(self):
         """The status bar's resting hint."""
-        t = "Click a circle to add images"
+        t = "Click a pin to add images"
         if DND_FILES:
             t += "  ·  or drop image files onto the sheet"
         return t
@@ -842,37 +857,80 @@ class BadgeApp(RootBase):
             self.v_pw.set(f"{dims[0]:g}")
             self.v_ph.set(f"{dims[1]:g}")
 
-    def _pin_changed(self):
-        """Show the diameter box only for "Custom..." pins. For a standard size, fill it in and
-        show that size's caption.
+    def _shape_changed(self, keep=False):
+        """A new shape was picked: offer that shape's sizes, and pick its usual one (unless
+        ``keep``, when the current size is kept if the shape has it).
         """
-        data = PIN_SIZES.get(self.v_pin.get())
+        shape = self.v_shape.get()
+        table = sizes_for(shape)
+        self.size_dd.set_options(list(table))
+        if keep and self.v_pin.get() in table:
+            self._pin_changed()
+        elif self.v_pin.get() in table and not self._loading_shape:
+            self._pin_changed()
+        else:
+            self.v_pin.set(default_pin(shape))      # runs _pin_changed through the trace
+            self._pin_changed()
+
+    _loading_shape = False
+
+    def _pin_changed(self):
+        """Fill in the pin's size boxes for a standard size and show its note. A custom size
+        shows the boxes (a diameter or side for the shapes with one size, else width x height).
+        """
+        shape = self.v_shape.get()
+        data = sizes_for(shape).get(self.v_pin.get(), 0)
+        one = shape in ONE_SIZE
         if data is None:
-            self.pin_custom.pack(anchor="w", pady=(8, 0))
+            self.lbl_d.config(text={"Round": "Diameter", "Square": "Side",
+                                    "Triangle": "Side"}.get(shape, "Size"))
+            if one:
+                self.pin_h.pack_forget()
+            else:
+                self.pin_h.pack(side="left")
+            self.pin_custom.pack(anchor="w", pady=(8, 0), fill="x")
             self.pin_note.config(text="Enter the finished size of your pin. The extra paper "
                                       "that wraps around the back is added for you.")
+        elif data == 0:
+            return
         else:
             self.pin_custom.pack_forget()
-            self.v_d.set(str(data[0]))
-            self.pin_note.config(text=f"{data[1]} · prints as a {data[2]} mm circle")
+            fw = data[0]
+            fh = data[1] if shape != "Round" else data[0]
+            self.v_d.set(f"{fw:g}")
+            self.v_h.set(f"{fh:g}")
+            cw, ch = cut_dims(shape, fw, fh)
+            if shape == "Round":
+                self.pin_note.config(text=f"{data[1]} · prints as a {data[2]} mm circle")
+            else:
+                self.pin_note.config(text=f"{data[2]} · prints on {cw:g} × {ch:g} mm paper")
 
     def _params(self):
-        """Paper width / height and pin diameter in mm, with sensible minimums so a typo can't
-        break the layout.
+        """Paper width / height and the pin's sizes in mm, with sensible minimums so a typo
+        can't break the layout. w x h is the paper shape that is printed and cut, fw x fh the
+        finished pin, ins the edge between them that wraps around the back, and d the longest
+        side of the paper shape.
         """
-        fin = max(1.0, self._num(self.v_d, 32))
-        cut = cut_size(fin)
-        # d = the paper circle that is printed and cut, fin = the finished pin, ins = the
-        # ring between them that wraps around the back
+        shape = self.v_shape.get()
+        fw = max(1.0, self._num(self.v_d, 32))
+        if shape in ("Round", "Square"):
+            fh = fw
+        elif shape == "Triangle":
+            fh = fw * 0.866
+        else:
+            fh = max(1.0, self._num(self.v_h, fw))
+        cw, ch = cut_dims(shape, fw, fh)
         return dict(pw=max(10.0, self._num(self.v_pw, 210)),
                     ph=max(10.0, self._num(self.v_ph, 297)),
-                    d=cut, fin=fin, ins=(cut - fin) / 2)
+                    shape=shape, w=cw, h=ch, fw=fw, fh=fh, fin=fw, d=max(cw, ch),
+                    ins=(cw - fw) / 2)
 
     def compute(self):
         """Work out the layout for the current settings. Returns the parameters that were used.
         """
         p = self._params()
-        self.layout = compute_layout(p["pw"], p["ph"], p["d"], PAGE_MARGIN, BADGE_GAP)
+        self.layout = compute_layout(p["pw"], p["ph"], p["w"], PAGE_MARGIN, BADGE_GAP,
+                                     p["shape"], p["h"])
         return p
 
     def _store_settings(self):
@@ -880,7 +938,8 @@ class BadgeApp(RootBase):
         """
         self.settings.update(
             paper=self.v_paper.get(), pw=self.v_pw.get(), ph=self.v_ph.get(),
-            pin=self.v_pin.get(), d=self.v_d.get(), guides=bool(self.v_guides.get()),
+            shape=self.v_shape.get(), pin=self.v_pin.get(), d=self.v_d.get(), h=self.v_h.get(),
+            guides=bool(self.v_guides.get()),
             fullscreen=self._is_full,
             size=(self._windowed_size if self._is_full
                   else f"{self.winfo_width()}x{self.winfo_height()}"))
@@ -995,7 +1054,7 @@ class BadgeApp(RootBase):
         s, ox, oy, p = self.geo
         mx, my = (x - ox) / s, (y - oy) / s
         for i, (cx, cy) in enumerate(self.layout["points"]):
-            if (mx - cx) ** 2 + (my - cy) ** 2 <= (p["d"] / 2) ** 2:
+            if contains(p["shape"], p["w"], p["h"], mx - cx, my - cy):
                 return i
         return None
 
@@ -1057,7 +1116,19 @@ class BadgeApp(RootBase):
         """Centre and diameter, in canvas pixels, of circle ``idx``."""
         s, ox, oy, p = self.geo
         cx, cy = self.layout["points"][idx]
-        return ox + cx * s, oy + cy * s, p["d"] * s
+        return ox + cx * s, oy + cy * s, p["w"] * s
+
+    def _poly(self, x, y, w, grow=0):
+        """The current pin's outline for a Tk canvas, centred on pixel (x, y) and ``w`` pixels
+        wide (``grow`` pixels bigger all round).
+        """
+        p = self.geo[3]
+        return canvas_points(p["shape"], p["w"], p["h"], x, y, w / p["w"], grow)
+
+    def _pin_item(self, cv, x, y, w, grow=0, **kw):
+        """Draw the current pin's outline on ``cv`` (a polygon; unfilled unless ``fill``)."""
+        kw.setdefault("fill", "")
+        return cv.create_polygon(self._poly(x, y, w, grow), **kw)
 
     def _begin_drag(self, src, x0, y0):
         """Pick the pin in circle ``src`` up: a ghost of it follows the mouse, and the circle
@@ -1071,15 +1142,15 @@ class BadgeApp(RootBase):
         self._set_hover(None)
         self.cv.config(cursor="fleur")
         try:
-            self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, fill=T.PAPER,
+            self._pin_item(self.cv, x, y, w, fill=T.PAPER,
                                 stipple="gray50", outline=T.SELECT_RING, width=2,
                                 dash=(4, 3), tags="dragsrc")
         except tk.TclError:                     # a Tk without stipples: just the outline
-            self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
+            self._pin_item(self.cv, x, y, w,
                                 outline=T.SELECT_RING, width=2, dash=(4, 3), tags="dragsrc")
         self._ghost = self._preview_image(self.slots[src], p, s)      # keep a reference
         self.cv.create_image(x, y, image=self._ghost, tags="drag")
-        self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
+        self._pin_item(self.cv, x, y, w,
                             outline=T.HOVER_RING, width=3, tags="drag")
         # The ghost starts on the circle and moves by how far the mouse has moved since the
         # press, so the pin stays under the spot where it was grabbed.
@@ -1093,9 +1164,8 @@ class BadgeApp(RootBase):
         if idx is None:
             return
         x, y, w = self._circle_box(idx)
-        self.cv.create_oval(x - w / 2 - 3, y - w / 2 - 3, x + w / 2 + 3, y + w / 2 + 3,
-                            outline=T.HOVER_RING, width=4, tags="drop",
-                            dash=() if idx in self.slots else (6, 4))
+        self._pin_item(self.cv, x, y, w, grow=3, outline=T.HOVER_RING, width=4, tags="drop",
+                       dash=() if idx in self.slots else (6, 4))
         self.cv.tag_raise("drag")
 
     def _cancel_drag(self):
@@ -1161,10 +1231,10 @@ class BadgeApp(RootBase):
         self.selected = idx
         s, ox, oy, p = self.geo
         cx, cy = self.layout["points"][idx]
-        x, y, w = ox + cx * s, oy + cy * s, p["d"] * s
+        x, y, w = ox + cx * s, oy + cy * s, p["w"] * s
 
         # highlight the selected circle
-        self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
+        self._pin_item(self.cv, x, y, w,
                             outline=T.SELECT_RING, width=3, tags="selected")
 
         frame = tk.Frame(self.cv, bg=T.POPUP_EDGE)
@@ -1238,13 +1308,13 @@ class BadgeApp(RootBase):
         if free_now <= 0:
             messagebox.showinfo(
                 "The sheet is full!",
-                "Every circle is taken, I looked everywhere!\n\nClear a circle, or pick a "
+                "Every spot is taken, I looked everywhere!\n\nClear a pin, or pick a "
                 "different paper or pin size.")
             return
         if len(paths) > free_now:
             if not messagebox.askokcancel(
                     "Squeak! Too many images",
-                    f"You picked {len(paths)} images but only {free_now} circle"
+                    f"You picked {len(paths)} images but only {free_now} spot"
                     f"{' is' if free_now == 1 else 's are'} free.\n\n"
                     f"Is it okay if I only add the first {free_now}?",
                     ok="Okay, add them", cancel="Go back"):
@@ -1273,8 +1343,7 @@ class BadgeApp(RootBase):
                     f"I couldn't open this picture:\n{os.path.basename(path)}\n\n{ex}")
                 continue
             title = f"Crop image {j} of {total}" if total > 1 else "Crop image"
-            dlg = CropDialog(self, source, p["d"], max_copies=free, title=title, inset=p["ins"],
-                             batch=(j, total))
+            dlg = CropDialog(self, source, p, max_copies=free, title=title, batch=(j, total))
             self.wait_window(dlg)
             if dlg.stop:
                 break
@@ -1304,8 +1373,7 @@ class BadgeApp(RootBase):
         if art is None:
             return
         p = self._params()
-        dlg = CropDialog(self, art.source, p["d"], max_copies=0, art=art, title="Modify crop",
-                         inset=p["ins"])
+        dlg = CropDialog(self, art.source, p, max_copies=0, art=art, title="Modify crop")
         self.wait_window(dlg)
         if dlg.result is not None:
             self._push_undo()
@@ -1345,7 +1413,7 @@ class BadgeApp(RootBase):
         self._after = self.after(50, self.redraw)
 
     def _preview_image(self, art, p, s):
-        """The round preview picture for one pin. Cached, because making it is the slow part of
+        """The preview picture for one pin, cut to the pin's shape. Cached, because making it is the slow part of
         drawing the sheet.
         """
         key = self._preview_key(art, p, s)
@@ -1354,10 +1422,8 @@ class BadgeApp(RootBase):
             if len(self._image_cache) > 400:
                 self._image_cache.clear()
                 self._pil_cache.clear()
-            im = render_art(art, p["d"], s, small=True).convert("RGBA")
-            big = Image.new("L", (im.size[0] * 3, im.size[1] * 3), 0)
-            ImageDraw.Draw(big).ellipse((0, 0, big.size[0] - 1, big.size[1] - 1), fill=255)
-            im.putalpha(big.resize(im.size, Image.LANCZOS))
+            im = render_art(art, p["w"], s, small=True, h_mm=p["h"]).convert("RGBA")
+            im.putalpha(mask(p["shape"], im.size[0], im.size[1]))
             ph = ImageTk.PhotoImage(im)
             self._image_cache[key] = ph
             self._pil_cache[key] = im
@@ -1366,7 +1432,7 @@ class BadgeApp(RootBase):
     @staticmethod
     def _preview_key(art, p, s):
         """What a cached preview picture is filed under."""
-        return (art.key(), round(p["d"], 2), round(s, 3))
+        return (art.key(), p["shape"], round(p["w"], 2), round(p["h"], 2), round(s, 3))
 
     def redraw(self):
         """Draw the whole sheet preview: paper, empty circles, images, guides, crop ticks and
@@ -1398,47 +1464,47 @@ class BadgeApp(RootBase):
                                 fill=col, outline="")
         cv.create_rectangle(ox, oy, ox + W * s, oy + H * s, fill=T.PAPER, outline=T.PAPER_EDGE)
 
-        w = p["d"] * s
-        ins = p["ins"] * s
+        w, hh = p["w"] * s, p["h"] * s
+        face = p["fw"] < p["w"] - 0.01 and p["fh"] < p["h"] - 0.01
         tick, off = min(2.0, BADGE_GAP * 0.6) * s, 0.4 * s
         guides = self.v_guides.get()
         low = 0
         for i, (cx, cy) in enumerate(L["points"]):
             x, y = ox + cx * s, oy + cy * s
             art = self.slots.get(i)
-            if art is not None and art.ppi(p["d"]) < LOW_PPI:
+            if art is not None and self._ppi(art, p) < LOW_PPI:
                 low += 1
             # Circles scrolled out of view are not drawn at all (zoomed in, that is most).
-            if x + w / 2 + 30 < 0 or x - w / 2 - 30 > cw or y + w / 2 + 30 < 0 \
-                    or y - w / 2 - 30 > ch:
+            if x + w / 2 + 30 < 0 or x - w / 2 - 30 > cw or y + hh / 2 + 30 < 0 \
+                    or y - hh / 2 - 30 > ch:
                 continue
             if i in self._hide:                  # its picture is gliding in: just the rim
-                cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, outline=T.PIN_EDGE)
+                self._pin_item(cv, x, y, w, outline=T.PIN_EDGE)
                 continue
             # An empty circle: a dashed outline with a plus sign in the middle.
             if art is None:
-                cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
+                self._pin_item(cv, x, y, w,
                                outline=T.EMPTY_LINE, dash=(4, 4), fill=T.EMPTY_FILL)
-                a = w * 0.10
+                a = min(w, hh) * 0.10
                 cv.create_line(x - a, y, x + a, y, fill=T.EMPTY_PLUS, width=2, capstyle="round")
                 cv.create_line(x, y - a, x, y + a, fill=T.EMPTY_PLUS, width=2, capstyle="round")
                 continue
             # A filled circle: the image, its outline, the safe-area ring, then four crop
             # ticks.
             cv.create_image(x, y, image=self._preview_image(art, p, s))
-            cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2, outline=T.PIN_EDGE)
-            if guides and w / 2 - ins > 1:
-                cv.create_oval(x - w / 2 + ins, y - w / 2 + ins, x + w / 2 - ins,
-                               y + w / 2 - ins, outline=T.GUIDE, dash=(3, 3))
-            for (x1, y1, x2, y2) in ((x, y - w / 2 - off, x, y - w / 2 - off - tick),
-                                      (x, y + w / 2 + off, x, y + w / 2 + off + tick),
+            self._pin_item(cv, x, y, w, outline=T.PIN_EDGE)
+            if guides and face:
+                cv.create_polygon(canvas_points(p["shape"], p["fw"], p["fh"], x, y, s),
+                                  outline=T.GUIDE, dash=(3, 3), fill="")
+            for (x1, y1, x2, y2) in ((x, y - hh / 2 - off, x, y - hh / 2 - off - tick),
+                                      (x, y + hh / 2 + off, x, y + hh / 2 + off + tick),
                                       (x - w / 2 - off, y, x - w / 2 - off - tick, y),
                                       (x + w / 2 + off, y, x + w / 2 + off + tick, y)):
                 cv.create_line(x1, y1, x2, y2, fill=T.TICK)
             # A small orange "!" in the corner of images that would print soft.
-            if art.ppi(p["d"]) < LOW_PPI:
-                r = max(6, w * 0.09)
-                bx, by = x + w * 0.34, y - w * 0.34
+            if self._ppi(art, p) < LOW_PPI:
+                r = max(6, min(w, hh) * 0.09)
+                bx, by = x + w * 0.34, y - hh * 0.34
                 cv.create_oval(bx - r, by - r, bx + r, by + r, fill=T.WARN, outline="white")
                 cv.create_text(bx, by, text="!", fill="white",
                                font=(self.base_font[0], max(7, int(r * 1.2)), "bold"))
@@ -1454,6 +1520,11 @@ class BadgeApp(RootBase):
                            text="Pin doesn't fit on this paper — choose a smaller size.")
 
     # ---- zoom and pan -------------------------------------------------------
+    @staticmethod
+    def _ppi(art, p):
+        """The print resolution of ``art`` on the pin described by ``p``."""
+        return art.ppi(p["w"], p["w"] / p["h"])
+
     def _max_zoom(self, d):
         """How far the sheet may be zoomed: a pin at most about 700 px wide, never over 8x."""
         return max(1.0, min(8.0, 700 / max(d * self._fit, 1e-6)))
@@ -1710,12 +1781,12 @@ class BadgeApp(RootBase):
         self._hide = set(hidden)
         self.redraw()
         s, ox, oy, p = self.geo
-        w = p["d"] * s
+        w = p["w"] * s
         items = []
         for art, a, b in moves:
             ph = self._preview_image(art, p, s)
             pic = self.cv.create_image(a[0], a[1], image=ph, tags="anim")
-            ring = self.cv.create_oval(0, 0, 0, 0, outline=T.PIN_EDGE, tags="anim")
+            ring = self._pin_item(self.cv, a[0], a[1], w, outline=T.PIN_EDGE, tags="anim")
             items.append((pic, ring, a, b, ph))
         self._anim_refs = [i[4] for i in items]
         steps = 10
@@ -1727,7 +1798,7 @@ class BadgeApp(RootBase):
             for pic, ring, a, b, _ph in items:
                 x, y = a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e
                 self.cv.coords(pic, x, y)
-                self.cv.coords(ring, x - w / 2, y - w / 2, x + w / 2, y + w / 2)
+                self.cv.coords(ring, *self._poly(x, y, w))
             if k < steps:
                 self.after(15, frame, k + 1)
             else:
@@ -1747,10 +1818,10 @@ class BadgeApp(RootBase):
         self.redraw()
         s, ox, oy, p = self.geo
         cw, ch = self.cv.winfo_width(), self.cv.winfo_height()
-        w = p["d"] * s
+        w, hh = p["w"] * s, p["h"] * s
         bases = []
         for art, (x, y) in gone[:60]:
-            if x + w / 2 < 0 or x - w / 2 > cw or y + w / 2 < 0 or y - w / 2 > ch:
+            if x + w / 2 < 0 or x - w / 2 > cw or y + hh / 2 < 0 or y - hh / 2 > ch:
                 continue
             self._preview_image(art, p, s)
             im = self._pil_cache.get(self._preview_key(art, p, s))
@@ -1773,8 +1844,9 @@ class BadgeApp(RootBase):
                 a = im.getchannel("A").point(lambda v, f=f: int(v * f))
                 frame_im = im.copy()
                 frame_im.putalpha(a)
-                size = max(2, int(im.size[0] * (1 - 0.14 * k / steps)))
-                ph = ImageTk.PhotoImage(frame_im.resize((size, size), Image.BILINEAR))
+                f2 = 1 - 0.14 * k / steps
+                ph = ImageTk.PhotoImage(frame_im.resize(
+                    (max(2, int(im.size[0] * f2)), max(2, int(im.size[1] * f2))), Image.BILINEAR))
                 refs.append(ph)
                 self.cv.itemconfig(item, image=ph)
             if k < steps:
@@ -1818,8 +1890,8 @@ class BadgeApp(RootBase):
             else "Click to add images")
         s, ox, oy, p = self.geo
         cx, cy = self.layout["points"][idx]
-        x, y, w = ox + cx * s, oy + cy * s, p["d"] * s
-        self.cv.create_oval(x - w / 2, y - w / 2, x + w / 2, y + w / 2,
+        x, y, w = ox + cx * s, oy + cy * s, p["w"] * s
+        self._pin_item(self.cv, x, y, w,
                             outline=T.HOVER_RING, width=3, tags="hover")
 
     # ---- slow jobs without freezing the window --------------------------------
@@ -2070,7 +2142,8 @@ class BadgeApp(RootBase):
         data = {
             "app": "badge-pin-maker", "version": 1,
             "paper": self.v_paper.get(), "paper_w": self.v_pw.get(), "paper_h": self.v_ph.get(),
-            "pin": self.v_pin.get(), "diameter": self.v_d.get(),
+            "shape": self.v_shape.get(), "pin": self.v_pin.get(), "diameter": self.v_d.get(),
+            "height": self.v_h.get(),
             "guides": bool(self.v_guides.get()),
             "photos": images,  # key name kept so older saves still open
             "slots": [{"slot": i, "photo": index[a.source.path], "zoom": a.zoom,
@@ -2197,13 +2270,18 @@ class BadgeApp(RootBase):
         elif PAPER_SIZES[paper] is None:
             self.v_pw.set(str(data.get("paper_w", "210")))
             self.v_ph.set(str(data.get("paper_h", "297")))
-        pin = data.get("pin")
-        pin = pin_from_saved(pin)
-        self.v_pin.set(pin)
-        if PIN_SIZES[pin] is None:
+        shape = data.get("shape") if data.get("shape") in SHAPES else DEFAULT_SHAPE
+        pin = pin_from_saved(data.get("pin"), shape)
+        self._loading_shape = True
+        try:
+            self.v_shape.set(shape)
+            self.v_pin.set(pin)
+        finally:
+            self._loading_shape = False
+        self._shape_changed(keep=True)
+        if sizes_for(shape)[pin] is None:
             self.v_d.set(str(data.get("diameter", "32")))
-        else:
-            self.v_d.set(str(PIN_SIZES[pin][0]))
+            self.v_h.set(str(data.get("height", data.get("diameter", "32"))))
         self.v_guides.set(bool(data.get("guides", True)))
         self.slots = slots
         self._undo.clear()
@@ -2216,7 +2294,7 @@ class BadgeApp(RootBase):
         if missing:
             messagebox.showwarning(
                 "Where did they go?",
-                "I looked everywhere but couldn't find these images, so their circles "
+                "I looked everywhere but couldn't find these images, so their spots "
                 "are empty:\n\n"
                 + "\n".join(missing[:10]) + ("\n…" if len(missing) > 10 else ""))
         return True
@@ -2244,7 +2322,7 @@ class BadgeApp(RootBase):
             messagebox.showwarning("Nothing to print yet",
                                    "The sheet is empty! Add at least one image first.")
             return None
-        low = sum(1 for a in active.values() if a.ppi(p["d"]) < LOW_PPI)
+        low = sum(1 for a in active.values() if self._ppi(a, p) < LOW_PPI)
         if low and not messagebox.askyesno(
                 "These look a bit fuzzy",
                 f"{low} pin{'s use' if low != 1 else ' uses'} an image that will print below "
@@ -2268,8 +2346,7 @@ class BadgeApp(RootBase):
 
         try:
             self._run_busy(
-                lambda: build_pdf(path, layout, p["d"], active, guides=guides, dpi=EXPORT_DPI,
-                                  inset=p["ins"],
+                lambda: build_pdf(path, layout, p, active, guides=guides, dpi=EXPORT_DPI,
                                   progress=lambda d, t: prog.update(done=d, total=t)),
                 "exporting", delay=0.0, prog=prog, on_tick=tick)
             return True

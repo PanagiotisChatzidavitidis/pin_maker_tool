@@ -703,6 +703,11 @@ class Dropdown(_Pill):
         if changed and self.command:
             self.command()
 
+    def set_options(self, options):
+        """Replace the choices (the menu is rebuilt the next time it opens)."""
+        self.close()
+        self.options = list(options)
+
     def close(self):
         """Close the list (if open)."""
         pop, self.popup = self.popup, None

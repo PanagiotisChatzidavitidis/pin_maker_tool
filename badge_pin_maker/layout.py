@@ -7,6 +7,9 @@ no drawing code here, only arithmetic.
 """
 
 import math
+from functools import lru_cache
+
+from . import shapes
 
 
 def _grid_layout(W, H, margin, d, gap):
@@ -56,8 +59,60 @@ def _hex_layout(W, H, margin, d, gap):
     return [(x + dx, y + dy) for x, y in pts]
 
 
-def compute_layout(paper_w, paper_h, d, margin, gap):
-    """Try portrait/landscape x grid/staggered and keep whichever fits most."""
+def _shape_rows(W, H, margin, w, h, px, dy, offset):
+    """Rows of a ``w`` x ``h`` shape on a W x H page: ``px`` apart along a row and ``dy`` between
+    rows. With ``offset`` every other row is shifted by half of px so the shapes nest together.
+    Returns the shape centres, centred on the page.
+    """
+    uw, uh = W - 2 * margin, H - 2 * margin
+    if uw < w or uh < h:
+        return []
+    rows = int((uh - h + 1e-9) // dy) + 1
+    cols_even = int((uw - w + 1e-9) // px) + 1
+    cols_odd = int((uw - w - px / 2 + 1e-9) // px) + 1 if offset else cols_even
+    pts = []
+    for r in range(rows):
+        odd = offset and r % 2 == 1
+        n = cols_odd if odd else cols_even
+        for c in range(max(0, n)):
+            pts.append((w / 2 + (px / 2 if odd else 0) + c * px, h / 2 + r * dy))
+    if not pts:
+        return []
+    min_x, max_x = min(p[0] for p in pts) - w / 2, max(p[0] for p in pts) + w / 2
+    min_y, max_y = min(p[1] for p in pts) - h / 2, max(p[1] for p in pts) + h / 2
+    ox = (W - (max_x - min_x)) / 2 - min_x
+    oy = (H - (max_y - min_y)) / 2 - min_y
+    return [(x + ox, y + oy) for x, y in pts]
+
+
+@lru_cache(maxsize=128)
+def _compute_shape(paper_w, paper_h, shape, w, h, margin, gap):
+    px, dy_a, dy_o = shapes.pitches(shape, round(w, 3), round(h, 3), gap)
+    orients = [("portrait", min(paper_w, paper_h), max(paper_w, paper_h)),
+               ("landscape", max(paper_w, paper_h), min(paper_w, paper_h))]
+    best = None
+    for o_name, W, H in orients:
+        for method, dy in (("grid", dy_a), ("staggered", dy_o)):
+            pts = _shape_rows(W, H, margin, w, h, px, dy, method == "staggered")
+            score = (len(pts), method == "grid", o_name == "portrait")
+            if best is None or score > best[0]:
+                best = (score, dict(points=pts, page_w=W, page_h=H,
+                                    method=method, orientation=o_name))
+    return best[1]
+
+
+def compute_layout(paper_w, paper_h, d, margin, gap, shape="Round", h=None):
+    """Try portrait/landscape x grid/staggered and keep whichever fits most. ``d`` is the
+    width of the pin's paper shape and ``h`` its height (the same as d for a round pin).
+    """
+    if shape == "Round" or h is None or (shape == "Round" and abs(h - d) < 1e-9):
+        return _compute_round(paper_w, paper_h, d, margin, gap)
+    out = _compute_shape(paper_w, paper_h, shape, round(d, 3), round(h, 3), margin, gap)
+    return dict(out, points=list(out["points"]))
+
+
+def _compute_round(paper_w, paper_h, d, margin, gap):
+    """Round pins: portrait/landscape x grid/staggered, whichever fits most."""
     orients = [("portrait", min(paper_w, paper_h), max(paper_w, paper_h)),
                ("landscape", max(paper_w, paper_h), min(paper_w, paper_h))]
     # Try all four combinations and give each a score; the biggest score wins. Most pins
