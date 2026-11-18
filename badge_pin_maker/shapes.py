@@ -14,6 +14,11 @@ from PIL import Image, ImageDraw
 SHAPES = ["Round", "Square", "Rectangle", "Oval", "Pentagon", "Hexagon", "Triangle", "Heart"]
 DEFAULT_SHAPE = "Round"
 
+# Width and height of each shape's little icon, in the proportions people know it by.
+ICON_RATIO = {"Round": (1, 1), "Square": (1, 1), "Rectangle": (0.68, 1), "Oval": (0.72, 1),
+              "Pentagon": (1, 0.96), "Hexagon": (0.9, 1), "Triangle": (1, 0.87),
+              "Heart": (1, 0.93)}
+
 # Shapes that are always the same proportions, so a custom size asks for just one number
 # (across for round, a side for square and triangle).
 ONE_SIZE = ("Round", "Square", "Triangle")

@@ -41,7 +41,7 @@ from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABE
                          DEFAULT_PAPER, paper_from_saved, pin_from_saved, paper_short,
                          default_pin, sizes_for)
 from ..imaging import Art, load_source, render_art
-from ..shapes import DEFAULT_SHAPE, ONE_SIZE, SHAPES, canvas_points, contains, mask
+from ..shapes import DEFAULT_SHAPE, ICON_RATIO, ONE_SIZE, SHAPES, canvas_points, contains, mask
 from ..layout import compute_layout, fill_order, first_free
 from ..pdf_export import build_pdf
 from ..canvas_files import read_canvas_info
@@ -49,7 +49,7 @@ from ..settings import (RECOVERY_PATH, default_canvases_dir, default_pdf_dir, lo
                         save_settings, tidy_candidates, tidy_legacy)
 from ..system_actions import print_pdf, reveal_folder
 from ..version import ART_CREDIT, version_text
-from . import mascot, theme as T
+from . import mascot, smooth, theme as T
 from .crop_dialog import CropDialog
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
@@ -726,15 +726,16 @@ class BadgeApp(RootBase):
             ttk.Entry(self.paper_custom, textvariable=var, width=6).pack(side="left", padx=4)
         ttk.Label(self.paper_custom, text="mm", style="Muted.TLabel").pack(side="left")
 
-        f = make_card(left, "2 · Pin")
+        f = make_card(left, "2 · Pin Configuration")
         self.card_pin = f.master
         InfoButton(f, self.open_size_guide, tip="Ozzie's size guide", on_tip=self._tip).place(
             relx=1.0, x=0, y=-4, anchor="ne")
         Dropdown(f, self.v_shape, SHAPES, icon="shapes", outer=T.CARD, fill=T.FIELD,
-                 width=262, family=self.base_font[0]).pack(anchor="w")
+                 width=262, family=self.base_font[0],
+                 option_icon=self._shape_icon).pack(anchor="w")
         self.size_dd = Dropdown(f, self.v_pin, list(sizes_for(self.v_shape.get())), icon="badge",
                                 outer=T.CARD, fill=T.FIELD, width=262,
-                                family=self.base_font[0])
+                                family=self.base_font[0], option_icon=self._size_icon)
         self.size_dd.pack(anchor="w", pady=(8, 0))
         self.pin_custom = ttk.Frame(f, style="Card.TFrame")
         self.lbl_d = ttk.Label(self.pin_custom, text="Diameter", style="Card.TLabel")
@@ -856,6 +857,27 @@ class BadgeApp(RootBase):
             self.paper_custom.pack_forget()
             self.v_pw.set(f"{dims[0]:g}")
             self.v_ph.set(f"{dims[1]:g}")
+
+    @staticmethod
+    def _shape_icon(shape, colour, bg):
+        """The little picture of a shape, for the Shape menu."""
+        w, h = ICON_RATIO[shape]
+        return smooth.shape_icon(shape, w, h, 1.0, colour, bg)
+
+    def _size_icon(self, option, colour, bg):
+        """The little picture for one choice in the Size menu: the pin's shape and proportions,
+        drawn smaller for a smaller pin. "Custom" gets a sliders icon.
+        """
+        shape = self.v_shape.get()
+        table = sizes_for(shape)
+        data = table.get(option)
+        if data is None:
+            return smooth.nav_icon("sliders", colour, bg, 20)
+        sizes = [(v[0], v[0] if shape == "Round" else v[1]) for v in table.values() if v]
+        fw, fh = sizes[list(k for k, v in table.items() if v).index(option)]
+        biggest = max(max(a, b) for a, b in sizes)
+        return smooth.shape_icon(shape, fw, fh, 0.55 + 0.45 * max(fw, fh) / biggest,
+                                 colour, bg)
 
     def _shape_changed(self, keep=False):
         """A new shape was picked: offer that shape's sizes, and pick its usual one (unless
