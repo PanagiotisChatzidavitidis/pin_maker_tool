@@ -73,10 +73,11 @@ class SizeGuide(tk.Toplevel):
         table = {k: v for k, v in sizes_for(shape).items() if v is not None}
         rows = []                       # (key, name, finished text, cut text, face, cut dims)
         for key, v in table.items():
+            name = key.split(" – ", 1)[-1]
             if shape == "Round":
-                fw, fh, name, published = v[0], v[0], key.split(" – ", 1)[-1], True
+                fw, fh, published = v[0], v[0], True
             else:
-                fw, fh, name, published = v[0], v[1], v[2], bool(v[3])
+                fw, fh, published = v[0], v[1], bool(v[3])
             cw, ch = cut_dims(shape, fw, fh)
             if shape == "Round":
                 fin, cut = f"{fw:g} mm", f"{cw:g} mm"

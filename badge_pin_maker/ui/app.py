@@ -719,7 +719,7 @@ class BadgeApp(RootBase):
         f = make_card(left, "1 · Paper size")
         self.card_paper = f.master
         Dropdown(f, self.v_paper, list(PAPER_SIZES), icon="page", outer=T.CARD, fill=T.FIELD,
-                 width=262, family=self.base_font[0]).pack(anchor="w")
+                 width=262, family=self.base_font[0], align="left").pack(anchor="w")
         self.paper_custom = ttk.Frame(f, style="Card.TFrame")
         for lbl, var in (("W", self.v_pw), ("H", self.v_ph)):
             ttk.Label(self.paper_custom, text=lbl, style="Card.TLabel").pack(side="left")
@@ -732,10 +732,11 @@ class BadgeApp(RootBase):
             relx=1.0, x=0, y=-4, anchor="ne")
         Dropdown(f, self.v_shape, SHAPES, icon="shapes", outer=T.CARD, fill=T.FIELD,
                  width=262, family=self.base_font[0],
-                 option_icon=self._shape_icon).pack(anchor="w")
+                 option_icon=self._shape_icon, align="left").pack(anchor="w")
         self.size_dd = Dropdown(f, self.v_pin, list(sizes_for(self.v_shape.get())), icon="badge",
                                 outer=T.CARD, fill=T.FIELD, width=262,
-                                family=self.base_font[0], option_icon=self._size_icon)
+                                family=self.base_font[0], option_icon=self._size_icon,
+                                align="left")
         self.size_dd.pack(anchor="w", pady=(8, 0))
         self.pin_custom = ttk.Frame(f, style="Card.TFrame")
         self.lbl_d = ttk.Label(self.pin_custom, text="Diameter", style="Card.TLabel")

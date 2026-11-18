@@ -3,6 +3,7 @@ rectangle helper.
 """
 
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import ttk
 
 from . import smooth, theme as T
@@ -598,12 +599,13 @@ class Dropdown(_Pill):
     """
 
     def __init__(self, parent, variable, options, command=None, width=214, family="TkDefaultFont",
-                 icon="sort", outer=None, fill=None, option_icon=None):
+                 icon="sort", outer=None, fill=None, option_icon=None, align="right"):
         """``option_icon(option, colour, bg)``, when given, returns a picture for each choice:
         it is shown beside every row and in the pill for the current choice.
         """
         super().__init__(parent, width, outer, fill)
         self.option_icon = option_icon
+        self.align = align                 # which edge of the pill the open list lines up with
         self.var, self.options, self.command, self.family = variable, list(options), command, family
         self.popup = None
         self._imgs = {k: smooth.nav_icon(k, T.MUTED, self.fill, 18) for k in (icon, "chevron")}
@@ -621,7 +623,7 @@ class Dropdown(_Pill):
     def _sync(self):
         """Show what is chosen now."""
         try:
-            self.itemconfig(self._text, text=self.var.get())
+            self.itemconfig(self._text, text=self.var.get().replace(" – ", "  ·  "))
             if self.option_icon:
                 self._cur_icon = self.option_icon(self.var.get(), T.MUTED, self.fill)
                 self.itemconfig(self._pic, image=self._cur_icon)
@@ -657,6 +659,11 @@ class Dropdown(_Pill):
         blank = smooth.nav_icon("check", T.CARD, T.CARD, 18)
         pop._imgs = [check, blank]
         rows = []
+        # Choices written "<size> – <name>" are set in two tidy columns, so the sizes line up
+        # and the names line up, however long they are.
+        bold = tkfont.Font(family=self.family, size=10, weight="bold")
+        lefts = [o.split(" – ", 1)[0] for o in self.options if " – " in o]
+        col_w = max((bold.measure(t) for t in lefts), default=0) + 12
         for opt in self.options:
             row = tk.Frame(inner, bg=T.CARD, cursor="hand2")
             row.pack(fill="x", padx=6, pady=(6 if opt == self.options[0] else 0,
@@ -669,18 +676,32 @@ class Dropdown(_Pill):
             else:
                 icon = tk.Label(row, image=check if on else blank, bg=T.CARD, bd=0)
             icon.pack(side="left", padx=(8, 6), pady=7)
-            text = tk.Label(row, text=opt, bg=T.CARD, fg=T.TEAL if on else T.TEXT, anchor="w",
-                            font=(self.family, 10, "bold" if on else "normal"))
+            weight = "bold" if on else "normal"
+            extra = []
+            if " – " in opt:
+                size, name = opt.split(" – ", 1)
+                cell = tk.Frame(row, bg=T.CARD, width=col_w, height=bold.metrics("linespace"))
+                cell.pack_propagate(False)
+                cell.pack(side="left")
+                size_l = tk.Label(cell, text=size, bg=T.CARD, anchor="w",
+                                  fg=T.TEAL if on else T.MUTED, font=(self.family, 10, weight))
+                size_l.pack(fill="both", expand=True)
+                text = tk.Label(row, text=name, bg=T.CARD, fg=T.TEAL if on else T.TEXT,
+                                anchor="w", font=(self.family, 10, weight))
+                extra = [cell, size_l]
+            else:
+                text = tk.Label(row, text=opt, bg=T.CARD, fg=T.TEAL if on else T.TEXT,
+                                anchor="w", font=(self.family, 10, weight))
             text.pack(side="left", fill="x", expand=True, padx=(0, 16))
-            rows.append((row, icon, text))
-            for w in (row, icon, text):
+            rows.append((row, icon, text, extra))
+            for w in (row, icon, text, *extra):
                 w.bind("<Button-1>", lambda e, o=opt: self._choose(o))
                 w.bind("<Enter>", lambda e, r=row: self._tint(r, True))
                 w.bind("<Leave>", lambda e, r=row: self._tint(r, False))
         pop._rows = rows
         pop.update_idletasks()
         w = max(pop.winfo_reqwidth(), self.winfo_width())   # never narrower than the pill
-        x = self.winfo_rootx() + self.winfo_width() - w
+        x = self.winfo_rootx() + (0 if self.align == "left" else self.winfo_width() - w)
         y = self.winfo_rooty() + self.winfo_height() + 6
         pop.geometry(f"{w}x{pop.winfo_reqheight()}+{x}+{y}")
         pop.deiconify()
@@ -694,9 +715,9 @@ class Dropdown(_Pill):
         if self.popup is None:
             return
         col = T.HOVER if on else T.CARD
-        for r, icon, text in self.popup._rows:
+        for r, icon, text, extra in self.popup._rows:
             if r is row:
-                for w in (r, icon, text):
+                for w in (r, icon, text, *extra):
                     w.config(bg=col)
 
     def _lost_focus(self):
