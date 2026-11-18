@@ -11,6 +11,7 @@ import tkinter as tk
 
 from PIL import Image, ImageDraw, ImageTk
 
+from .. import shapes
 from . import mascot
 
 SS = 4                                   # paint at 4x, then shrink
@@ -176,6 +177,30 @@ def plus_icon(colour, bg, size=84):
         _line(d, k, [(m - r, m), (m + r, m)], colour, 3)
         _line(d, k, [(m, m - r), (m, m + r)], colour, 3)
     return _make(key, size, size, bg, paint)
+
+
+def shape_icon(shape, w, h, scale, colour, bg, size=20):
+    """A small picture of a pin shape: its outline with a soft fill. ``w`` : ``h`` is its
+    proportions and ``scale`` (0 to 1) how much of the square it fills, so a row of these can
+    show small pins smaller than big ones.
+    """
+    key = ("shape", shape, round(w, 3), round(h, 3), round(scale, 2), colour, bg, size)
+
+    def paint(d, k):
+        big = max(w, h)
+        f = (size - 4) * max(0.35, min(1.0, scale)) / big
+        pts = [(size / 2 + x * f, size / 2 + y * f) for x, y in shapes.outline(shape, w, h)]
+        xy = [(x * k, y * k) for x, y in pts]
+        d.polygon(xy, fill=_mix_col(bg, colour, 0.22))
+        d.line(xy + [xy[0]], fill=colour, width=max(1, round(1.6 * k)), joint="curve")
+    return _make(key, size, size, bg, paint)
+
+
+def _mix_col(a, b, t):
+    """The colour ``t`` of the way from ``a`` to ``b`` (both "#rrggbb")."""
+    ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
+    cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(ca, cb))
 
 
 def nav_icon(kind, colour, bg, size=20):

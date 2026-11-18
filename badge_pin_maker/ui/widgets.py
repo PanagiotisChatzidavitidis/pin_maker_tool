@@ -598,12 +598,16 @@ class Dropdown(_Pill):
     """
 
     def __init__(self, parent, variable, options, command=None, width=214, family="TkDefaultFont",
-                 icon="sort", outer=None, fill=None):
+                 icon="sort", outer=None, fill=None, option_icon=None):
+        """``option_icon(option, colour, bg)``, when given, returns a picture for each choice:
+        it is shown beside every row and in the pill for the current choice.
+        """
         super().__init__(parent, width, outer, fill)
+        self.option_icon = option_icon
         self.var, self.options, self.command, self.family = variable, list(options), command, family
         self.popup = None
         self._imgs = {k: smooth.nav_icon(k, T.MUTED, self.fill, 18) for k in (icon, "chevron")}
-        self.create_image(16, self.H // 2, image=self._imgs[icon], anchor="w")
+        self._pic = self.create_image(16, self.H // 2, image=self._imgs[icon], anchor="w")
         self._text = self.create_text(44, self.H // 2, anchor="w", fill=T.TEXT, font=(family, 10))
         self.create_image(width - 20, self.H // 2, image=self._imgs["chevron"])
         self.config(cursor="hand2")
@@ -618,6 +622,9 @@ class Dropdown(_Pill):
         """Show what is chosen now."""
         try:
             self.itemconfig(self._text, text=self.var.get())
+            if self.option_icon:
+                self._cur_icon = self.option_icon(self.var.get(), T.MUTED, self.fill)
+                self.itemconfig(self._pic, image=self._cur_icon)
         except tk.TclError:
             pass
 
@@ -655,7 +662,12 @@ class Dropdown(_Pill):
             row.pack(fill="x", padx=6, pady=(6 if opt == self.options[0] else 0,
                                              6 if opt == self.options[-1] else 0))
             on = opt == self.var.get()
-            icon = tk.Label(row, image=check if on else blank, bg=T.CARD, bd=0)
+            if self.option_icon:
+                pic = self.option_icon(opt, T.TEAL if on else T.MUTED, T.CARD)
+                pop._imgs.append(pic)
+                icon = tk.Label(row, image=pic, bg=T.CARD, bd=0)
+            else:
+                icon = tk.Label(row, image=check if on else blank, bg=T.CARD, bd=0)
             icon.pack(side="left", padx=(8, 6), pady=7)
             text = tk.Label(row, text=opt, bg=T.CARD, fg=T.TEAL if on else T.TEXT, anchor="w",
                             font=(self.family, 10, "bold" if on else "normal"))
