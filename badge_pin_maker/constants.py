@@ -45,13 +45,13 @@ CUSTOM_PAPER = "Custom – Dream Batch"
 # The paper has to be bigger than the pin so it can wrap around the edge and fold behind. The
 # printed sizes follow what pin-badge machine makers publish for each finished size.
 PIN_SIZES = {
-    "25 mm – Donut Hole": (25, "Tiny and sugary", 35),
+    "25 mm – Boba Pearl": (25, "Tiny and chewy", 35),
     "32 mm – Macaron": (32, "Small and sweet", 44),
-    "38 mm – Mochi": (38, "Soft and squishy", 50),
-    "44 mm – Strawberry Tart": (44, "A classic treat", 55),
+    "38 mm – Oreo": (38, "Twist, lick, dunk", 50),
+    "44 mm – Pancake": (44, "Stacked and syrupy", 55),
     "50 mm – Doughnut": (50, "Sprinkles on top", 60),
-    "58 mm – Cinnamon Roll": (58, "The crowd favourite", 70),
-    "75 mm – Cheesecake": (75, "A whole giant slice", 85),
+    "58 mm – Cinnamon Roll": (58, "Swirly crowd favourite", 70),
+    "75 mm – Pizza Pie": (75, "The whole big pie", 85),
     "Custom – Chef's Special": None,
 }
 DEFAULT_PIN = "32 mm – Macaron"
