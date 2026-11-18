@@ -4,6 +4,8 @@ Nothing in here changes while the program runs. Lengths are in millimetres unles
 says otherwise (MM converts millimetres into PDF points).
 """
 
+import re
+
 import platform
 
 
@@ -43,11 +45,11 @@ CUSTOM_PAPER = "Custom – Dream Batch"
 # The paper has to be bigger than the pin so it can wrap around the edge and fold behind. The
 # printed sizes follow what pin-badge machine makers publish for each finished size.
 PIN_SIZES = {
-    "25 mm – Marshmallow": (25, "Tiny and soft", 35),
+    "25 mm – Donut Hole": (25, "Tiny and sugary", 35),
     "32 mm – Macaron": (32, "Small and sweet", 44),
-    "38 mm – Mochi": (38, "Squishy medium", 50),
+    "38 mm – Mochi": (38, "Soft and squishy", 50),
     "44 mm – Strawberry Tart": (44, "A classic treat", 55),
-    "50 mm – Cupcake": (50, "Big and fluffy", 60),
+    "50 mm – Doughnut": (50, "Sprinkles on top", 60),
     "58 mm – Cinnamon Roll": (58, "The crowd favourite", 70),
     "75 mm – Cheesecake": (75, "A whole giant slice", 85),
     "Custom – Chef's Special": None,
@@ -63,7 +65,6 @@ _OLD_PAPER_DIMS = {
     "Tabloid (11x17 in)": (279.4, 431.8), "4x6 in photo": (101.6, 152.4),
     "5x7 in photo": (127.0, 177.8),
 }
-_OLD_PIN = {f"{fin} mm pin": key for key, v in PIN_SIZES.items() if v for fin in [v[0]]}
 
 
 def paper_from_saved(name):
@@ -79,11 +80,25 @@ def paper_from_saved(name):
 
 
 def pin_from_saved(name, shape="Round"):
-    """Turn a saved pin size name (from any version) into one of today's names for ``shape``."""
+    """Turn a saved pin size name (from any version) into one of today's names for ``shape``.
+    Names are matched by their size, so "32 mm pin" or "32 mm – Macaron" both find the 32 mm
+    pin even after the pin got a new name.
+    """
     table = sizes_for(shape)
     if name in table:
         return name
-    return _OLD_PIN.get(name, CUSTOM_PIN) if shape == "Round" else CUSTOM_PIN
+    want = _numbers(str(name or "").split(" – ")[0])
+    for key in table:
+        have = _numbers(key.split(" – ")[0])
+        if table[key] is not None and want and have and have[0] == want[0] \
+                and (len(want) == 1 or len(have) == 1 or have == want):
+            return key
+    return CUSTOM_PIN
+
+
+def _numbers(text):
+    """The numbers in a size label: "50.8 × 76.2 mm" -> [50.8, 76.2]."""
+    return [float(x) for x in re.findall(r"\d+(?:\.\d+)?", text)]
 
 
 def paper_short(name):
@@ -92,19 +107,18 @@ def paper_short(name):
 
 
 def pin_short(name, diameter=None, shape="Round", height=None):
-    """A short pin label for cards: "Macaron · 32 mm" (round), "Heart · 53 × 57.5 mm",
-    or "Chef's Special · 40 mm" for a custom size.
+    """A short pin label for cards: "Macaron · 32 mm", "Palmier · 57 × 52 mm" or, for a
+    custom size, "Chef's Special · 40 mm".
     """
     data = sizes_for(shape).get(name)
-    if shape == "Round":
-        if data is None:
-            return f"Chef's Special · {diameter} mm" if diameter else "Chef's Special"
-        return f"{name.split(' – ', 1)[-1]} · {data[0]:g} mm"
     if data is None:
-        dims = f"{diameter} × {height} mm" if diameter and height else "custom"
-    else:
-        dims = name
-    return f"{shape} · {dims}"
+        if not diameter:
+            return "Chef's Special"
+        dims = f"{diameter} mm" if shape in ("Round", "Square", "Triangle") or not height \
+            else f"{diameter} × {height} mm"
+        return f"Chef's Special · {dims}"
+    size, _, label = name.partition(" – ")
+    return f"{label} · {size}"
 
 
 def cut_size(finished):
@@ -124,54 +138,65 @@ def cut_size(finished):
 # not published it is worked out from the finished size with the extra edge below.
 _OTHER = {
     "Square": [
-        (25.4, 25.4, "1 in · American Button Machines", None),
-        (37, 37, "Brildor", None),
-        (50.8, 50.8, "2 in · American Button Machines", (69.0, 69.0)),
-        (58, 58, "Brildor", None),
-        (63.5, 63.5, "2.5 in · American Button Machines", None),
-        (76.2, 76.2, "3 in · American Button Machines", None),
+        (25.4, 25.4, "Sugar Cube", "One lump or two?", "1 in · American Button Machines", None),
+        (37, 37, "Fudge", "Rich and melty", "Brildor", None),
+        (50.8, 50.8, "Brownie", "Chewy and classic", "2 in · American Button Machines",
+         (69.0, 69.0)),
+        (58, 58, "Waffle", "Golden and gridded", "Brildor", None),
+        (63.5, 63.5, "Cornbread", "Warm and crumbly", "2.5 in · American Button Machines", None),
+        (76.2, 76.2, "Focaccia", "A big, olive-oily slab", "3 in · American Button Machines",
+         None),
     ],
     "Rectangle": [
-        (44.5, 69.9, "1.75 × 2.75 in · American Button Machines", None),
-        (50, 90, "Brildor", None),
-        (50.8, 76.2, "2 × 3 in · American Button Machines", (70.5, 95.8)),
-        (63.5, 88.9, "2.5 × 3.5 in · American Button Machines", None),
-        (38.1, 114.3, "1.5 × 4.5 in · American Button Machines", None),
+        (44.5, 69.9, "Biscotti", "Perfect for dunking",
+         "1.75 × 2.75 in · American Button Machines", None),
+        (50.8, 76.2, "Pop-Tart", "Toasty with a filling",
+         "2 × 3 in · American Button Machines", (70.5, 95.8)),
+        (38.1, 114.3, "Éclair", "Long and cream-filled",
+         "1.5 × 4.5 in · American Button Machines", None),
+        (50, 90, "Chocolate Bar", "Snap! Snack time", "Brildor", None),
+        (63.5, 88.9, "Loaf Cake", "Sliced nice and thick",
+         "2.5 × 3.5 in · American Button Machines", None),
     ],
     "Oval": [
-        (45, 65, "Brildor, standing up", None),
-        (44.5, 69.9, "1.75 × 2.75 in · American Button Machines", None),
+        (45, 65, "Jelly Bean", "Small and chewy", "Brildor, standing up", None),
+        (44.5, 69.9, "Empanada", "Folded with love",
+         "1.75 × 2.75 in · American Button Machines", None),
     ],
     "Pentagon": [
-        (58, 60, "ChiButtons", (70.0, 75.0)),
+        (58, 60, "Gingerbread House", "Home sweet home", "ChiButtons", (70.0, 75.0)),
     ],
     "Hexagon": [
-        (58, 65, "ChiButtons, point up", None),
-        (66, 58, "Mybuttonmachine, flat on top", None),
+        (58, 65, "Honeycomb", "Crunchy and golden", "ChiButtons, point up", None),
+        (66, 58, "Beehive Cake", "Buzzing with honey", "Mybuttonmachine, flat on top", None),
     ],
     "Triangle": [
-        (40, 34.64, "Brildor, 40 mm sides", None),
+        (40, 34.64, "Nacho Chip", "Crunchy and cheesy", "Brildor, 40 mm sides", None),
     ],
     "Heart": [
-        (53, 57.5, "ChiButtons", (63.0, 70.0)),
-        (57, 52, "Brildor", None),
+        (57, 52, "Palmier", "Flaky and buttery", "Brildor", None),
+        (53, 57.5, "Linzer Cookie", "Jam in the middle", "ChiButtons", (63.0, 70.0)),
     ],
 }
-_COMMON_PIN = {"Square": "50.8 × 50.8 mm", "Rectangle": "50.8 × 76.2 mm"}
+_COMMON_PIN = {"Square": "50.8 mm – Brownie", "Rectangle": "50.8 × 76.2 mm – Pop-Tart"}
 _WRAP = {"Square": None, "Rectangle": None, "Oval": 5.5, "Pentagon": 6.5, "Hexagon": 6.0,
          "Triangle": 7.0, "Heart": 5.5}        # paper edge (mm) on every side, if not published
 
 
-def _size_key(fw, fh):
+def _size_label(shape, fw, fh):
+    """The size as shown in the menu: one number for shapes with a single size, else W × H."""
+    if shape in ("Round", "Square", "Triangle"):
+        return f"{fw:g} mm"
     return f"{fw:g} × {fh:g} mm"
 
 
 def _build_tables():
+    """name -> data for every shape, smallest pin first. A name is "<size> – <food>"."""
     tables = {"Round": dict(PIN_SIZES)}
     for shape, rows in _OTHER.items():
         t = {}
-        for fw, fh, caption, cut in rows:
-            t[_size_key(fw, fh)] = (fw, fh, caption, cut)
+        for fw, fh, food, caption, source, cut in sorted(rows, key=lambda r: r[0] * r[1]):
+            t[f"{_size_label(shape, fw, fh)} – {food}"] = (fw, fh, caption, cut, source)
         t[CUSTOM_PIN] = None
         tables[shape] = t
     return tables
@@ -204,8 +229,8 @@ def cut_dims(shape, fw, fh):
         d = cut_size(fw)
         return d, d
     for row in _OTHER[shape]:
-        if abs(row[0] - fw) < 1e-6 and abs(row[1] - fh) < 1e-6 and row[3]:
-            return row[3]
+        if abs(row[0] - fw) < 1e-6 and abs(row[1] - fh) < 1e-6 and row[5]:
+            return row[5]
     wrap = _WRAP[shape]
     if wrap is None:                                   # square and rectangle corners need more
         wrap = 4.7 + 0.1 * min(fw, fh)
