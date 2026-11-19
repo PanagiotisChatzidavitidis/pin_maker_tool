@@ -102,7 +102,7 @@ class Art:
         """
         return (id(self.source), round(self.zoom, 4), round(self.cx, 4),
                 round(self.cy, 4), round(self.angle, 2), bool(self.flip),
-                None if self.ring is None else (round(self.ring[0], 2), tuple(self.ring[1])))
+                ring_mod.key(self.ring))
 
     def ppi(self, d_mm, aspect=1.0):
         """Effective print resolution of the image on a pin d_mm wide (width / height = aspect)."""

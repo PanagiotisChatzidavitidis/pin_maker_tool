@@ -13,7 +13,7 @@ from ..constants import LOW_PPI
 from ..imaging import base_crop, ppi_for, render_transform
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
-from .ring_picker import RingPicker, Swatch
+from .ring_studio import RingStudio
 from .widgets import FlatSlider, Toggle
 
 
@@ -80,17 +80,19 @@ class CropDialog(tk.Toplevel):
 
         # the ring inside the pin's edge (None = no ring); see ring.py
         self.r_lo, self.r_hi = ring_mod.limits(pin["fw"], pin["fh"])
-        had = art.ring if art else None
+        had = ring_mod.as_ring(art.ring) if art else None
         self.v_ring = tk.BooleanVar(value=bool(had))
         self.v_ring_mm = tk.DoubleVar(value=ring_mod.clamp(
-            had[0] if had else ring_mod.default_mm(pin["fw"], pin["fh"]),
+            had.mm if had else ring_mod.default_mm(pin["fw"], pin["fh"]),
             pin["fw"], pin["fh"]))
-        self.ring_col = tuple(had[1]) if had else (128, 128, 128)
-        self._ring_chosen = bool(had)        # True once the colour is picked (or came saved)
+        self.ring_col = tuple(had.col) if had else (128, 128, 128)
+        self.ring_material = had.material if had else "glossy"
+        self.ring_image = had.image if had else None
+        self.ring_scale = had.scale if had else 0.3
         self._palette = []
         self._plain = None                   # the picture without the ring, as last drawn
-        self._ring_masks = {}
-        self._picker = None
+        self.studio = None                   # the Ring Studio panel, once opened
+        self._grew = 0                       # how much wider the window got for the panel
         self._bold = tkfont.nametofont("TkDefaultFont").copy()
         self._bold.configure(weight="bold")
 
@@ -98,7 +100,7 @@ class CropDialog(tk.Toplevel):
         self.cw, self.ch = self.CW, self.CH
 
         # ---- header: title on the left, print quality on the right
-        head = ttk.Frame(self, padding=(20, 16, 20, 8))
+        head = self._head = ttk.Frame(self, padding=(20, 16, 20, 8))
         head.pack(side="top", fill="x")
         titles = ttk.Frame(head)
         titles.pack(side="left")
@@ -163,16 +165,15 @@ class CropDialog(tk.Toplevel):
             row=2, column=0, sticky="w", pady=(8, 0))
         Toggle(card, self.v_ring, command=self._ring_toggled, bg=T.CARD).grid(
             row=2, column=1, pady=(8, 0))
-        self.ring_hint = ttk.Label(card, text="Add a coloured border inside the edge",
+        rr = ttk.Frame(card, style="Card.TFrame")
+        rr.grid(row=2, column=2, columnspan=3, sticky="ew", padx=10, pady=(8, 0))
+        self.ring_hint = ttk.Label(rr, text="Add a coloured border inside the edge",
                                    style="Muted.TLabel")
-        self.ring_hint.grid(row=2, column=2, sticky="w", padx=10, pady=(8, 0))
-        self.ring_slider = FlatSlider(card, self.v_ring_mm, self.r_lo, self.r_hi)
-        self.ring_slider.grid(row=2, column=2, sticky="ew", padx=6, pady=(8, 0))
-        self.ring_swatch = Swatch(card, self.ring_col, self._open_picker)
-        self.ring_swatch.grid(row=2, column=3, pady=(8, 0))
-        self.ring_lbl = ttk.Label(card, text="", style="Value.TLabel", width=6, anchor="e")
-        self.ring_lbl.grid(row=2, column=4, sticky="e", pady=(8, 0))
-        self.v_ring_mm.trace_add("write", lambda *_: self.update_view())
+        self.ring_hint.pack(side="left")
+        self.ring_btn = ttk.Button(rr, text="Style ›", style="Soft.TButton",
+                                   command=self.studio_open)
+        self.ring_lbl = ttk.Label(rr, text="", style="Value.TLabel")
+        self.v_ring_mm.trace_add("write", lambda *_: self._ring_slid())
         self._ring_show()
 
         r3 = ttk.Frame(card, style="Card.TFrame")
@@ -192,8 +193,10 @@ class CropDialog(tk.Toplevel):
                       style="Muted.TLabel").pack(side="left", padx=6)
 
         # ---- the picture area (gets all the spare room when the window grows)
-        stage = tk.Frame(self, bg=T.BORDER)
-        stage.pack(side="top", fill="both", expand=True, padx=20, pady=(2, 0))
+        self.mid = tk.Frame(self, bg=T.BG)
+        self.mid.pack(side="top", fill="both", expand=True, padx=20, pady=(2, 0))
+        stage = tk.Frame(self.mid, bg=T.BORDER)
+        stage.pack(side="left", fill="both", expand=True)
         self.cv = tk.Canvas(stage, width=self.CW, height=self.CH, bg=T.CARD,
                             highlightthickness=0, cursor="fleur")
         self.cv.pack(fill="both", expand=True, padx=1, pady=1)
@@ -207,7 +210,6 @@ class CropDialog(tk.Toplevel):
         self.cv.bind("<Button-5>", lambda e: self._wheel(e, -1))
         self.cv.bind("<Configure>", self._on_canvas_resize)
         self.bind("<Escape>", self._escape)
-        self.bind("<ButtonPress-1>", self._maybe_close_picker, add="+")
         self.bind("<Return>", lambda e: self.on_ok())
         for key, dx, dy in (("Left", -1, 0), ("Right", 1, 0), ("Up", 0, -1), ("Down", 0, 1)):
             self.bind(f"<{key}>", self._key(lambda dx=dx, dy=dy: self._pan(2 * dx, 2 * dy)))
@@ -301,7 +303,6 @@ class CropDialog(tk.Toplevel):
                                Image.new("L", size, self.OUT_A), cut)
         self.alpha = Image.composite(Image.new("L", size, 0), ring, safe)
         self.dim = Image.new("RGB", size, T.CROP_DIM)
-        self._ring_masks = {}
 
         self.cv.delete("all")
         self._img_item = self.cv.create_image(0, 0, anchor="nw")
@@ -526,8 +527,6 @@ class CropDialog(tk.Toplevel):
         zoom, angle = self.zoom, self.v_angle.get()
         self.zoom_lbl.config(text=f"{zoom * 100:.0f}%")
         self.angle_lbl.config(text=f"{angle:.0f}°")
-        if self.v_ring.get():
-            self.ring_lbl.config(text=f"{self._ring_mm():.1f} mm")
 
         ppi = ppi_for(self.src.full.size, zoom, self.d, self.aspect)
         if ppi >= 300:
@@ -561,89 +560,139 @@ class CropDialog(tk.Toplevel):
         """The thickness now, held inside the allowed range."""
         return ring_mod.clamp(self.v_ring_mm.get(), self.pin["fw"], self.pin["fh"])
 
+    def cur_ring(self):
+        """The ring as it is now."""
+        return ring_mod.Ring(round(self._ring_mm(), 2), tuple(self.ring_col),
+                             self.ring_material, self.ring_image, self.ring_scale)
+
     def _with_ring(self, img):
         """``img`` (the picture area) with the ring painted over it."""
-        mm = round(self._ring_mm() * 20) / 20
-        m = self._ring_masks.get(mm)
-        if m is None:
-            self._ring_masks.clear()
-            mx, my = self.vx0 + self.vw / 2, self.vy0 + self.vh / 2
-            m = ring_mod.mask(self.shape, self.pin["fw"], self.pin["fh"], mm,
-                              (self.cw, self.ch), self.vw / self.d, self.vh / self.dh,
-                              mx, my, ss=2)
-            self._ring_masks[mm] = m
-        return Image.composite(img.convert("RGB"),
-                               Image.new("RGB", img.size, self.ring_col), m)
+        mx, my = self.vx0 + self.vw / 2, self.vy0 + self.vh / 2
+        surface, inside = ring_mod.layer(
+            self.cur_ring(), self.shape, self.pin["fw"], self.pin["fh"], (self.cw, self.ch),
+            self.vw / self.d, self.vh / self.dh, mx, my)
+        return Image.composite(img.convert("RGB"), surface, inside)
+
+    def view_picture(self):
+        """What is showing on the pin right now (without the ring), for previews."""
+        if self._plain is None:
+            return None
+        box = (int(self.vx0), int(self.vy0), int(self.vx0 + self.vw), int(self.vy0 + self.vh))
+        return self._plain.crop(box).convert("RGB")
+
+    def palette(self):
+        """The main colours of what shows on the pin (best ring colour first)."""
+        if not self._palette:
+            pic = self.view_picture()
+            if pic is not None:
+                self._palette = ring_mod.dominant_colours(pic)
+        return self._palette
 
     def _ring_show(self):
-        """Show the slider, swatch and size while the ring is on, a hint while it is off."""
+        """Show the style button and a short summary while the ring is on, a hint while off."""
         on = self.v_ring.get()
-        for w in (self.ring_slider, self.ring_swatch):
-            (w.grid if on else w.grid_remove)()
-        (self.ring_hint.grid_remove if on else self.ring_hint.grid)()
-        self.ring_lbl.config(text=f"{self._ring_mm():.1f} mm" if on else "")
+        if on:
+            self.ring_hint.pack_forget()
+            self.ring_lbl.config(text=self._summary())
+            self.ring_lbl.pack(side="left")
+            self.ring_btn.pack(side="left", padx=(12, 0))
+        else:
+            self.ring_lbl.pack_forget()
+            self.ring_btn.pack_forget()
+            self.ring_hint.pack(side="left")
 
-    def _refresh_palette(self):
-        """Pick out the main colours of what is showing on the pin right now."""
-        if self._plain is None:
-            return
-        box = (int(self.vx0), int(self.vy0), int(self.vx0 + self.vw), int(self.vy0 + self.vh))
-        self._palette = ring_mod.dominant_colours(self._plain.crop(box))
+    def _summary(self):
+        if self.ring_image:
+            return f"Your pattern · {self._ring_mm():.1f} mm"
+        return f"{ring_mod.MATERIAL_NAMES.get(self.ring_material, '')} · {self._ring_mm():.1f} mm"
+
+    def _ring_slid(self):
+        self.ring_lbl.config(text=self._summary()) if self.v_ring.get() else None
+        self.update_view()
+        if self.studio is not None:
+            self.studio.sync()
 
     def _ring_toggled(self):
-        """The switch was clicked. Switching on picks a colour that suits the picture."""
+        """The switch was clicked. Switching on picks a colour that suits the picture and opens
+        the Ring Studio; switching off closes it.
+        """
         if self.v_ring.get():
-            self._refresh_palette()
-            if not self._ring_chosen and self._palette:
-                self.ring_col = self._palette[0]
-                self.ring_swatch.set(self.ring_col)
+            self.match_picture(first=True)
+            self.studio_open()
         else:
-            self._close_picker()
+            self.studio_close()
         self._ring_show()
         self.update_view(fast=False)
 
-    def _open_picker(self):
-        """Show the colour card above the swatch."""
-        if self._picker is not None:
-            self._close_picker()
-            return
-        self._refresh_palette()
-        self._picker = RingPicker(self, self.ring_col, self._palette, self._picked,
-                                  self._close_picker)
-        self.update_idletasks()
-        sw = self.ring_swatch
-        x = sw.winfo_rootx() - self.winfo_rootx() + sw.winfo_width()
-        y = sw.winfo_rooty() - self.winfo_rooty() - 6
-        self._picker.place(x=x, y=y, anchor="se")
-        self._picker.lift()
+    def match_picture(self, first=False):
+        """Use the colour that suits the picture best, in the Gloss material."""
+        self._palette = []
+        col = (self.palette() or [(128, 128, 128)])[0]
+        self.ring_change(col=col, **({"material": "glossy", "image": None} if first else {}))
 
-    def _close_picker(self):
-        if self._picker is not None:
-            self._picker.destroy()
-            self._picker = None
-
-    def _picked(self, rgb):
-        """A colour was chosen in the card."""
-        self.ring_col = tuple(rgb)
-        self._ring_chosen = True
-        self.ring_swatch.set(self.ring_col)
+    def ring_change(self, **kw):
+        """Change part of the ring (material=, col=, image=, scale=, mm=) and show it."""
+        if "col" in kw:
+            self.ring_col = tuple(kw["col"])
+        if "material" in kw:
+            self.ring_material = kw["material"]
+        if "image" in kw:
+            self.ring_image = kw["image"]
+        if "scale" in kw:
+            self.ring_scale = float(kw["scale"])
+        if "mm" in kw:
+            self.v_ring_mm.set(ring_mod.clamp(kw["mm"], self.pin["fw"], self.pin["fh"]))
+        if not self.v_ring.get():
+            self.v_ring.set(True)
+        self._ring_show()
         self.update_view()
+        if self.studio is not None:
+            self.studio.sync()
 
-    def _maybe_close_picker(self, e):
-        """A click anywhere but the card or the swatch closes the card."""
-        if self._picker is None:
-            return
-        w = e.widget
-        while w is not None:
-            if w is self._picker or w is self.ring_swatch:
-                return
-            w = getattr(w, "master", None)
-        self._close_picker()
+    def apply_theme(self, i):
+        """One-tap style: material, colour and thickness together."""
+        _name, mat, col, share = ring_mod.THEMES[i]
+        col = col or (self.palette() or [(128, 128, 128)])[0]
+        self.ring_change(material=mat, col=col, image=None,
+                         mm=ring_mod.default_mm(self.pin["fw"], self.pin["fh"], share))
+
+    def ring_off(self):
+        """Remove the ring."""
+        self.v_ring.set(False)
+        self.studio_close()
+        self._ring_show()
+        self.update_view(fast=False)
+
+    def studio_open(self):
+        """Show the Ring Studio beside the picture (the window grows to make room)."""
+        if self.studio is None:
+            self.studio = RingStudio(self, self)
+        if not self.studio.winfo_ismapped():
+            self.studio.pack(side="right", fill="y", padx=(0, 20), pady=(16, 16),
+                             before=self._head)
+            self.update_idletasks()
+            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+            w, h = self.winfo_width(), self.winfo_height()
+            nw = min(w + RingStudio.W + 20, sw - 40)
+            nh = min(max(h, 780), sh - 110)
+            self._grew = nw - w
+            x = max(0, min(self.winfo_x(), sw - nw - 10))
+            y = max(0, min(self.winfo_y(), sh - nh - 60))
+            self.geometry(f"{nw}x{nh}+{x}+{y}")
+        self.studio.refresh()
+
+    def studio_close(self):
+        """Hide the Ring Studio and give the window its width back."""
+        if self.studio is not None and self.studio.winfo_ismapped():
+            self.studio.pack_forget()
+            w, h = self.winfo_width(), self.winfo_height()
+            self.geometry(f"{max(620, w - self._grew)}x{h}+{self.winfo_x()}+{self.winfo_y()}")
+            self._grew = 0
 
     def _escape(self, _e=None):
-        """Escape closes the colour card first, then the window."""
-        if self._picker is not None:
-            self._close_picker()
+        """Escape closes the Ring Studio first, then the window."""
+        if self.studio is not None and self.studio.winfo_ismapped():
+            self.studio_close()
         else:
             self.destroy()
 
@@ -666,6 +715,11 @@ class CropDialog(tk.Toplevel):
                 except tk.TclError:
                     pass
         self._hq_job = self._cfg_job = self._anim_job = self._guide_job = None
+        if self.studio is not None and self.studio._job is not None:
+            try:
+                self.after_cancel(self.studio._job)
+            except tk.TclError:
+                pass
         super().destroy()
 
     def on_ok(self):
@@ -686,7 +740,7 @@ class CropDialog(tk.Toplevel):
                     ok="Okay, add them", cancel="Go back"):
                 return
         copies = max(1, min(self.max_copies, copies)) if self.max_copies > 0 else 1
-        ring = (round(self._ring_mm(), 2), tuple(self.ring_col)) if self.v_ring.get() else None
+        ring = self.cur_ring() if self.v_ring.get() else None
         self.result = (self.zoom, self.cx, self.cy, self.v_angle.get(), copies,
                        self.flipped, ring)
         self.destroy()

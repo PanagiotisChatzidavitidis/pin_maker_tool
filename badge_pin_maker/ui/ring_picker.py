@@ -26,38 +26,18 @@ def _disc(size, fill, outline, ring_w=2):
     return ImageTk.PhotoImage(big.resize((size, size), Image.LANCZOS))
 
 
-class Swatch(tk.Canvas):
-    """A round button showing the ring's colour."""
-    SIZE = 30
-
-    def __init__(self, parent, colour, command, bg=None):
-        super().__init__(parent, width=self.SIZE + 4, height=self.SIZE + 4,
-                         bg=bg or T.CARD, highlightthickness=0, cursor="hand2")
-        self.command = command
-        self._img = None
-        self.set(colour)
-        self.bind("<Button-1>", lambda e: self.command())
-
-    def set(self, colour):
-        self._img = _disc(self.SIZE, ring_mod.to_hex(colour), T.BORDER)
-        self.delete("all")
-        self.create_image(2, 2, anchor="nw", image=self._img)
-
-
 class RingPicker(tk.Frame):
     """The card. ``on_pick(rgb)`` runs on every change; ``on_close()`` when it should go."""
-    W = 236
+    W = 280
     BAR = 20
 
-    def __init__(self, parent, colour, palette, on_pick, on_close):
-        super().__init__(parent, bg=T.CARD, highlightthickness=1,
-                         highlightbackground=T.BORDER, padx=12, pady=10)
-        self.on_pick, self.on_close = on_pick, on_close
+    def __init__(self, parent, colour, palette, on_pick, bg=None):
+        super().__init__(parent, bg=bg or T.CARD)
+        self.on_pick = on_pick
         r, g, b = (v / 255 for v in colour)
         self.h, self.l, self.s = colorsys.rgb_to_hls(r, g, b)
         self.s = max(self.s, 0.35)
 
-        tk.Label(self, text="Ring colour", bg=T.CARD, fg=T.MUTED, anchor="w").pack(fill="x")
         self.hue = tk.Canvas(self, width=self.W, height=self.BAR + 6, bg=T.CARD,
                              highlightthickness=0, cursor="hand2")
         self.hue.pack(pady=(6, 4))
@@ -70,16 +50,26 @@ class RingPicker(tk.Frame):
 
         tk.Label(self, text="From your picture", bg=T.CARD, fg=T.MUTED, anchor="w").pack(
             fill="x")
-        row = tk.Frame(self, bg=T.CARD)
-        row.pack(fill="x", pady=(6, 0))
-        self._chips = []
-        for col in palette[:6]:
+        self._row = tk.Frame(self, bg=T.CARD)
+        self._row.pack(fill="x", pady=(6, 0))
+        self.set_palette(palette)
+        self._draw()
+
+    def set_palette(self, palette):
+        """Show these picture colours as one-click chips."""
+        for c in self._row.winfo_children():
+            c.destroy()
+        for col in palette[:7]:
             img = _disc(28, ring_mod.to_hex(col), T.BORDER)
-            c = tk.Label(row, image=img, bg=T.CARD, cursor="hand2", bd=0)
+            c = tk.Label(self._row, image=img, bg=T.CARD, cursor="hand2", bd=0)
             c.image = img
             c.pack(side="left", padx=(0, 4))
             c.bind("<Button-1>", lambda e, col=col: self._chip(col))
-            self._chips.append(c)
+
+    def set_colour(self, colour):
+        """Move the strips to a colour chosen elsewhere (a style, say)."""
+        self.h, self.l, self.s = colorsys.rgb_to_hls(*(v / 255 for v in colour))
+        self.s = max(self.s, 0.35)
         self._draw()
 
     def _rgb(self):
