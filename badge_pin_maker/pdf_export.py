@@ -22,9 +22,9 @@ from .shapes import outline
 rl_config.useA85 = 0
 
 
-def _pdf_image(art, w, h, dpi):
+def _pdf_image(art, w, h, dpi, face=None):
     """Render at print resolution and embed as high-quality JPEG (small files)."""
-    img = render_art(art, w, dpi / 25.4, h_mm=h)
+    img = render_art(art, w, dpi / 25.4, h_mm=h, face=face)
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=95, subsampling=0)
     buf.seek(0)
@@ -66,7 +66,8 @@ def build_pdf(path, layout, pin, slots, guides=True, dpi=EXPORT_DPI, progress=No
     for idx in range(len(layout["points"])):
         art = slots.get(idx)
         if art is not None and art.key() not in cache:
-            cache[art.key()] = pool.submit(_pdf_image, art, pw, ph, dpi)
+            cache[art.key()] = pool.submit(_pdf_image, art, pw, ph, dpi,
+                                            (shape, pin["fw"], pin["fh"]))
 
     for idx, (cx, cy) in enumerate(layout["points"]):
         art = slots.get(idx)

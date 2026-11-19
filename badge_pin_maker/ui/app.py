@@ -40,6 +40,7 @@ from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABE
                          PAGE_MARGIN, PAPER_SIZES, CANVAS_EXT, cut_dims,
                          DEFAULT_PAPER, paper_from_saved, pin_from_saved, paper_short,
                          default_pin, sizes_for)
+from .. import ring as ring_mod
 from ..imaging import Art, load_source, render_art
 from ..shapes import DEFAULT_SHAPE, ICON_RATIO, ONE_SIZE, SHAPES, canvas_points, contains, mask
 from ..layout import compute_layout, fill_order, first_free
@@ -64,6 +65,14 @@ from .widgets import Dropdown, InfoButton, FlatSlider, IconButton, StatTile, Tog
 
 AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
 RECENT_MAX = 20         # how many recently opened canvases are remembered
+
+
+def _ring_from_saved(data):
+    """A saved ring [mm, "#rrggbb"] -> (mm, (r, g, b)); anything unreadable means no ring."""
+    try:
+        return float(data[0]), ring_mod.from_hex(str(data[1]))
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None
 
 
 def not_while_busy(fn):
@@ -1372,7 +1381,7 @@ class BadgeApp(RootBase):
                 break
             if dlg.result is None:
                 continue
-            zoom, cx, cy, angle, copies, flip = dlg.result
+            zoom, cx, cy, angle, copies, flip, ring = dlg.result
             if start is not None and start not in occupied:
                 s, start = start, None
             else:
@@ -1382,7 +1391,7 @@ class BadgeApp(RootBase):
                 self._push_undo()
                 pushed = True
             for i in fill_order(n, occupied, s, copies):
-                self.slots[i] = Art(source, zoom, cx, cy, angle, flip)
+                self.slots[i] = Art(source, zoom, cx, cy, angle, flip, ring)
             placed += copies
             self.redraw()
         if placed:
@@ -1402,6 +1411,7 @@ class BadgeApp(RootBase):
             self._push_undo()
             art.zoom, art.cx, art.cy, art.angle = dlg.result[:4]
             art.flip = dlg.result[5]
+            art.ring = dlg.result[6]
             self.schedule_redraw()
 
     def clear_slot(self, idx):
@@ -1445,7 +1455,8 @@ class BadgeApp(RootBase):
             if len(self._image_cache) > 400:
                 self._image_cache.clear()
                 self._pil_cache.clear()
-            im = render_art(art, p["w"], s, small=True, h_mm=p["h"]).convert("RGBA")
+            im = render_art(art, p["w"], s, small=True, h_mm=p["h"],
+                            face=(p["shape"], p["fw"], p["fh"])).convert("RGBA")
             im.putalpha(mask(p["shape"], im.size[0], im.size[1]))
             ph = ImageTk.PhotoImage(im)
             self._image_cache[key] = ph
@@ -1455,7 +1466,8 @@ class BadgeApp(RootBase):
     @staticmethod
     def _preview_key(art, p, s):
         """What a cached preview picture is filed under."""
-        return (art.key(), p["shape"], round(p["w"], 2), round(p["h"], 2), round(s, 3))
+        return (art.key(), p["shape"], round(p["w"], 2), round(p["h"], 2),
+                round(p["fw"], 2), round(p["fh"], 2), round(s, 3))
 
     def redraw(self):
         """Draw the whole sheet preview: paper, empty circles, images, guides, crop ticks and
@@ -2170,7 +2182,8 @@ class BadgeApp(RootBase):
             "guides": bool(self.v_guides.get()),
             "photos": images,  # key name kept so older saves still open
             "slots": [{"slot": i, "photo": index[a.source.path], "zoom": a.zoom,
-                       "cx": a.cx, "cy": a.cy, "angle": a.angle, "flip": bool(a.flip)}
+                       "cx": a.cx, "cy": a.cy, "angle": a.angle, "flip": bool(a.flip),
+                       **({"ring": [a.ring[0], ring_mod.to_hex(a.ring[1])]} if a.ring else {})}
                       for i, a in sorted(self.slots.items())],
         }
         return data
@@ -2277,7 +2290,8 @@ class BadgeApp(RootBase):
                 slots[int(sl["slot"])] = Art(src, float(sl.get("zoom", 1.0)),
                                              float(sl.get("cx", 0.5)), float(sl.get("cy", 0.5)),
                                              float(sl.get("angle", 0.0)),
-                                             bool(sl.get("flip", False)))
+                                             bool(sl.get("flip", False)),
+                                             _ring_from_saved(sl.get("ring")))
             except (KeyError, ValueError, TypeError, IndexError):
                 continue
 

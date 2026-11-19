@@ -10,6 +10,8 @@ import os
 
 from PIL import Image, ImageOps
 
+from . import ring as ring_mod
+
 
 AFFINE = getattr(Image, "Transform", Image).AFFINE
 
@@ -79,26 +81,28 @@ class Source:
 
 class Art:
     """One pin's image + view: zoom, normalised centre (cx, cy), rotation."""
-    def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0, flip=False):
+    def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0, flip=False, ring=None):
         """zoom 1.0 = the image just covers the pin. cx / cy = the point of the image that sits
         in the middle of the pin, as a fraction (0 to 1) of its width and height. angle is
         in degrees, clockwise.
         """
         self.source, self.zoom, self.cx, self.cy, self.angle = source, zoom, cx, cy, angle
         self.flip = flip                   # True = the picture is mirrored left to right
+        self.ring = ring                   # None, or (thickness mm, (r, g, b)): see ring.py
 
     def copy(self):
         """A separate copy of the view (used for undo snapshots). The image itself is shared,
         not duplicated.
         """
-        return Art(self.source, self.zoom, self.cx, self.cy, self.angle, self.flip)
+        return Art(self.source, self.zoom, self.cx, self.cy, self.angle, self.flip, self.ring)
 
     def key(self):
         """A hashable summary of this view, used to cache rendered images. Values are rounded
         so tiny float noise doesn't defeat the cache.
         """
         return (id(self.source), round(self.zoom, 4), round(self.cx, 4),
-                round(self.cy, 4), round(self.angle, 2), bool(self.flip))
+                round(self.cy, 4), round(self.angle, 2), bool(self.flip),
+                None if self.ring is None else (round(self.ring[0], 2), tuple(self.ring[1])))
 
     def ppi(self, d_mm, aspect=1.0):
         """Effective print resolution of the image on a pin d_mm wide (width / height = aspect)."""
@@ -192,10 +196,11 @@ def render_transform(img, out_w, out_h, k, cxp, cyp, angle, cache=None,
                          resample=resample, fillcolor=tuple(fill))
 
 
-def render_art(art, d_mm, px_per_mm, small=False, h_mm=None):
+def render_art(art, d_mm, px_per_mm, small=False, h_mm=None, face=None):
     """Render one pin's picture as a rectangle ``d_mm`` wide and ``h_mm`` tall (the same as the
     width when left out) at ``px_per_mm`` pixels per mm. The shape of the pin is cut out of
-    it later. ``small=True`` uses the small preview copy of the image.
+    it later. ``small=True`` uses the small preview copy of the image. ``face`` is
+    (shape, finished width, finished height) and is needed only to paint the art's ring.
     """
     h_mm = d_mm if h_mm is None else h_mm
     aspect = d_mm / h_mm
@@ -211,5 +216,9 @@ def render_art(art, d_mm, px_per_mm, small=False, h_mm=None):
     k = base_crop(img.size, aspect) / art.zoom / t
     if art.flip:
         img = art.source.flipped(img)
-    return render_transform(img, t, th, k, art.cx * iw, art.cy * ih, art.angle,
-                            fill=art.source.bg)
+    out = render_transform(img, t, th, k, art.cx * iw, art.cy * ih, art.angle,
+                           fill=art.source.bg)
+    if art.ring and face:
+        out = ring_mod.apply(out.convert("RGB"), art.ring, face[0], face[1], face[2],
+                             d_mm, h_mm)
+    return out
