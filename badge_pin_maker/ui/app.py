@@ -67,14 +67,6 @@ AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
 RECENT_MAX = 20         # how many recently opened canvases are remembered
 
 
-def _ring_from_saved(data):
-    """A saved ring [mm, "#rrggbb"] -> (mm, (r, g, b)); anything unreadable means no ring."""
-    try:
-        return float(data[0]), ring_mod.from_hex(str(data[1]))
-    except (TypeError, ValueError, IndexError, KeyError):
-        return None
-
-
 def not_while_busy(fn):
     """Ignore the call while a picture or canvas is still loading, so a second click can't
     start a second job in the middle of the first.
@@ -2183,7 +2175,7 @@ class BadgeApp(RootBase):
             "photos": images,  # key name kept so older saves still open
             "slots": [{"slot": i, "photo": index[a.source.path], "zoom": a.zoom,
                        "cx": a.cx, "cy": a.cy, "angle": a.angle, "flip": bool(a.flip),
-                       **({"ring": [a.ring[0], ring_mod.to_hex(a.ring[1])]} if a.ring else {})}
+                       **({"ring": ring_mod.to_saved(a.ring, base)} if a.ring else {})}
                       for i, a in sorted(self.slots.items())],
         }
         return data
@@ -2291,7 +2283,7 @@ class BadgeApp(RootBase):
                                              float(sl.get("cx", 0.5)), float(sl.get("cy", 0.5)),
                                              float(sl.get("angle", 0.0)),
                                              bool(sl.get("flip", False)),
-                                             _ring_from_saved(sl.get("ring")))
+                                             ring_mod.from_saved(sl.get("ring"), base))
             except (KeyError, ValueError, TypeError, IndexError):
                 continue
 
