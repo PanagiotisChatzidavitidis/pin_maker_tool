@@ -14,7 +14,7 @@ from .. import ring as ring_mod
 from ..constants import IMG_EXTS
 from . import theme as T
 from .ring_picker import RingPicker
-from .widgets import FlatSlider
+from .widgets import FlatSlider, Segmented
 
 THUMB = 56          # size of a style / material preview, in pixels
 
@@ -27,11 +27,12 @@ class _Chips(tk.Frame):
         self.on_pick = on_pick
         self._cells = {}
         for n, (ident, label) in enumerate(items):
-            cell = tk.Frame(self, bg=T.CARD, highlightthickness=2,
-                            highlightbackground=T.CARD, cursor="hand2")
-            cell.grid(row=n // cols, column=n % cols, padx=3, pady=3, sticky="n")
+            cell = tk.Frame(self, bg=T.CARD, highlightthickness=2, width=THUMB + 22,
+                            height=THUMB + 34, highlightbackground=T.CARD, cursor="hand2")
+            cell.grid(row=n // cols, column=n % cols, padx=2, pady=2)
+            cell.pack_propagate(False)
             pic = tk.Label(cell, bg=T.CARD, width=THUMB, height=THUMB, bd=0)
-            pic.pack(padx=3, pady=(3, 0))
+            pic.pack(pady=(4, 0))
             cap = tk.Label(cell, text=label, bg=T.CARD, fg=T.TEXT, font=("TkDefaultFont", 8))
             cap.pack(pady=(0, 3))
             for w in (cell, pic, cap):
@@ -84,17 +85,21 @@ class RingStudio(tk.Frame):
         self.inner.bind("<Configure>", lambda e: self.cv.configure(
             scrollregion=self.cv.bbox("all")))
         self.cv.bind("<Configure>", lambda e: self.cv.itemconfigure(self._win, width=e.width))
-        for w in (self.cv, self.inner):
-            w.bind("<MouseWheel>", self._wheel)
-            w.bind("<Button-4>", lambda e: self.cv.yview_scroll(-2, "units"))
-            w.bind("<Button-5>", lambda e: self.cv.yview_scroll(2, "units"))
 
         pad = dict(padx=14, fill="x")
 
-        self._title("Styles", "One tap, then tweak anything below")
-        self.styles = _Chips(self.inner, [(i, t[0]) for i, t in enumerate(ring_mod.THEMES)],
-                             4, dlg.apply_theme)
-        self.styles.pack(padx=8, anchor="w")
+        self._title("Styles", "Pick a mood, then tweak anything below")
+        self.cat = tk.StringVar(value=ring_mod.CATEGORIES[0])
+        tabs = Segmented(self.inner, self.cat, [(c, c) for c in ring_mod.CATEGORIES],
+                         command=self._tab, bg=T.CARD)
+        tabs.pack(padx=14, anchor="w")
+        self.style_box = tk.Frame(self.inner, bg=T.CARD)
+        self.style_box.pack(padx=8, pady=(6, 0), anchor="w")
+        self.styles = {}
+        for c in ring_mod.CATEGORIES:
+            items = [(i, t[1]) for i, t in enumerate(ring_mod.THEMES) if t[0] == c]
+            self.styles[c] = _Chips(self.style_box, items, 4, dlg.apply_theme)
+        self.styles[self.cat.get()].pack()
 
         self._title("Material")
         self.mats = _Chips(self.inner, list(ring_mod.MATERIALS), 4,
@@ -135,6 +140,7 @@ class RingStudio(tk.Frame):
         tk.Frame(self.inner, bg=T.CARD, height=10).pack()
         ttk.Button(self.inner, text="Remove ring", style="Soft.TButton",
                    command=dlg.ring_off).pack(padx=14, pady=(4, 16), anchor="w")
+        self._bind_wheel(self.cv)
 
     def _title(self, text, hint=""):
         f = tk.Frame(self.inner, bg=T.CARD)
@@ -145,8 +151,17 @@ class RingStudio(tk.Frame):
             tk.Label(f, text=hint, bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8)
                      ).pack(anchor="w")
 
+    def _bind_wheel(self, widget):
+        """Let the mouse wheel scroll the panel from anywhere on it (chips, sliders and all)."""
+        widget.bind("<MouseWheel>", self._wheel, add="+")
+        widget.bind("<Button-4>", lambda e: self.cv.yview_scroll(-2, "units"), add="+")
+        widget.bind("<Button-5>", lambda e: self.cv.yview_scroll(2, "units"), add="+")
+        for child in widget.winfo_children():
+            self._bind_wheel(child)
+
     def _wheel(self, e):
         self.cv.yview_scroll(-2 if e.delta > 0 else 2, "units")
+        return "break"
 
     def _choose_image(self):
         path = filedialog.askopenfilename(
@@ -156,14 +171,23 @@ class RingStudio(tk.Frame):
             self.dlg.ring_change(image=path)
 
     # ---- keeping the panel in step with the ring ---------------------------------
+    def _tab(self, *_):
+        """Another style category was chosen."""
+        for c, chips in self.styles.items():
+            chips.pack_forget()
+        self.styles[self.cat.get()].pack()
+        self._thumbs(force=True)
+
     def sync(self):
-        """Update the labels, the current marks and the previews (soon, so that dragging a
+        """Update the labels, the current mark and the previews (soon, so that dragging a
         slider stays smooth)."""
         d = self.dlg
         self.mm_lbl.config(text=f"{d._ring_mm():.1f} mm")
         self.picker.set_colour(d.ring_col)
-        self.mats.select(None if d.ring_image else d.ring_material)
-        self.styles.select(self._current_theme())
+        # one mark at a time: the tapped style, else the material in use
+        for chips in self.styles.values():
+            chips.select(d.theme_id)
+        self.mats.select(None if (d.ring_image or d.theme_id is not None) else d.ring_material)
         if d.ring_image:
             ppi = ring_mod.pattern_ppi(d.cur_ring(), d.pin["fw"], d.pin["fh"])
             soft = ppi is not None and ppi < 150
@@ -178,37 +202,39 @@ class RingStudio(tk.Frame):
             self.scale_row.pack_forget()
         if self._job is not None:
             self.after_cancel(self._job)
-        self._job = self.after(90, self._thumbs)
-
-    def _current_theme(self):
-        d = self.dlg
-        if d.ring_image:
-            return None
-        for i, (_n, mat, col, _s) in enumerate(ring_mod.THEMES):
-            col = col or (d.palette()[0] if d.palette() else None)
-            if mat == d.ring_material and tuple(col or ()) == tuple(d.ring_col):
-                return i
-        return None
+        self._job = self.after(120, self._thumbs)
 
     def refresh(self):
         """Redraw everything (the panel was just opened)."""
-        self.picker.set_palette(self.dlg.palette())
+        d = self.dlg
+        if d.theme_id is not None:
+            self.cat.set(ring_mod.THEMES[d.theme_id][0])
+            self._tab()
+        self.picker.set_palette(d.palette())
+        self._key = None
         self.sync()
 
-    def _thumbs(self):
-        """Draw each style and material on the pin's own picture."""
+    _key = None
+
+    def _thumbs(self, force=False):
+        """Draw the visible styles and the materials on the pin's own picture. Only redone when
+        the picture, colour or thickness changed, so picking things does not flicker.
+        """
         self._job = None
         d = self.dlg
         src = d.view_picture()
         if src is None:
             return
+        key = (d.ring_col, round(d._ring_mm(), 1), self.cat.get())
+        if key == self._key and not force:
+            return
+        self._key = key
         fw, fh, w, h = d.pin["fw"], d.pin["fh"], d.d, d.dh
         k = THUMB / max(w, h)
         tw, th = max(8, round(w * k)), max(8, round(h * k))
         base = src.resize((tw * 2, th * 2), Image.BILINEAR)
         lo, hi = ring_mod.limits(fw, fh)
         mm = min(hi, max(lo * 1.4, d._ring_mm() * 1.6))
-        pal = d.palette()
         outline = ring_mod.mask(d.shape, w, h, 0, (tw * 2, th * 2), tw * 2 / w, th * 2 / h,
                                 tw, th)
 
@@ -221,9 +247,9 @@ class RingStudio(tk.Frame):
                                 (THUMB * 2 - card.size[1]) // 2))
             return canvas.resize((THUMB, THUMB), Image.LANCZOS)
 
-        for i, (_n, mat, col, share) in enumerate(ring_mod.THEMES):
-            col = col or (pal[0] if pal else (120, 120, 120))
-            self.styles.set_image(i, thumb(ring_mod.Ring(
-                min(hi, mm * share), col, mat)))
+        for i, (cat, _n, mat, col, share) in enumerate(ring_mod.THEMES):
+            if cat == self.cat.get():
+                self.styles[cat].set_image(i, thumb(ring_mod.Ring(
+                    min(hi, mm * share), col, mat)))
         for ident, _label in ring_mod.MATERIALS:
             self.mats.set_image(ident, thumb(ring_mod.Ring(mm, d.ring_col, ident)))

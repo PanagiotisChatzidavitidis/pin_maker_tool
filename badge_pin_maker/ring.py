@@ -27,25 +27,47 @@ DEFAULT_SHARE = 0.05
 
 Ring = namedtuple("Ring", "mm col material image scale", defaults=("flat", None, 0.3))
 
-MATERIALS = (("flat", "Flat"), ("glossy", "Gloss"), ("metallic", "Metal"),
-             ("holo", "Holo"), ("glitter", "Glitter"), ("pearl", "Pearl"),
-             ("rope", "Rope"), ("candy", "Candy"))
+MATERIALS = (("flat", "Matte"), ("glossy", "Gloss"), ("satin", "Satin"),
+             ("metallic", "Metal"), ("pearl", "Pearl"), ("gradient", "Gradient"),
+             ("grain", "Grain"), ("frost", "Frost"))
 MATERIAL_NAMES = dict(MATERIALS)
 
-# One-click styles: (name, material, colour or None for "match the picture", thickness share).
+CATEGORIES = ("Modern", "Aesthetic", "Cute", "Girly")
+
+# One-tap styles: (category, name, material, colour, thickness share).
 THEMES = (
-    ("Match", "glossy", None, 1.0),
-    ("Gold", "metallic", (222, 170, 60), 1.0),
-    ("Silver", "metallic", (176, 184, 196), 1.0),
-    ("Rose gold", "metallic", (214, 140, 128), 1.0),
-    ("Rainbow", "holo", (200, 120, 220), 1.1),
-    ("Sparkle", "glitter", (226, 120, 190), 1.1),
-    ("Pearl", "pearl", (236, 222, 206), 1.0),
-    ("Candy", "candy", (232, 84, 118), 1.2),
-    ("Rope", "rope", (196, 150, 96), 1.4),
-    ("Cherry", "glossy", (196, 34, 52), 1.0),
-    ("Midnight", "glossy", (36, 48, 96), 1.0),
-    ("Mint", "flat", (136, 206, 180), 1.0),
+    ("Modern", "Onyx", "glossy", (28, 30, 36), 1.0),
+    ("Modern", "Chrome", "metallic", (176, 184, 196), 1.0),
+    ("Modern", "Cloud", "flat", (238, 238, 234), 0.9),
+    ("Modern", "Cobalt", "satin", (40, 84, 196), 1.0),
+    ("Modern", "Graphite", "satin", (74, 80, 92), 1.0),
+    ("Modern", "Ice", "frost", (186, 214, 236), 1.0),
+    ("Modern", "Gold", "metallic", (214, 168, 70), 1.0),
+    ("Modern", "Forest", "glossy", (28, 84, 64), 1.0),
+    ("Aesthetic", "Sage", "grain", (150, 172, 142), 1.0),
+    ("Aesthetic", "Sand", "satin", (216, 192, 160), 1.0),
+    ("Aesthetic", "Terracotta", "flat", (196, 116, 88), 1.0),
+    ("Aesthetic", "Mocha", "grain", (118, 86, 72), 1.0),
+    ("Aesthetic", "Olive", "satin", (128, 128, 72), 1.0),
+    ("Aesthetic", "Dusty blue", "frost", (146, 170, 196), 1.0),
+    ("Aesthetic", "Oat", "grain", (232, 220, 200), 1.0),
+    ("Aesthetic", "Plum", "flat", (112, 64, 92), 1.0),
+    ("Cute", "Butter", "satin", (248, 224, 128), 1.1),
+    ("Cute", "Mint", "flat", (150, 214, 190), 1.1),
+    ("Cute", "Sky", "glossy", (140, 196, 236), 1.1),
+    ("Cute", "Peach", "frost", (248, 184, 150), 1.1),
+    ("Cute", "Lemon", "glossy", (250, 236, 110), 1.1),
+    ("Cute", "Baby blue", "frost", (220, 232, 248), 1.1),
+    ("Cute", "Apricot", "gradient", (250, 170, 120), 1.1),
+    ("Cute", "Matcha", "satin", (176, 214, 140), 1.1),
+    ("Girly", "Blush", "pearl", (244, 190, 200), 1.1),
+    ("Girly", "Bubblegum", "glossy", (240, 120, 170), 1.1),
+    ("Girly", "Lilac", "gradient", (200, 160, 230), 1.1),
+    ("Girly", "Rose gold", "metallic", (214, 140, 128), 1.1),
+    ("Girly", "Cherry", "glossy", (200, 40, 70), 1.1),
+    ("Girly", "Peony", "satin", (236, 150, 180), 1.1),
+    ("Girly", "Berry", "flat", (160, 50, 100), 1.1),
+    ("Girly", "Orchid", "gradient", (214, 120, 200), 1.1),
 )
 
 
@@ -261,7 +283,7 @@ def _paint(r, ctx):
     """The ring's coloured surface, before it is lit, as an image of the whole area."""
     size, cx, cy, px = ctx["size"], ctx["cx"], ctx["cy"], ctx["px"]
     col, mat = r.col, r.material
-    w, h = size
+    w, hh = size
     if r.image:
         try:
             t = _tile_image(r.image)
@@ -272,62 +294,49 @@ def _paint(r, ctx):
             t = t.resize((tp, max(1, round(tp * t.size[1] / t.size[0]))), Image.LANCZOS)
             out = Image.new("RGB", size)
             x0 = int(cx - w // 2) % t.size[0] - t.size[0]
-            y0 = int(cy - h // 2) % t.size[1] - t.size[1]
-            for y in range(y0, h, t.size[1]):
+            y0 = int(cy - hh // 2) % t.size[1] - t.size[1]
+            for y in range(y0, hh, t.size[1]):
                 for x in range(x0, w, t.size[0]):
                     out.paste(t, (x, y))
             return out
     if mat == "metallic":
-        dark, light = _mul(col, 0.42), _mix(col, (255, 255, 255), 0.7)
+        dark, light = _mul(col, 0.55), _mix(col, (255, 255, 255), 0.6)
 
         def at(u):
             v = 0.5 + 0.5 * math.cos(2 * math.pi * 2 * u + 0.7)
             v2 = 0.5 + 0.5 * math.cos(2 * math.pi * 3 * u + 2.1)
-            return _mix(_mix(dark, col, min(1, v * 1.3)), light, max(0, v2 - 0.35) * 1.1)
+            return _mix(_mix(dark, col, v), light, (max(0, v2 - 0.45) / 0.55) ** 2 * 0.75)
         return _wedges(size, cx, cy, 360, at)
-    if mat == "holo":
-        h0 = colorsys.rgb_to_hls(*(v / 255 for v in col))[0]
-        return _wedges(size, cx, cy, 360, lambda u: tuple(
-            round(v * 255) for v in colorsys.hls_to_rgb((h0 + 2.0 * u) % 1, 0.72, 0.8)))
-    if mat == "rope":
-        n = max(12, min(300, round(ctx["perim"] / max(0.8, 0.8 * ctx["mm"]))))
-        n += n % 2
-        return _wedges(size, cx, cy, n * 2, lambda u: _mul(col, 1.12 if int(u * n * 2) % 2 else 0.82))
-    if mat == "candy":
-        n = max(8, min(200, round(ctx["perim"] / max(1.0, 2.0 * ctx["mm"]))))
-        n += n % 2
-        return _wedges(size, cx, cy, n, lambda u: col if int(u * n) % 2 == 0
-                       else (252, 248, 242))
     if mat == "pearl":
         base = _mix(col, (255, 255, 255), 0.45)
         return _wedges(size, cx, cy, 240, lambda u: _mix(base, (
             (255, 236, 244), (232, 244, 255), (240, 255, 238))[int(u * 6) % 3],
             0.35 + 0.25 * math.sin(2 * math.pi * 3 * u)))
-    if mat == "glitter":
-        img = Image.new("RGB", size, _mul(col, 0.9))
-        g = max(1, round(px * 0.22))
-        gw, gh = w // g + 2, h // g + 2
-        rnd = random.Random(7)
-        noise = Image.frombytes("L", (gw, gh), rnd.randbytes(gw * gh))
-        big = noise.resize((gw * g, gh * g), Image.NEAREST).crop((0, 0, w, h))
-        white = big.point(lambda v: 255 if v > 240 else 0)
-        dark = big.point(lambda v: 160 if v < 14 else 0)
-        light = big.point(lambda v: 255 if 218 < v <= 240 else 0)
-        img = Image.composite(Image.new("RGB", size, _mix(col, (255, 255, 255), 0.55)), img,
-                              light.point(lambda v: v // 2))
-        img = Image.composite(Image.new("RGB", size, (255, 255, 255)), img, white)
-        return Image.composite(Image.new("RGB", size, _mul(col, 0.4)), img, dark)
+    if mat == "gradient":
+        hue, lig, sat = colorsys.rgb_to_hls(*(v / 255 for v in col))
+        other = tuple(round(v * 255) for v in colorsys.hls_to_rgb(
+            (hue + 0.07) % 1, min(0.9, lig + 0.16), sat))
+        side = int(math.hypot(w, hh) * 1.2) + 2
+        ramp = Image.linear_gradient("L").resize((side, side), Image.BILINEAR)
+        ramp = ramp.rotate(45, resample=Image.BICUBIC)
+        x0, y0 = (side - w) // 2, (side - hh) // 2
+        ramp = ramp.crop((x0, y0, x0 + w, y0 + hh))
+        return Image.composite(Image.new("RGB", size, other), Image.new("RGB", size, col),
+                               ramp)
+    if mat in ("grain", "frost"):
+        base = Image.new("RGB", size, _mix(col, (255, 255, 255), 0.22) if mat == "frost" else col)
+        g = max(1, round(px * (0.05 if mat == "frost" else 0.08)))
+        gw, gh = w // g + 2, hh // g + 2
+        noise = Image.frombytes("L", (gw, gh), random.Random(7).randbytes(gw * gh))
+        noise = noise.resize((gw * g, gh * g), Image.NEAREST).crop((0, 0, w, hh))
+        soft = ImageChops.soft_light(base, noise.convert("RGB"))
+        return Image.blend(base, soft, 0.9 if mat == "grain" else 0.6)
     return Image.new("RGB", size, tuple(col))        # flat, glossy
 
 
-def _perimeter(pts):
-    """Length of a closed outline."""
-    return sum(math.dist(a, b) for a, b in zip(pts, pts[1:] + pts[:1]))
-
-
-_STRENGTH = {"flat": (0, 0), "glossy": (0.5, 0.7), "metallic": (0.55, 0.35),
-             "holo": (0.4, 0.3), "glitter": (0.3, 0.0), "pearl": (0.4, 0.45),
-             "rope": (0.7, 0.2), "candy": (0.45, 0.5)}
+_STRENGTH = {"flat": (0.12, 0.0), "glossy": (0.5, 0.7), "satin": (0.3, 0.2),
+             "metallic": (0.55, 0.35), "pearl": (0.4, 0.45), "gradient": (0.3, 0.25),
+             "grain": (0.22, 0.0), "frost": (0.3, 0.1)}
 
 _layers = {}
 
@@ -348,8 +357,7 @@ def layer(ring, shape, fw, fh, size, sx, sy, cx, cy, ss=2):
     face = mask(shape, fw, fh, 0, size, sx, sy, cx, cy, ss)
     inside = mask(shape, fw, fh, mm, size, sx, sy, cx, cy, ss)
     mat = "pattern" if r.image else r.material
-    ctx = dict(size=size, cx=cx, cy=cy, px=px, fw=fw, fh=fh, mm=mm,
-               perim=_perimeter(shapes.outline(shape, fw, fh, 0)))
+    ctx = dict(size=size, cx=cx, cy=cy, px=px, fw=fw, fh=fh, mm=mm)
     surface = _paint(r, ctx)
     strength, spec = _STRENGTH.get(mat, (0.3, 0.0))
     if strength:

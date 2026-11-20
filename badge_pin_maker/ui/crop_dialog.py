@@ -86,9 +86,11 @@ class CropDialog(tk.Toplevel):
             had.mm if had else ring_mod.default_mm(pin["fw"], pin["fh"]),
             pin["fw"], pin["fh"]))
         self.ring_col = tuple(had.col) if had else (128, 128, 128)
-        self.ring_material = had.material if had else "glossy"
+        self.ring_material = (had.material if had.material in ring_mod.MATERIAL_NAMES
+                              else "flat") if had else "glossy"
         self.ring_image = had.image if had else None
         self.ring_scale = had.scale if had else 0.3
+        self.theme_id = None                 # index of the style tapped last (None once tweaked)
         self._palette = []
         self._plain = None                   # the picture without the ring, as last drawn
         self.studio = None                   # the Ring Studio panel, once opened
@@ -630,8 +632,11 @@ class CropDialog(tk.Toplevel):
         col = (self.palette() or [(128, 128, 128)])[0]
         self.ring_change(col=col, **({"material": "glossy", "image": None} if first else {}))
 
-    def ring_change(self, **kw):
-        """Change part of the ring (material=, col=, image=, scale=, mm=) and show it."""
+    def ring_change(self, _theme=None, **kw):
+        """Change part of the ring (material=, col=, image=, scale=, mm=) and show it. Tweaking
+        anything by hand ends the "current style" mark.
+        """
+        self.theme_id = _theme
         if "col" in kw:
             self.ring_col = tuple(kw["col"])
         if "material" in kw:
@@ -651,9 +656,8 @@ class CropDialog(tk.Toplevel):
 
     def apply_theme(self, i):
         """One-tap style: material, colour and thickness together."""
-        _name, mat, col, share = ring_mod.THEMES[i]
-        col = col or (self.palette() or [(128, 128, 128)])[0]
-        self.ring_change(material=mat, col=col, image=None,
+        _cat, _name, mat, col, share = ring_mod.THEMES[i]
+        self.ring_change(_theme=i, material=mat, col=col, image=None,
                          mm=ring_mod.default_mm(self.pin["fw"], self.pin["fh"], share))
 
     def ring_off(self):
@@ -717,7 +721,7 @@ class CropDialog(tk.Toplevel):
         self._hq_job = self._cfg_job = self._anim_job = self._guide_job = None
         if self.studio is not None and self.studio._job is not None:
             try:
-                self.after_cancel(self.studio._job)
+                self.studio.after_cancel(self.studio._job)
             except tk.TclError:
                 pass
         super().destroy()
