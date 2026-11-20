@@ -14,7 +14,7 @@ from .. import ring as ring_mod
 from ..constants import IMG_EXTS
 from . import theme as T
 from .ring_picker import RingPicker
-from .widgets import FlatSlider, Segmented
+from .widgets import FlatSlider, Segmented, Toggle
 
 THUMB = 56          # size of a style / material preview, in pixels
 
@@ -54,26 +54,36 @@ class _Chips(tk.Frame):
 
 
 class RingStudio(tk.Frame):
-    """The panel. ``dlg`` is the crop window it belongs to."""
-    W = 352
+    """The Ring page of the crop window's side panel. ``dlg`` is the crop window. While the
+    ring is off it shows a short invitation; once it is on, the whole studio."""
 
     def __init__(self, parent, dlg):
-        super().__init__(parent, bg=T.CARD, highlightthickness=1,
-                         highlightbackground=T.BORDER)
+        super().__init__(parent, bg=T.CARD)
         self.dlg = dlg
         self._job = None
-        self.configure(width=self.W)
-        self.pack_propagate(False)
 
-        head = tk.Frame(self, bg=T.CARD)
-        head.pack(side="top", fill="x", padx=14, pady=(12, 4))
-        tk.Label(head, text="Ring style", bg=T.CARD, fg=T.PETROL,
-                 font=("Georgia", 13, "bold")).pack(side="left")
-        ttk.Button(head, text="Done", style="Accent.TButton", command=dlg.studio_close
-                   ).pack(side="right")
+        # ---- off: a friendly empty state
+        self.empty = tk.Frame(self, bg=T.CARD)
+        tk.Label(self.empty, text="Give your pin a border", bg=T.CARD, fg=T.PETROL,
+                 font=("Georgia", 14, "bold")).pack(anchor="w", padx=18, pady=(26, 4))
+        tk.Label(self.empty, bg=T.CARD, fg=T.MUTED, justify="left", wraplength=dlg.SIDE_W - 50,
+                 text="A ring sits just inside the edge of the pin. Pick a style, a material "
+                      "and a colour, or use one of your own pictures.").pack(
+                          anchor="w", padx=18)
+        ttk.Button(self.empty, text="Add a ring", style="Accent.TButton",
+                   command=dlg.add_ring).pack(anchor="w", padx=18, pady=(16, 0))
 
-        # the scrolling body
-        body = tk.Frame(self, bg=T.CARD)
+        # ---- on: the header (switch + summary) and the scrolling body
+        self.live = tk.Frame(self, bg=T.CARD)
+        head = tk.Frame(self.live, bg=T.CARD)
+        head.pack(side="top", fill="x", padx=18, pady=(10, 2))
+        Toggle(head, dlg.v_ring, command=dlg._ring_toggled, bg=T.CARD).pack(side="left")
+        tk.Label(head, text="Ring", bg=T.CARD, fg=T.TEXT,
+                 font=("TkDefaultFont", 10, "bold")).pack(side="left", padx=10)
+        self.sum_lbl = ttk.Label(head, text="", style="Muted.TLabel")
+        self.sum_lbl.pack(side="right")
+
+        body = tk.Frame(self.live, bg=T.CARD)
         body.pack(side="top", fill="both", expand=True)
         self.cv = tk.Canvas(body, bg=T.CARD, highlightthickness=0)
         sb = ttk.Scrollbar(body, orient="vertical", command=self.cv.yview)
@@ -86,15 +96,15 @@ class RingStudio(tk.Frame):
             scrollregion=self.cv.bbox("all")))
         self.cv.bind("<Configure>", lambda e: self.cv.itemconfigure(self._win, width=e.width))
 
-        pad = dict(padx=14, fill="x")
+        pad = dict(padx=18, fill="x")
 
-        self._title("Styles", "Pick a mood, then tweak anything below")
+        self._title("Style")
         self.cat = tk.StringVar(value=ring_mod.CATEGORIES[0])
         tabs = Segmented(self.inner, self.cat, [(c, c) for c in ring_mod.CATEGORIES],
                          command=self._tab, bg=T.CARD)
-        tabs.pack(padx=14, anchor="w")
+        tabs.pack(padx=18, fill="x")
         self.style_box = tk.Frame(self.inner, bg=T.CARD)
-        self.style_box.pack(padx=8, pady=(6, 0), anchor="w")
+        self.style_box.pack(padx=14, pady=(8, 0), anchor="w")
         self.styles = {}
         for c in ring_mod.CATEGORIES:
             items = [(i, t[1]) for i, t in enumerate(ring_mod.THEMES) if t[0] == c]
@@ -104,14 +114,14 @@ class RingStudio(tk.Frame):
         self._title("Material")
         self.mats = _Chips(self.inner, list(ring_mod.MATERIALS), 4,
                            lambda m: dlg.ring_change(material=m, image=None))
-        self.mats.pack(padx=8, anchor="w")
+        self.mats.pack(padx=14, anchor="w")
 
-        self._title("Colour", "Drag the strips, or tap a colour from your picture")
+        self._title("Colour")
         self.picker = RingPicker(self.inner, dlg.ring_col, dlg.palette(),
                                  lambda rgb: dlg.ring_change(col=rgb))
-        self.picker.pack(padx=14, anchor="w")
+        self.picker.pack(padx=18, anchor="w")
         ttk.Button(self.inner, text="Match my picture", style="Soft.TButton",
-                   command=dlg.match_picture).pack(padx=14, pady=(8, 0), anchor="w")
+                   command=dlg.match_picture).pack(padx=18, pady=(10, 0), anchor="w")
 
         self._title("Thickness")
         row = tk.Frame(self.inner, bg=T.CARD)
@@ -121,7 +131,7 @@ class RingStudio(tk.Frame):
         self.mm_lbl = ttk.Label(row, text="", style="Value.TLabel", width=7, anchor="e")
         self.mm_lbl.pack(side="right")
 
-        self._title("Your own pattern", "Use any picture as the ring")
+        self._title("Your own pattern")
         prow = tk.Frame(self.inner, bg=T.CARD)
         prow.pack(**pad)
         ttk.Button(prow, text="Choose image…", style="Soft.TButton",
@@ -129,27 +139,36 @@ class RingStudio(tk.Frame):
         self.rm_btn = ttk.Button(prow, text="Remove", style="Soft.TButton",
                                  command=lambda: dlg.ring_change(image=None))
         self.pat_lbl = ttk.Label(self.inner, text="", style="Muted.TLabel")
-        self.pat_lbl.pack(padx=14, pady=(6, 0), anchor="w")
+        self.pat_lbl.pack(padx=18, pady=(6, 0), anchor="w")
         self.scale_row = tk.Frame(self.inner, bg=T.CARD)
         self.scale_var = tk.DoubleVar(value=dlg.ring_scale)
         ttk.Label(self.scale_row, text="Pattern size", style="Card.TLabel").pack(side="left")
         FlatSlider(self.scale_row, self.scale_var, 0.08, 0.8,
                    command=lambda: dlg.ring_change(scale=self.scale_var.get())
                    ).pack(side="left", fill="x", expand=True, padx=(8, 0))
-
-        tk.Frame(self.inner, bg=T.CARD, height=10).pack()
-        ttk.Button(self.inner, text="Remove ring", style="Soft.TButton",
-                   command=dlg.ring_off).pack(padx=14, pady=(4, 16), anchor="w")
+        tk.Frame(self.inner, bg=T.CARD, height=18).pack()
         self._bind_wheel(self.cv)
+        self._show_state()
 
-    def _title(self, text, hint=""):
+    def _title(self, text):
+        """An upper-case section title."""
         f = tk.Frame(self.inner, bg=T.CARD)
-        f.pack(fill="x", padx=14, pady=(14, 4))
-        tk.Label(f, text=text, bg=T.CARD, fg=T.TEXT, font=("TkDefaultFont", 10, "bold")
-                 ).pack(anchor="w")
-        if hint:
-            tk.Label(f, text=hint, bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8)
-                     ).pack(anchor="w")
+        f.pack(fill="x", padx=18, pady=(18, 6))
+        tk.Label(f, text=text.upper(), bg=T.CARD, fg=T.MUTED,
+                 font=("TkDefaultFont", 8, "bold")).pack(anchor="w")
+
+    def _show_state(self):
+        """Show the studio while the ring is on, the invitation while it is off."""
+        on = self.dlg.v_ring.get()
+        if on:
+            if not self.live.winfo_manager():
+                self.empty.pack_forget()
+                self.live.pack(fill="both", expand=True)
+                self.picker.set_palette(self.dlg.palette())
+                self._key = None
+        else:
+            self.live.pack_forget()
+            self.empty.pack(fill="both", expand=True)
 
     def _bind_wheel(self, widget):
         """Let the mouse wheel scroll the panel from anywhere on it (chips, sliders and all)."""
@@ -182,7 +201,12 @@ class RingStudio(tk.Frame):
         """Update the labels, the current mark and the previews (soon, so that dragging a
         slider stays smooth)."""
         d = self.dlg
+        self._show_state()
+        if not d.v_ring.get():
+            return
         self.mm_lbl.config(text=f"{d._ring_mm():.1f} mm")
+        mat = "Your pattern" if d.ring_image else ring_mod.MATERIAL_NAMES.get(d.ring_material, "")
+        self.sum_lbl.config(text=f"{mat} · {d._ring_mm():.1f} mm")
         self.picker.set_colour(d.ring_col)
         # one mark at a time: the tapped style, else the material in use
         for chips in self.styles.values():
@@ -205,7 +229,7 @@ class RingStudio(tk.Frame):
         self._job = self.after(120, self._thumbs)
 
     def refresh(self):
-        """Redraw everything (the panel was just opened)."""
+        """Redraw everything (the page was just opened)."""
         d = self.dlg
         if d.theme_id is not None:
             self.cat.set(ring_mod.THEMES[d.theme_id][0])
@@ -223,7 +247,8 @@ class RingStudio(tk.Frame):
         self._job = None
         d = self.dlg
         src = d.view_picture()
-        if src is None:
+        if src is None or not self.winfo_ismapped():
+            self._key = None
             return
         key = (d.ring_col, round(d._ring_mm(), 1), self.cat.get())
         if key == self._key and not force:

@@ -14,7 +14,7 @@ from ..imaging import base_crop, ppi_for, render_transform
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .ring_studio import RingStudio
-from .widgets import FlatSlider, Toggle
+from .widgets import FlatSlider, Segmented
 
 
 class CropDialog(tk.Toplevel):
@@ -31,6 +31,7 @@ class CropDialog(tk.Toplevel):
     FILL = 0.84                  # how much of the picture area's short side the pin takes up
     FOLD_A, OUT_A = 97, 196      # how strongly (0-255) the fold ring / outside is dimmed
     WHEEL_STEP = 1.12            # zoom factor of one wheel notch or + / - press
+    SIDE_W = 400                 # width of the side panel
 
     def __init__(self, parent, source, pin, max_copies=0, art=None, title="Crop image",
                  batch=None):
@@ -93,17 +94,100 @@ class CropDialog(tk.Toplevel):
         self.theme_id = None                 # index of the style tapped last (None once tweaked)
         self._palette = []
         self._plain = None                   # the picture without the ring, as last drawn
-        self.studio = None                   # the Ring Studio panel, once opened
-        self._grew = 0                       # how much wider the window got for the panel
+        self.studio = None                   # the Ring page (built with the side panel)
+        self._ring_styled = bool(had)        # True once the ring has been styled
         self._bold = tkfont.nametofont("TkDefaultFont").copy()
         self._bold.configure(weight="bold")
 
         # picture area size and the fixed viewport (the pin) in the middle of it
         self.cw, self.ch = self.CW, self.CH
 
-        # ---- header: title on the left, print quality on the right
-        head = self._head = ttk.Frame(self, padding=(20, 16, 20, 8))
-        head.pack(side="top", fill="x")
+        # ---- the side panel (right): Frame / Ring tabs, and the buttons that finish the job
+        side = tk.Frame(self, bg=T.BG)
+        side.pack(side="right", fill="y", padx=(0, 20), pady=20)
+        edge = tk.Frame(side, bg=T.BORDER)
+        edge.pack(fill="both", expand=True)
+        panel = tk.Frame(edge, bg=T.CARD, width=self.SIDE_W)
+        panel.pack(fill="both", expand=True, padx=1, pady=1)
+        panel.pack_propagate(False)
+
+        self.v_tab = tk.StringVar(value="frame")
+        self.tabs = Segmented(panel, self.v_tab, [("frame", "Frame"), ("ring", "Ring")],
+                              command=self._tab_changed, bg=T.CARD)
+        self.tabs.pack(fill="x", padx=18, pady=(18, 6))
+
+        # the action bar is packed before the pages so it always stays visible
+        act = tk.Frame(panel, bg=T.CARD)
+        act.pack(side="bottom", fill="x", padx=18, pady=(8, 18))
+        tk.Frame(panel, bg=T.BORDER, height=1).pack(side="bottom", fill="x")
+        if max_copies > 0:
+            crow = tk.Frame(act, bg=T.CARD)
+            crow.pack(fill="x", pady=(0, 12))
+            ttk.Label(crow, text="Copies", style="Card.TLabel").pack(side="left")
+            ttk.Spinbox(crow, from_=1, to=max_copies, textvariable=self.v_copies,
+                        width=5).pack(side="left", padx=8)
+            ttk.Label(crow, text=f"of {max_copies} free spot{'s' if max_copies != 1 else ''}",
+                      style="Muted.TLabel").pack(side="left")
+        brow = tk.Frame(act, bg=T.CARD)
+        brow.pack(fill="x")
+        if batch and batch[1] > 1:
+            ttk.Button(brow, text="Stop", style="Soft.TButton",
+                       command=self.on_stop).pack(side="left")
+            ttk.Button(brow, text="Skip", style="Soft.TButton",
+                       command=self.destroy).pack(side="left", padx=(6, 0))
+        else:
+            ttk.Button(brow, text="Cancel", style="Soft.TButton",
+                       command=self.destroy).pack(side="left")
+        ttk.Button(brow, text="Continue", style="Accent.TButton", command=self.on_ok
+                   ).pack(side="right", fill="x", expand=True, padx=(10, 0))
+
+        pages = tk.Frame(panel, bg=T.CARD)
+        pages.pack(side="top", fill="both", expand=True)
+
+        # -- Frame page: zoom, rotate and the quick buttons
+        self.page_frame = f = tk.Frame(pages, bg=T.CARD)
+        self.zoom_lbl = self._section(f, "Zoom", "100%")
+        zr = tk.Frame(f, bg=T.CARD)
+        zr.pack(fill="x", padx=18)
+        ttk.Button(zr, text="−", style="Tool.TButton", width=3,
+                   command=lambda: self.zoom_by(1 / self.WHEEL_STEP)).pack(side="left")
+        FlatSlider(zr, self.v_zoom, math.log(self.zmin), math.log(self.zmax),
+                   origin=math.log(self.zmin), snaps=(0.0,), snap_tol=0.025,
+                   command=self._stop_anim).pack(side="left", fill="x", expand=True, padx=8)
+        ttk.Button(zr, text="+", style="Tool.TButton", width=3,
+                   command=lambda: self.zoom_by(self.WHEEL_STEP)).pack(side="left")
+        self.angle_lbl = self._section(f, "Rotate", "0°")
+        rr = tk.Frame(f, bg=T.CARD)
+        rr.pack(fill="x", padx=18)
+        ttk.Button(rr, text="↺ 90°", style="Tool.TButton", width=6,
+                   command=lambda: self.rotate_by(-90)).pack(side="left")
+        FlatSlider(rr, self.v_angle, -180, 180, origin=0, snaps=(-180, -90, 0, 90, 180),
+                   snap_tol=3).pack(side="left", fill="x", expand=True, padx=8)
+        ttk.Button(rr, text="↻ 90°", style="Tool.TButton", width=6,
+                   command=lambda: self.rotate_by(90)).pack(side="left")
+        self._section(f, "Quick fixes")
+        grid = tk.Frame(f, bg=T.CARD)
+        grid.pack(fill="x", padx=18)
+        for n, (text, cmd) in enumerate((("Fill", self.fill), ("Fit", self.fit),
+                                         ("Reset", self.reset), ("Flip ⇆", self.flip_h))):
+            ttk.Button(grid, text=text, style="Soft.TButton", command=cmd).grid(
+                row=n // 2, column=n % 2, sticky="ew", padx=3, pady=3)
+            grid.columnconfigure(n % 2, weight=1, uniform="quick")
+        tk.Label(f, text="Tip: double-click the picture to switch between Fill and Fit.",
+                 bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8), wraplength=self.SIDE_W - 50,
+                 justify="left").pack(anchor="w", padx=18, pady=(14, 0))
+
+        # -- Ring page
+        self.v_ring_mm.trace_add("write", lambda *_: self._ring_slid())
+        self.studio = RingStudio(pages, self)
+        self.page_ring = self.studio
+        self.page_frame.pack(fill="both", expand=True)
+
+        # ---- the main area (left): title, the picture and a hint line
+        main = tk.Frame(self, bg=T.BG)
+        main.pack(side="left", fill="both", expand=True, padx=(20, 14), pady=(16, 14))
+        head = self._head = tk.Frame(main, bg=T.BG)
+        head.pack(side="top", fill="x", pady=(0, 10))
         titles = ttk.Frame(head)
         titles.pack(side="left")
         ttk.Label(titles, text="Position your image", style="Heading.TLabel").pack(anchor="w")
@@ -112,91 +196,12 @@ class CropDialog(tk.Toplevel):
         self.q_pill = tk.Label(head, bg=T.CARD, fg=T.TEAL, font=self._bold, padx=12, pady=5,
                                highlightthickness=1, highlightbackground=T.BORDER)
         self.q_pill.pack(side="right")
-
-        # ---- footer (packed first so it always stays visible when the window is small)
-        foot = ttk.Frame(self, padding=(20, 2, 20, 16))
-        foot.pack(side="bottom", fill="x")
-        ttk.Button(foot, text="Continue", style="Accent.TButton",
-                   command=self.on_ok).pack(side="right")
-        if batch and batch[1] > 1:
-            ttk.Button(foot, text="Skip", style="Soft.TButton",
-                       command=self.destroy).pack(side="right", padx=8)
-            ttk.Button(foot, text="Stop", style="Soft.TButton",
-                       command=self.on_stop).pack(side="right")
-        else:
-            ttk.Button(foot, text="Cancel", style="Soft.TButton",
-                       command=self.destroy).pack(side="right", padx=8)
-        ttk.Label(foot, style="Hint.TLabel", justify="left",
-                  text="Drag to move  ·  scroll to zoom  ·  arrows nudge\n"
-                       "Bright = visible on the pin  ·  shaded ring = folds behind"
-                  ).pack(side="left")
-
-        # ---- controls card
-        edge = tk.Frame(self, bg=T.BORDER)
-        edge.pack(side="bottom", fill="x", padx=20, pady=(10, 10))
-        card = ttk.Frame(edge, style="Card.TFrame", padding=(16, 12))
-        card.pack(fill="both", expand=True, padx=1, pady=1)
-        card.columnconfigure(2, weight=1)
-
-        ttk.Label(card, text="Zoom", style="Card.TLabel", width=7).grid(row=0, column=0,
-                                                                         sticky="w")
-        ttk.Button(card, text="−", style="Tool.TButton", width=6,
-                   command=lambda: self.zoom_by(1 / self.WHEEL_STEP)).grid(row=0, column=1)
-        FlatSlider(card, self.v_zoom, math.log(self.zmin), math.log(self.zmax),
-                   origin=math.log(self.zmin), snaps=(0.0,), snap_tol=0.025,
-                   command=self._stop_anim).grid(row=0, column=2, sticky="ew", padx=6)
-        ttk.Button(card, text="+", style="Tool.TButton", width=6,
-                   command=lambda: self.zoom_by(self.WHEEL_STEP)).grid(row=0, column=3)
-        self.zoom_lbl = ttk.Label(card, text="100%", style="Value.TLabel", width=6,
-                                  anchor="e")
-        self.zoom_lbl.grid(row=0, column=4, sticky="e")
-
-        ttk.Label(card, text="Rotate", style="Card.TLabel", width=7).grid(
-            row=1, column=0, sticky="w", pady=(8, 0))
-        ttk.Button(card, text="↺ 90°", style="Tool.TButton", width=6,
-                   command=lambda: self.rotate_by(-90)).grid(row=1, column=1, pady=(8, 0))
-        FlatSlider(card, self.v_angle, -180, 180, origin=0, snaps=(-180, -90, 0, 90, 180),
-                   snap_tol=3).grid(row=1, column=2, sticky="ew", padx=6, pady=(8, 0))
-        ttk.Button(card, text="↻ 90°", style="Tool.TButton", width=6,
-                   command=lambda: self.rotate_by(90)).grid(row=1, column=3, pady=(8, 0))
-        self.angle_lbl = ttk.Label(card, text="0°", style="Value.TLabel", width=6,
-                                   anchor="e")
-        self.angle_lbl.grid(row=1, column=4, sticky="e", pady=(8, 0))
-
-        ttk.Label(card, text="Ring", style="Card.TLabel", width=7).grid(
-            row=2, column=0, sticky="w", pady=(8, 0))
-        Toggle(card, self.v_ring, command=self._ring_toggled, bg=T.CARD).grid(
-            row=2, column=1, pady=(8, 0))
-        rr = ttk.Frame(card, style="Card.TFrame")
-        rr.grid(row=2, column=2, columnspan=3, sticky="ew", padx=10, pady=(8, 0))
-        self.ring_hint = ttk.Label(rr, text="Add a coloured border inside the edge",
-                                   style="Muted.TLabel")
-        self.ring_hint.pack(side="left")
-        self.ring_btn = ttk.Button(rr, text="Style ›", style="Soft.TButton",
-                                   command=self.studio_open)
-        self.ring_lbl = ttk.Label(rr, text="", style="Value.TLabel")
-        self.v_ring_mm.trace_add("write", lambda *_: self._ring_slid())
-        self._ring_show()
-
-        r3 = ttk.Frame(card, style="Card.TFrame")
-        r3.grid(row=3, column=0, columnspan=5, sticky="ew", pady=(12, 0))
-        ttk.Button(r3, text="Fill", style="Soft.TButton", command=self.fill).pack(side="left")
-        ttk.Button(r3, text="Fit", style="Soft.TButton", command=self.fit).pack(
-            side="left", padx=6)
-        ttk.Button(r3, text="Reset", style="Soft.TButton", command=self.reset).pack(
-            side="left")
-        ttk.Button(r3, text="Flip ⇆", style="Soft.TButton", command=self.flip_h).pack(
-            side="left", padx=(6, 0))
-        if max_copies > 0:
-            ttk.Label(r3, text="Copies", style="Card.TLabel").pack(side="left", padx=(22, 6))
-            ttk.Spinbox(r3, from_=1, to=max_copies, textvariable=self.v_copies,
-                        width=5).pack(side="left")
-            ttk.Label(r3, text=f"of {max_copies} free spot{'s' if max_copies != 1 else ''}",
-                      style="Muted.TLabel").pack(side="left", padx=6)
-
-        # ---- the picture area (gets all the spare room when the window grows)
-        self.mid = tk.Frame(self, bg=T.BG)
-        self.mid.pack(side="top", fill="both", expand=True, padx=20, pady=(2, 0))
+        ttk.Label(main, style="Hint.TLabel", justify="left",
+                  text="Drag to move  ·  scroll to zoom  ·  arrow keys nudge  ·  "
+                       "bright = visible on the pin, shaded = folds behind"
+                  ).pack(side="bottom", anchor="w", pady=(10, 0))
+        self.mid = tk.Frame(main, bg=T.BG)
+        self.mid.pack(side="top", fill="both", expand=True)
         stage = tk.Frame(self.mid, bg=T.BORDER)
         stage.pack(side="left", fill="both", expand=True)
         self.cv = tk.Canvas(stage, width=self.CW, height=self.CH, bg=T.CARD,
@@ -227,17 +232,15 @@ class CropDialog(tk.Toplevel):
         self._layout()
         self.update_view(fast=False)
 
-        # size the window to its content (but never taller than the screen), centre it on the
-        # screen and show it
+        # fill the whole screen (maximised); F11 switches true full screen on and off
         self.update_idletasks()
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        w = min(self.winfo_reqwidth(), sw - 40)
-        h = min(self.winfo_reqheight(), sh - 110)
-        self.minsize(min(w, 620), min(h, 560))
-        x, y = (sw - w) // 2, (sh - h) // 2          # the middle of the screen
-        self.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+        self.minsize(min(900, sw), min(620, sh))
+        self.geometry(f"{sw}x{sh - 70}+0+0")
+        self.bind("<F11>", self._toggle_fullscreen)
         set_titlebar(self)
         self.deiconify()
+        self._maximise()
         try:
             self.wait_visibility()
             self.grab_set()
@@ -246,6 +249,47 @@ class CropDialog(tk.Toplevel):
         self.focus_force()
 
     # ---- helpers
+    def _section(self, parent, title, value=None):
+        """A small upper-case section title with an optional value on its right. Returns the
+        value label (or None)."""
+        row = tk.Frame(parent, bg=T.CARD)
+        row.pack(fill="x", padx=18, pady=(18, 6))
+        tk.Label(row, text=title.upper(), bg=T.CARD, fg=T.MUTED,
+                 font=("TkDefaultFont", 8, "bold")).pack(side="left")
+        if value is None:
+            return None
+        lbl = ttk.Label(row, text=value, style="Value.TLabel", anchor="e")
+        lbl.pack(side="right")
+        return lbl
+
+    def _tab_changed(self):
+        """Show the Frame or the Ring page."""
+        want = self.v_tab.get()
+        for name, page in (("frame", self.page_frame), ("ring", self.page_ring)):
+            if name == want:
+                page.pack(fill="both", expand=True)
+            else:
+                page.pack_forget()
+        if want == "ring":
+            self.studio.sync()
+
+    def _maximise(self):
+        """Make the window fill the screen (where the system can)."""
+        for attempt in (lambda: self.state("zoomed"),
+                        lambda: self.attributes("-zoomed", True)):
+            try:
+                attempt()
+                return
+            except tk.TclError:
+                continue
+
+    def _toggle_fullscreen(self, _e=None):
+        """F11: true full screen (no title bar) on and off."""
+        try:
+            self.attributes("-fullscreen", not self.attributes("-fullscreen"))
+        except tk.TclError:
+            pass
+
     def _d_text(self):
         """The pin as text, e.g. "58 mm pin" or "Heart pin, 53 × 57.5 mm"."""
         fw, fh = self.pin["fw"], self.pin["fh"]
@@ -590,41 +634,23 @@ class CropDialog(tk.Toplevel):
                 self._palette = ring_mod.dominant_colours(pic)
         return self._palette
 
-    def _ring_show(self):
-        """Show the style button and a short summary while the ring is on, a hint while off."""
-        on = self.v_ring.get()
-        if on:
-            self.ring_hint.pack_forget()
-            self.ring_lbl.config(text=self._summary())
-            self.ring_lbl.pack(side="left")
-            self.ring_btn.pack(side="left", padx=(12, 0))
-        else:
-            self.ring_lbl.pack_forget()
-            self.ring_btn.pack_forget()
-            self.ring_hint.pack(side="left")
-
-    def _summary(self):
-        if self.ring_image:
-            return f"Your pattern · {self._ring_mm():.1f} mm"
-        return f"{ring_mod.MATERIAL_NAMES.get(self.ring_material, '')} · {self._ring_mm():.1f} mm"
-
     def _ring_slid(self):
-        self.ring_lbl.config(text=self._summary()) if self.v_ring.get() else None
+        """The thickness slider moved."""
         self.update_view()
-        if self.studio is not None:
-            self.studio.sync()
+        self.studio.sync()
 
     def _ring_toggled(self):
-        """The switch was clicked. Switching on picks a colour that suits the picture and opens
-        the Ring Studio; switching off closes it.
-        """
-        if self.v_ring.get():
+        """The ring switch was clicked. Switching on picks a colour that suits the picture."""
+        if self.v_ring.get() and not self._ring_styled:
             self.match_picture(first=True)
-            self.studio_open()
-        else:
-            self.studio_close()
-        self._ring_show()
+        self.tabs._labels["ring"].config(text="Ring  ●" if self.v_ring.get() else "Ring")
+        self.studio.sync()
         self.update_view(fast=False)
+
+    def add_ring(self):
+        """The "Add a ring" button: switch the ring on."""
+        self.v_ring.set(True)
+        self._ring_toggled()
 
     def match_picture(self, first=False):
         """Use the colour that suits the picture best, in the Gloss material."""
@@ -647,12 +673,12 @@ class CropDialog(tk.Toplevel):
             self.ring_scale = float(kw["scale"])
         if "mm" in kw:
             self.v_ring_mm.set(ring_mod.clamp(kw["mm"], self.pin["fw"], self.pin["fh"]))
+        self._ring_styled = True
         if not self.v_ring.get():
             self.v_ring.set(True)
-        self._ring_show()
+            self.tabs._labels["ring"].config(text="Ring  ●")
         self.update_view()
-        if self.studio is not None:
-            self.studio.sync()
+        self.studio.sync()
 
     def apply_theme(self, i):
         """One-tap style: material, colour and thickness together."""
@@ -663,42 +689,17 @@ class CropDialog(tk.Toplevel):
     def ring_off(self):
         """Remove the ring."""
         self.v_ring.set(False)
-        self.studio_close()
-        self._ring_show()
-        self.update_view(fast=False)
-
-    def studio_open(self):
-        """Show the Ring Studio beside the picture (the window grows to make room)."""
-        if self.studio is None:
-            self.studio = RingStudio(self, self)
-        if not self.studio.winfo_ismapped():
-            self.studio.pack(side="right", fill="y", padx=(0, 20), pady=(16, 16),
-                             before=self._head)
-            self.update_idletasks()
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            w, h = self.winfo_width(), self.winfo_height()
-            nw = min(w + RingStudio.W + 20, sw - 40)
-            nh = min(max(h, 780), sh - 110)
-            self._grew = nw - w
-            x = max(0, min(self.winfo_x(), sw - nw - 10))
-            y = max(0, min(self.winfo_y(), sh - nh - 60))
-            self.geometry(f"{nw}x{nh}+{x}+{y}")
-        self.studio.refresh()
-
-    def studio_close(self):
-        """Hide the Ring Studio and give the window its width back."""
-        if self.studio is not None and self.studio.winfo_ismapped():
-            self.studio.pack_forget()
-            w, h = self.winfo_width(), self.winfo_height()
-            self.geometry(f"{max(620, w - self._grew)}x{h}+{self.winfo_x()}+{self.winfo_y()}")
-            self._grew = 0
+        self._ring_toggled()
 
     def _escape(self, _e=None):
-        """Escape closes the Ring Studio first, then the window."""
-        if self.studio is not None and self.studio.winfo_ismapped():
-            self.studio_close()
-        else:
-            self.destroy()
+        """Escape leaves true full screen first, then closes the window."""
+        try:
+            if self.attributes("-fullscreen"):
+                self.attributes("-fullscreen", False)
+                return
+        except tk.TclError:
+            pass
+        self.destroy()
 
     def _render_sharp(self):
         """Redraw at full quality once the picture has stopped moving."""
@@ -724,6 +725,7 @@ class CropDialog(tk.Toplevel):
                 self.studio.after_cancel(self.studio._job)
             except tk.TclError:
                 pass
+            self.studio._job = None
         super().destroy()
 
     def on_ok(self):
