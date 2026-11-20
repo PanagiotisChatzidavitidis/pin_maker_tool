@@ -13,8 +13,9 @@ from PIL import Image, ImageTk
 from .. import ring as ring_mod
 from ..constants import IMG_EXTS
 from . import theme as T
+from .ring_card import RingCard
 from .ring_picker import RingPicker
-from .widgets import FlatSlider, Segmented, Toggle
+from .widgets import FlatSlider, Segmented
 
 THUMB = 56          # size of a style / material preview, in pixels
 
@@ -72,14 +73,9 @@ class RingStudio(tk.Frame):
         self.dlg = dlg
         self._job = None
 
-        # ---- the switch is always there, so the ring can be turned on from here
-        head = tk.Frame(self, bg=T.CARD)
-        head.pack(side="top", fill="x", padx=18, pady=(10, 2))
-        Toggle(head, dlg.v_ring, command=dlg._ring_toggled, bg=T.CARD).pack(side="left")
-        tk.Label(head, text="Ring", bg=T.CARD, fg=T.TEXT,
-                 font=("TkDefaultFont", 10, "bold")).pack(side="left", padx=10)
-        self.sum_lbl = ttk.Label(head, text="", style="Muted.TLabel")
-        self.sum_lbl.pack(side="right")
+        # ---- the ring card (with the switch) is always there
+        self.card = RingCard(self, dlg)
+        self.card.pack(side="top", fill="x", padx=18, pady=(10, 2))
 
         # ---- off: a friendly note
         self.empty = tk.Frame(self, bg=T.CARD)
@@ -169,7 +165,6 @@ class RingStudio(tk.Frame):
     def _show_state(self):
         """Show the studio while the ring is on, the invitation while it is off."""
         on = self.dlg.v_ring.get()
-        self.sum_lbl.config(text="" if on else "Off")
         if on:
             if not self.live.winfo_manager():
                 self.empty.pack_forget()
@@ -211,12 +206,11 @@ class RingStudio(tk.Frame):
         """Update the labels, the current mark and the previews (soon, so that dragging a
         slider stays smooth)."""
         d = self.dlg
+        self.card.refresh()
         self._show_state()
         if not d.v_ring.get():
             return
         self.mm_lbl.config(text=f"{d._ring_mm():.1f} mm")
-        mat = "Your pattern" if d.ring_image else ring_mod.MATERIAL_NAMES.get(d.ring_material, "")
-        self.sum_lbl.config(text=f"{mat} · {d._ring_mm():.1f} mm")
         self.picker.set_colour(d.ring_col)
         # the chosen style and the material in use both stay marked
         for chips in self.styles.values():

@@ -14,8 +14,9 @@ from ..constants import LOW_PPI
 from ..imaging import base_crop, ppi_for, render_transform
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
+from .ring_card import RingCard
 from .ring_studio import RingStudio
-from .widgets import FlatSlider, Segmented, Toggle
+from .widgets import FlatSlider, Segmented
 
 
 _KEEP = object()        # "leave the current style alone"
@@ -179,14 +180,8 @@ class CropDialog(tk.Toplevel):
                 row=n // 2, column=n % 2, sticky="ew", padx=3, pady=3)
             grid.columnconfigure(n % 2, weight=1, uniform="quick")
         self._section(f, "Ring")
-        rrow = tk.Frame(f, bg=T.CARD)
-        rrow.pack(fill="x", padx=18)
-        Toggle(rrow, self.v_ring, command=self._ring_toggled, bg=T.CARD).pack(side="left")
-        tk.Label(rrow, text="Add a border inside the edge", bg=T.CARD, fg=T.MUTED
-                 ).pack(side="left", padx=10)
-        ttk.Button(rrow, text="Style ›", style="Soft.TButton",
-                   command=lambda: (self.v_tab.set("ring"), self._tab_changed())
-                   ).pack(side="right")
+        self.frame_card = RingCard(f, self, on_open=self._open_ring_tab)
+        self.frame_card.pack(fill="x", padx=18)
         tk.Label(f, text="Tip: double-click the picture to switch between Fill and Fit.",
                  bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8), wraplength=self.SIDE_W - 50,
                  justify="left").pack(anchor="w", padx=18, pady=(14, 0))
@@ -276,6 +271,16 @@ class CropDialog(tk.Toplevel):
         lbl.pack(side="right")
         return lbl
 
+    def _open_ring_tab(self):
+        """Go to the Ring page."""
+        self.v_tab.set("ring")
+        self._tab_changed()
+
+    def _sync_ring_ui(self):
+        """Bring the Ring page and the Frame page's ring card up to date."""
+        self.studio.sync()
+        self.frame_card.refresh()
+
     def _tab_changed(self):
         """Show the Frame or the Ring page."""
         want = self.v_tab.get()
@@ -285,7 +290,7 @@ class CropDialog(tk.Toplevel):
             else:
                 page.pack_forget()
         if want == "ring":
-            self.studio.sync()
+            self._sync_ring_ui()
 
     def _maximise(self):
         """Make the window fill the screen (where the system can)."""
@@ -651,7 +656,7 @@ class CropDialog(tk.Toplevel):
     def _ring_slid(self):
         """The thickness slider moved."""
         self.update_view()
-        self.studio.sync()
+        self._sync_ring_ui()
 
     def _ring_toggled(self):
         """The ring switch was clicked. Switching on picks a colour that suits the picture."""
@@ -664,7 +669,7 @@ class CropDialog(tk.Toplevel):
                                  scale=r.scale, mm=r.mm)
             else:
                 self.match_picture(first=True)
-        self.studio.sync()
+        self._sync_ring_ui()
         self.update_view(fast=False)
 
     def add_ring(self):
@@ -699,7 +704,7 @@ class CropDialog(tk.Toplevel):
         if not self.v_ring.get():
             self.v_ring.set(True)
         self.update_view()
-        self.studio.sync()
+        self._sync_ring_ui()
 
     def apply_theme(self, i):
         """One-tap style: material, colour and thickness together."""
