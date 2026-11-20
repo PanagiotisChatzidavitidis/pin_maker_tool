@@ -37,6 +37,8 @@ class _Chips(tk.Frame):
             cap.pack(pady=(0, 3))
             for w in (cell, pic, cap):
                 w.bind("<Button-1>", lambda e, i=ident: self.on_pick(i))
+                w.bind("<Enter>", lambda e, i=ident: self._hover(i, True))
+                w.bind("<Leave>", lambda e, i=ident: self._hover(i, False))
             self._cells[ident] = (cell, pic)
         self._imgs = {}
 
@@ -49,8 +51,16 @@ class _Chips(tk.Frame):
 
     def select(self, ident):
         """Outline one chip (None clears the outline)."""
+        self._current = ident
         for i, (cell, _pic) in self._cells.items():
             cell.config(highlightbackground=T.TEAL if i == ident else T.CARD)
+
+    _current = None
+
+    def _hover(self, ident, inside):
+        """A faint outline under the pointer (the chosen chip keeps its strong one)."""
+        if ident != self._current:
+            self._cells[ident][0].config(highlightbackground=T.BORDER if inside else T.CARD)
 
 
 class RingStudio(tk.Frame):
@@ -62,20 +72,8 @@ class RingStudio(tk.Frame):
         self.dlg = dlg
         self._job = None
 
-        # ---- off: a friendly empty state
-        self.empty = tk.Frame(self, bg=T.CARD)
-        tk.Label(self.empty, text="Give your pin a border", bg=T.CARD, fg=T.PETROL,
-                 font=("Georgia", 14, "bold")).pack(anchor="w", padx=18, pady=(26, 4))
-        tk.Label(self.empty, bg=T.CARD, fg=T.MUTED, justify="left", wraplength=dlg.SIDE_W - 50,
-                 text="A ring sits just inside the edge of the pin. Pick a style, a material "
-                      "and a colour, or use one of your own pictures.").pack(
-                          anchor="w", padx=18)
-        ttk.Button(self.empty, text="Add a ring", style="Accent.TButton",
-                   command=dlg.add_ring).pack(anchor="w", padx=18, pady=(16, 0))
-
-        # ---- on: the header (switch + summary) and the scrolling body
-        self.live = tk.Frame(self, bg=T.CARD)
-        head = tk.Frame(self.live, bg=T.CARD)
+        # ---- the switch is always there, so the ring can be turned on from here
+        head = tk.Frame(self, bg=T.CARD)
         head.pack(side="top", fill="x", padx=18, pady=(10, 2))
         Toggle(head, dlg.v_ring, command=dlg._ring_toggled, bg=T.CARD).pack(side="left")
         tk.Label(head, text="Ring", bg=T.CARD, fg=T.TEXT,
@@ -83,6 +81,17 @@ class RingStudio(tk.Frame):
         self.sum_lbl = ttk.Label(head, text="", style="Muted.TLabel")
         self.sum_lbl.pack(side="right")
 
+        # ---- off: a friendly note
+        self.empty = tk.Frame(self, bg=T.CARD)
+        tk.Label(self.empty, text="Give your pin a border", bg=T.CARD, fg=T.PETROL,
+                 font=("Georgia", 14, "bold")).pack(anchor="w", padx=18, pady=(22, 4))
+        tk.Label(self.empty, bg=T.CARD, fg=T.MUTED, justify="left", wraplength=dlg.SIDE_W - 50,
+                 text="Switch the ring on to add a border just inside the edge of the pin. "
+                      "Pick a style, a material and a colour, or use one of your own "
+                      "pictures.").pack(anchor="w", padx=18)
+
+        # ---- on: the scrolling studio
+        self.live = tk.Frame(self, bg=T.CARD)
         body = tk.Frame(self.live, bg=T.CARD)
         body.pack(side="top", fill="both", expand=True)
         self.cv = tk.Canvas(body, bg=T.CARD, highlightthickness=0)
@@ -160,6 +169,7 @@ class RingStudio(tk.Frame):
     def _show_state(self):
         """Show the studio while the ring is on, the invitation while it is off."""
         on = self.dlg.v_ring.get()
+        self.sum_lbl.config(text="" if on else "Off")
         if on:
             if not self.live.winfo_manager():
                 self.empty.pack_forget()
@@ -208,10 +218,10 @@ class RingStudio(tk.Frame):
         mat = "Your pattern" if d.ring_image else ring_mod.MATERIAL_NAMES.get(d.ring_material, "")
         self.sum_lbl.config(text=f"{mat} · {d._ring_mm():.1f} mm")
         self.picker.set_colour(d.ring_col)
-        # one mark at a time: the tapped style, else the material in use
+        # the chosen style and the material in use both stay marked
         for chips in self.styles.values():
             chips.select(d.theme_id)
-        self.mats.select(None if (d.ring_image or d.theme_id is not None) else d.ring_material)
+        self.mats.select(None if d.ring_image else d.ring_material)
         if d.ring_image:
             ppi = ring_mod.pattern_ppi(d.cur_ring(), d.pin["fw"], d.pin["fh"])
             soft = ppi is not None and ppi < 150

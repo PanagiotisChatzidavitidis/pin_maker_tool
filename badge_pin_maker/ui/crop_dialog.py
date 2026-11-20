@@ -1,6 +1,7 @@
 """The window where you position an image under the pin shape."""
 
 import math
+import os
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
@@ -14,7 +15,10 @@ from ..imaging import base_crop, ppi_for, render_transform
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .ring_studio import RingStudio
-from .widgets import FlatSlider, Segmented
+from .widgets import FlatSlider, Segmented, Toggle
+
+
+_KEEP = object()        # "leave the current style alone"
 
 
 class CropDialog(tk.Toplevel):
@@ -32,6 +36,7 @@ class CropDialog(tk.Toplevel):
     FOLD_A, OUT_A = 97, 196      # how strongly (0-255) the fold ring / outside is dimmed
     WHEEL_STEP = 1.12            # zoom factor of one wheel notch or + / - press
     SIDE_W = 400                 # width of the side panel
+    last_ring = None             # (ring, style) of the last crop, offered again next time
 
     def __init__(self, parent, source, pin, max_copies=0, art=None, title="Crop image",
                  batch=None):
@@ -173,6 +178,15 @@ class CropDialog(tk.Toplevel):
             ttk.Button(grid, text=text, style="Soft.TButton", command=cmd).grid(
                 row=n // 2, column=n % 2, sticky="ew", padx=3, pady=3)
             grid.columnconfigure(n % 2, weight=1, uniform="quick")
+        self._section(f, "Ring")
+        rrow = tk.Frame(f, bg=T.CARD)
+        rrow.pack(fill="x", padx=18)
+        Toggle(rrow, self.v_ring, command=self._ring_toggled, bg=T.CARD).pack(side="left")
+        tk.Label(rrow, text="Add a border inside the edge", bg=T.CARD, fg=T.MUTED
+                 ).pack(side="left", padx=10)
+        ttk.Button(rrow, text="Style ›", style="Soft.TButton",
+                   command=lambda: (self.v_tab.set("ring"), self._tab_changed())
+                   ).pack(side="right")
         tk.Label(f, text="Tip: double-click the picture to switch between Fill and Fit.",
                  bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8), wraplength=self.SIDE_W - 50,
                  justify="left").pack(anchor="w", padx=18, pady=(14, 0))
@@ -642,8 +656,14 @@ class CropDialog(tk.Toplevel):
     def _ring_toggled(self):
         """The ring switch was clicked. Switching on picks a colour that suits the picture."""
         if self.v_ring.get() and not self._ring_styled:
-            self.match_picture(first=True)
-        self.tabs._labels["ring"].config(text="Ring  ●" if self.v_ring.get() else "Ring")
+            last = CropDialog.last_ring
+            if last:                     # the same ring as the last pin: quick for a whole set
+                r, style = last
+                keep = r.image if r.image and os.path.isfile(r.image) else None
+                self.ring_change(_theme=style, material=r.material, col=r.col, image=keep,
+                                 scale=r.scale, mm=r.mm)
+            else:
+                self.match_picture(first=True)
         self.studio.sync()
         self.update_view(fast=False)
 
@@ -656,13 +676,15 @@ class CropDialog(tk.Toplevel):
         """Use the colour that suits the picture best, in the Gloss material."""
         self._palette = []
         col = (self.palette() or [(128, 128, 128)])[0]
-        self.ring_change(col=col, **({"material": "glossy", "image": None} if first else {}))
+        self.ring_change(col=col, **({"material": "satin", "image": None, "_theme": None}
+                                     if first else {}))
 
-    def ring_change(self, _theme=None, **kw):
-        """Change part of the ring (material=, col=, image=, scale=, mm=) and show it. Tweaking
-        anything by hand ends the "current style" mark.
+    def ring_change(self, _theme=_KEEP, **kw):
+        """Change part of the ring (material=, col=, image=, scale=, mm=) and show it. The style
+        that was tapped stays marked while you tweak it.
         """
-        self.theme_id = _theme
+        if _theme is not _KEEP:
+            self.theme_id = _theme
         if "col" in kw:
             self.ring_col = tuple(kw["col"])
         if "material" in kw:
@@ -676,7 +698,6 @@ class CropDialog(tk.Toplevel):
         self._ring_styled = True
         if not self.v_ring.get():
             self.v_ring.set(True)
-            self.tabs._labels["ring"].config(text="Ring  ●")
         self.update_view()
         self.studio.sync()
 
@@ -747,6 +768,8 @@ class CropDialog(tk.Toplevel):
                 return
         copies = max(1, min(self.max_copies, copies)) if self.max_copies > 0 else 1
         ring = self.cur_ring() if self.v_ring.get() else None
+        if ring:
+            CropDialog.last_ring = (ring, self.theme_id)
         self.result = (self.zoom, self.cx, self.cy, self.v_angle.get(), copies,
                        self.flipped, ring)
         self.destroy()
