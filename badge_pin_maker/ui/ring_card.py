@@ -78,9 +78,8 @@ class RingCard(tk.Canvas):
         self.create_image(16, (h - 40) // 2, anchor="nw", image=icon)
         self._imgs = [plate, icon]
         if on:
-            mat = "Your pattern" if d.ring_image else ring_mod.MATERIAL_NAMES.get(
-                d.ring_material, "")
-            sub = f"{mat}  ·  {d._ring_mm():.1f} mm"
+            name = ring_mod.STYLE_NAMES.get(d.cur_ring().style, "")
+            sub = f"{name}  ·  {d._ring_mm():.1f} mm"
         else:
             sub = "Add a border inside the edge"
         self.create_text(68, h / 2 - 11, text="Ring", anchor="w", fill=T.TEXT,

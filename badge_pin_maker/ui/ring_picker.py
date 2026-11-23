@@ -28,7 +28,7 @@ def _disc(size, fill, outline, ring_w=2):
 
 class RingPicker(tk.Frame):
     """The card. ``on_pick(rgb)`` runs on every change; ``on_close()`` when it should go."""
-    W = 328
+    W = 320
     BAR = 20
 
     def __init__(self, parent, colour, palette, on_pick, bg=None):
@@ -48,15 +48,19 @@ class RingPicker(tk.Frame):
             cv.bind("<ButtonPress-1>", fn)
             cv.bind("<B1-Motion>", fn)
 
-        tk.Label(self, text="FROM YOUR PICTURE", bg=T.CARD, fg=T.MUTED, anchor="w",
-                 font=("TkDefaultFont", 8, "bold")).pack(fill="x", pady=(4, 0))
-        self._row = tk.Frame(self, bg=T.CARD)
-        self._row.pack(fill="x", pady=(6, 0))
-        self.set_palette(palette)
+        self._row = None
+        if palette is not None:
+            tk.Label(self, text="FROM YOUR PICTURE", bg=T.CARD, fg=T.MUTED, anchor="w",
+                     font=("TkDefaultFont", 8, "bold")).pack(fill="x", pady=(4, 0))
+            self._row = tk.Frame(self, bg=T.CARD)
+            self._row.pack(fill="x", pady=(6, 0))
+            self.set_palette(palette)
         self._draw()
 
     def set_palette(self, palette):
         """Show these picture colours as one-click chips."""
+        if self._row is None:
+            return
         for c in self._row.winfo_children():
             c.destroy()
         for col in palette[:7]:

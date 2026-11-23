@@ -136,6 +136,13 @@ class FlatSlider(tk.Canvas):
             except (tk.TclError, ValueError):
                 pass
 
+    def set_range(self, lo, hi):
+        """Change the value range (the knob keeps its value; the caller re-clamps it)."""
+        if (lo, hi) != (self.lo, self.hi):
+            self.lo, self.hi = lo, hi
+            self.origin = lo
+            self._draw()
+
     def _x_of(self, value):
         """Pixel position of a value along the track."""
         span = max(1, self.winfo_width() - 2 * self.PAD)

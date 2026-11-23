@@ -12,6 +12,7 @@ from .. import ring as ring_mod
 from .. import shapes
 from ..constants import LOW_PPI
 from ..imaging import base_crop, ppi_for, render_transform
+from . import smooth
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .ring_card import RingCard
@@ -37,7 +38,9 @@ class CropDialog(tk.Toplevel):
     FOLD_A, OUT_A = 97, 196      # how strongly (0-255) the fold ring / outside is dimmed
     WHEEL_STEP = 1.12            # zoom factor of one wheel notch or + / - press
     SIDE_W = 400                 # width of the side panel
-    last_ring = None             # (ring, style) of the last crop, offered again next time
+    FIN_W, FIN_H, FIN_PIN = 168, 208, 124    # the floating "Final pin" card
+    CORNER = 26                              # rounded corners of the picture stage
+    last_ring = None             # (ring, pick) of the last crop, offered again next time
 
     def __init__(self, parent, source, pin, max_copies=0, art=None, title="Crop image",
                  batch=None):
@@ -86,18 +89,18 @@ class CropDialog(tk.Toplevel):
         self.v_copies = tk.IntVar(value=1)
 
         # the ring inside the pin's edge (None = no ring); see ring.py
-        self.r_lo, self.r_hi = ring_mod.limits(pin["fw"], pin["fh"])
         had = ring_mod.as_ring(art.ring) if art else None
+        self.ring_style = had.style if had and had.style in ring_mod.STYLE_NAMES else "solid"
         self.v_ring = tk.BooleanVar(value=bool(had))
         self.v_ring_mm = tk.DoubleVar(value=ring_mod.clamp(
             had.mm if had else ring_mod.default_mm(pin["fw"], pin["fh"]),
-            pin["fw"], pin["fh"]))
+            pin["fw"], pin["fh"], self.ring_style))
         self.ring_col = tuple(had.col) if had else (128, 128, 128)
-        self.ring_material = (had.material if had.material in ring_mod.MATERIAL_NAMES
-                              else "flat") if had else "glossy"
+        self.ring_col2 = tuple(had.col2) if had and had.col2 else None   # None = automatic
         self.ring_image = had.image if had else None
         self.ring_scale = had.scale if had else 0.3
-        self.theme_id = None                 # index of the style tapped last (None once tweaked)
+        self.pick_id = None                  # which recommendation was tapped last (None once tweaked)
+        self._picks = None
         self._palette = []
         self._plain = None                   # the picture without the ring, as last drawn
         self.studio = None                   # the Ring page (built with the side panel)
@@ -211,11 +214,13 @@ class CropDialog(tk.Toplevel):
                   ).pack(side="bottom", anchor="w", pady=(10, 0))
         self.mid = tk.Frame(main, bg=T.BG)
         self.mid.pack(side="top", fill="both", expand=True)
-        stage = tk.Frame(self.mid, bg=T.BORDER)
+        stage = tk.Frame(self.mid, bg=T.BG)
         stage.pack(side="left", fill="both", expand=True)
-        self.cv = tk.Canvas(stage, width=self.CW, height=self.CH, bg=T.CARD,
+        self.cv = tk.Canvas(stage, width=self.CW, height=self.CH, bg=T.BG,
                             highlightthickness=0, cursor="fleur")
-        self.cv.pack(fill="both", expand=True, padx=1, pady=1)
+        self.cv.pack(fill="both", expand=True)
+        self._fin_img = []
+        self._face_mask = None
 
         self.cv.bind("<ButtonPress-1>", self.on_press)
         self.cv.bind("<B1-Motion>", self.on_drag)
@@ -290,7 +295,9 @@ class CropDialog(tk.Toplevel):
             else:
                 page.pack_forget()
         if want == "ring":
-            self._sync_ring_ui()
+            self.refresh_picks()
+            self.studio.refresh()
+            self.frame_card.refresh()
 
     def _maximise(self):
         """Make the window fill the screen (where the system can)."""
@@ -368,6 +375,22 @@ class CropDialog(tk.Toplevel):
                                Image.new("L", size, self.OUT_A), cut)
         self.alpha = Image.composite(Image.new("L", size, 0), ring, safe)
         self.dim = Image.new("RGB", size, T.CROP_DIM)
+        # rounded stage corners: painted in the page colour by the dimming layer itself
+        k = 3
+        rm = Image.new("L", (cw * k, ch * k), 0)
+        ImageDraw.Draw(rm).rounded_rectangle([0, 0, cw * k - 1, ch * k - 1],
+                                             radius=self.CORNER * k, fill=255)
+        rm = rm.resize(size, Image.LANCZOS)
+        self.alpha = Image.composite(self.alpha, Image.new("L", size, 255), rm)
+        self.dim = Image.composite(self.dim, Image.new("RGB", size, T.BG), rm)
+        # the finished face of the pin, cut out of the picture area (for the Final pin card)
+        mx0, my0 = self.vx0 + self.vw / 2, self.vy0 + self.vh / 2
+        self._face_box = (int(self.vx0), int(self.vy0), int(self.vx0 + self.vw),
+                          int(self.vy0 + self.vh))
+        full = ring_mod.mask(self.shape, self.pin["fw"], self.pin["fh"], 0, size,
+                             self.vw / self.d, self.vh / self.dh, mx0, my0)
+        self._face_mask = full.crop(self._face_box)
+        self._fin_key = None
 
         self.cv.delete("all")
         self._img_item = self.cv.create_image(0, 0, anchor="nw")
@@ -611,6 +634,9 @@ class CropDialog(tk.Toplevel):
         self._plain = bright
         if self.v_ring.get():
             bright = self._with_ring(bright)
+        self._final_card(bright)
+        if self.studio is not None and self.v_tab.get() == "ring":
+            self.studio.soon()                  # the previews follow the picture
         final = Image.composite(self.dim, bright, self.alpha)
         self._image = ImageTk.PhotoImage(final)
         self.cv.itemconfigure(self._img_item, image=self._image)
@@ -620,15 +646,53 @@ class CropDialog(tk.Toplevel):
         if fast:
             self._hq_job = self.after(160, self._render_sharp)
 
+    def _final_card(self, picture):
+        """Repaint the floating card with the pin as it will look when made."""
+        if self._face_mask is None:
+            return
+        P = self.FIN_PIN
+        box = self._face_box
+        view = picture.convert("RGB").crop(box)
+        k = P / max(view.size)
+        sz = (max(8, round(view.size[0] * k)), max(8, round(view.size[1] * k)))
+        mask = self._face_mask.resize(sz, Image.LANCZOS)
+        face = Image.new("RGB", sz, T.CARD)
+        face.paste(view.resize(sz, Image.BILINEAR), (0, 0), mask)
+        W, H = self.FIN_W, self.FIN_H
+        k4 = 3
+        card = Image.new("RGBA", (W * k4, H * k4), (0, 0, 0, 0))
+        ImageDraw.Draw(card).rounded_rectangle(
+            [0, 0, W * k4 - 1, H * k4 - 1], radius=22 * k4, fill=T.CARD, outline=T.BORDER,
+            width=k4)
+        card = card.resize((W, H), Image.LANCZOS)
+        card.paste(face, ((W - sz[0]) // 2, (22 + H - 26 - sz[1]) // 2 + 4))
+        ph = ImageTk.PhotoImage(card)
+        x0, y0 = self.cv.winfo_width() - 18 - W, self.cv.winfo_height() - 18 - H
+        self.cv.delete("fin")
+        self.cv.create_image(x0, y0, anchor="nw", image=ph, tags="fin")
+        self.cv.create_text(x0 + W / 2, y0 + 22, text="FINAL PIN", fill=T.MUTED,
+                            font=("TkDefaultFont", 8, "bold"), tags="fin")
+        self.cv.create_text(x0 + W / 2, y0 + H - 22, text=self._d_text(), fill=T.TEXT,
+                            font=("TkDefaultFont", 9), tags="fin")
+        self._fin_img = [ph]
+
     # ---- the ring -----------------------------------------------------------
     def _ring_mm(self):
         """The thickness now, held inside the allowed range."""
-        return ring_mod.clamp(self.v_ring_mm.get(), self.pin["fw"], self.pin["fh"])
+        return ring_mod.clamp(self.v_ring_mm.get(), self.pin["fw"], self.pin["fh"],
+                              self.ring_style)
+
+    def ring_limits(self):
+        """(smallest, largest) thickness for the current style."""
+        return ring_mod.limits(self.pin["fw"], self.pin["fh"], self.ring_style)
 
     def cur_ring(self):
         """The ring as it is now."""
-        return ring_mod.Ring(round(self._ring_mm(), 2), tuple(self.ring_col),
-                             self.ring_material, self.ring_image, self.ring_scale)
+        style = self.ring_style
+        if style == "pattern" and not self.ring_image:
+            style = "solid"
+        return ring_mod.Ring(round(self._ring_mm(), 2), tuple(self.ring_col), style,
+                             self.ring_image, self.ring_scale, self.ring_col2)
 
     def _with_ring(self, img):
         """``img`` (the picture area) with the ring painted over it."""
@@ -663,12 +727,13 @@ class CropDialog(tk.Toplevel):
         if self.v_ring.get() and not self._ring_styled:
             last = CropDialog.last_ring
             if last:                     # the same ring as the last pin: quick for a whole set
-                r, style = last
+                r, pick = last
                 keep = r.image if r.image and os.path.isfile(r.image) else None
-                self.ring_change(_theme=style, material=r.material, col=r.col, image=keep,
+                self.ring_change(_pick=pick, style=r.style if keep or r.style != "pattern"
+                                 else "solid", col=r.col, col2=r.col2, image=keep,
                                  scale=r.scale, mm=r.mm)
-            else:
-                self.match_picture(first=True)
+            else:                        # the best recommendation for this picture
+                self.apply_pick(0)
         self._sync_ring_ui()
         self.update_view(fast=False)
 
@@ -677,40 +742,56 @@ class CropDialog(tk.Toplevel):
         self.v_ring.set(True)
         self._ring_toggled()
 
-    def match_picture(self, first=False):
-        """Use the colour that suits the picture best, in the Gloss material."""
-        self._palette = []
-        col = (self.palette() or [(128, 128, 128)])[0]
-        self.ring_change(col=col, **({"material": "satin", "image": None, "_theme": None}
-                                     if first else {}))
+    def picks(self):
+        """The recommended rings for the picture now showing: [(label, Ring)], best first."""
+        if self._picks is None:
+            pic = self.view_picture()
+            if pic is None:
+                return []
+            self._picks = ring_mod.recommend(pic, self.pin["fw"], self.pin["fh"])
+        return self._picks
 
-    def ring_change(self, _theme=_KEEP, **kw):
-        """Change part of the ring (material=, col=, image=, scale=, mm=) and show it. The style
-        that was tapped stays marked while you tweak it.
+    def refresh_picks(self):
+        """Forget the recommendations (the picture moved), so they are made afresh."""
+        self._picks = None
+        self._palette = []
+
+    def apply_pick(self, i):
+        """Use recommendation ``i`` (also switches the ring on)."""
+        picks = self.picks()
+        if not picks:
+            return
+        r = picks[i][1]
+        self.ring_change(_pick=i, style=r.style, col=r.col, col2=r.col2, image=None, mm=r.mm)
+
+    def ring_change(self, _pick=_KEEP, **kw):
+        """Change part of the ring (style=, col=, col2=, image=, scale=, mm=) and show it. The
+        recommendation that was tapped stays marked until something else is changed by hand.
         """
-        if _theme is not _KEEP:
-            self.theme_id = _theme
+        if _pick is not _KEEP:
+            self.pick_id = _pick
+        elif kw.keys() - {"mm", "scale"}:
+            self.pick_id = None
+        if "style" in kw:
+            self.ring_style = kw["style"]
         if "col" in kw:
             self.ring_col = tuple(kw["col"])
-        if "material" in kw:
-            self.ring_material = kw["material"]
+        if "col2" in kw:
+            self.ring_col2 = tuple(kw["col2"]) if kw["col2"] else None
         if "image" in kw:
             self.ring_image = kw["image"]
         if "scale" in kw:
             self.ring_scale = float(kw["scale"])
         if "mm" in kw:
-            self.v_ring_mm.set(ring_mod.clamp(kw["mm"], self.pin["fw"], self.pin["fh"]))
+            self.v_ring_mm.set(ring_mod.clamp(kw["mm"], self.pin["fw"], self.pin["fh"],
+                                              self.ring_style))
+        elif "style" in kw:                  # keep the thickness inside the style's range
+            self.v_ring_mm.set(self._ring_mm())
         self._ring_styled = True
         if not self.v_ring.get():
             self.v_ring.set(True)
         self.update_view()
         self._sync_ring_ui()
-
-    def apply_theme(self, i):
-        """One-tap style: material, colour and thickness together."""
-        _cat, _name, mat, col, share = ring_mod.THEMES[i]
-        self.ring_change(_theme=i, material=mat, col=col, image=None,
-                         mm=ring_mod.default_mm(self.pin["fw"], self.pin["fh"], share))
 
     def ring_off(self):
         """Remove the ring."""
@@ -774,7 +855,7 @@ class CropDialog(tk.Toplevel):
         copies = max(1, min(self.max_copies, copies)) if self.max_copies > 0 else 1
         ring = self.cur_ring() if self.v_ring.get() else None
         if ring:
-            CropDialog.last_ring = (ring, self.theme_id)
+            CropDialog.last_ring = (ring, self.pick_id)
         self.result = (self.zoom, self.cx, self.cy, self.v_angle.get(), copies,
                        self.flipped, ring)
         self.destroy()
