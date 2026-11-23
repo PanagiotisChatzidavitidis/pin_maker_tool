@@ -108,7 +108,6 @@ class RingStudio(tk.Frame):
         self._tkeys = {}
         self.target = tk.StringVar(value="main")
         self.preset = tk.StringVar(value="")
-        self.scale_var = tk.DoubleVar(value=dlg.ring_scale)
 
         self.card = RingCard(self, dlg)
         self.card.pack(side="top", fill="x", padx=18, pady=(10, 2))
@@ -171,15 +170,38 @@ class RingStudio(tk.Frame):
         self.choose_btn = ttk.Button(prow, text="Choose image…", style="Soft.TButton",
                                      command=self._choose_image)
         self.choose_btn.pack(side="left")
+        ttk.Button(prow, text="Reset", style="Soft.TButton",
+                   command=lambda: dlg.ring_change(reset_pattern=True)).pack(side="right")
         self.pat_lbl = ttk.Label(self.s_pat, text="", style="Muted.TLabel", wraplength=340,
                                  justify="left")
         self.pat_lbl.pack(anchor="w", padx=18, pady=(6, 0))
-        srow = tk.Frame(self.s_pat, bg=T.CARD)
-        srow.pack(fill="x", padx=18, pady=(6, 0))
-        ttk.Label(srow, text="Pattern size", style="Card.TLabel").pack(side="left")
-        FlatSlider(srow, self.scale_var, 0.08, 0.8,
-                   command=lambda: dlg.ring_change(scale=self.scale_var.get())
-                   ).pack(side="left", fill="x", expand=True, padx=(8, 0))
+        self.mode = tk.StringVar(value="tile")
+        tk.Label(self.s_pat, text="Layout", bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8)
+                 ).pack(anchor="w", padx=18, pady=(10, 2))
+        Segmented(self.s_pat, self.mode, list(ring_mod.PATTERN_MODES),
+                  command=lambda: dlg.ring_change(mode=self.mode.get()), bg=T.CARD
+                  ).pack(fill="x", padx=18)
+        # name, key, range, how the value is shown
+        self._pvars = {}
+        for name, k, lo, hi, fmt, origin in (
+                ("Size", "scale", 0.08, 0.8, lambda v: f"{v * 100:.0f}%", None),
+                ("Move across", "ox", -0.5, 0.5, lambda v: f"{v * 100:+.0f}%", 0.0),
+                ("Move down", "oy", -0.5, 0.5, lambda v: f"{v * 100:+.0f}%", 0.0),
+                ("Turn", "rot", -180, 180, lambda v: f"{v:+.0f}°", 0.0),
+                ("Tint", "tint", 0.0, 0.8, lambda v: f"{v * 100:.0f}%", None)):
+            row = tk.Frame(self.s_pat, bg=T.CARD)
+            row.pack(fill="x", padx=18, pady=(8, 0))
+            ttk.Label(row, text=name, style="Card.TLabel", width=11).pack(side="left")
+            var = tk.DoubleVar(value=0.0)
+            lbl = ttk.Label(row, text="", style="Value.TLabel", width=6, anchor="e")
+            lbl.pack(side="right")
+            FlatSlider(row, var, lo, hi, origin=origin, snaps=(0.0,) if origin == 0.0 else (),
+                       snap_tol=(hi - lo) * 0.02,
+                       command=lambda: self.after_idle(self._pat_slid)
+                       ).pack(side="left", fill="x", expand=True, padx=(4, 6))
+            self._pvars[k] = (var, lbl, fmt)
+        ttk.Label(self.s_pat, text="Tint blends the pattern toward the ring colour below.",
+                  style="Muted.TLabel").pack(anchor="w", padx=18, pady=(8, 0))
 
         tk.Frame(self.inner, bg=T.CARD, height=24).pack(side="bottom")
         self._bind_wheel(self.cv)
@@ -211,11 +233,10 @@ class RingStudio(tk.Frame):
         self.s_picks.pack(fill="x")
         if on:
             self.s_style.pack(fill="x")
-            if style != "pattern":
-                self.s_colour.pack(fill="x")
-            self.s_thick.pack(fill="x")
             if style == "pattern":
                 self.s_pat.pack(fill="x")
+            self.s_colour.pack(fill="x")
+            self.s_thick.pack(fill="x")
         if two:
             self.target_seg.pack(fill="x", padx=18, before=self.swatches)
         else:
@@ -269,6 +290,10 @@ class RingStudio(tk.Frame):
 
     def _auto_accent(self, _col=None):
         self.dlg.ring_change(col2=None)
+
+    def _pat_slid(self):
+        """A pattern slider moved: send every pattern value to the ring."""
+        self.dlg.ring_change(**{k: v[0].get() for k, v in self._pvars.items()})
 
     def _preset(self):
         d = self.dlg
@@ -329,11 +354,17 @@ class RingStudio(tk.Frame):
             else:
                 self.pat_lbl.config(text="Pick a picture to run around the edge.")
             self.choose_btn.config(text="Replace image…" if d.ring_image else "Choose image…")
+            vals = dict(d.ring_pat, scale=d.ring_scale)
+            for k, (var, lbl, fmt) in self._pvars.items():
+                if abs(var.get() - vals[k]) > 1e-9:
+                    var.set(vals[k])
+                lbl.config(text=fmt(vals[k]))
+            self.mode.set(d.ring_pat["mode"])
         self.soon()
 
     def _sync_colours(self):
         d = self.dlg
-        if d.ring_style in ("pattern",) or not d.v_ring.get():
+        if not d.v_ring.get():
             return
         accent = self.target.get() == "accent" and d.ring_style in ring_mod.TWO_COLOUR
         cur = self._target_col()
@@ -413,7 +444,7 @@ class RingStudio(tk.Frame):
         if d.v_ring.get():
             col, col2 = tuple(d.ring_col), d.ring_col2
             foils = [c for _n, c in ring_mod.FOILS]
-            key = (vk, col, col2, d.ring_image, round(d.ring_scale, 2))
+            key = (vk, col, col2, d.ring_image, round(d.ring_scale, 2), tuple(d.ring_pat.values()))
             if self._tkeys.get("styles") != key:
                 self._tkeys["styles"] = key
                 for ident, _label in ring_mod.STYLES:
@@ -425,5 +456,5 @@ class RingStudio(tk.Frame):
                         col if not (ident != "foil" and col in foils) else
                         (d.palette() or [col])[0])
                     ring = ring_mod.Ring(ring_mod.default_mm(fw, fh, 1.2, ident), c, ident,
-                                         d.ring_image, d.ring_scale, col2)
+                                         d.ring_image, d.ring_scale, col2, **d.ring_pat)
                     self.style_tiles.set_image(ident, thumb(ring, STYLE_THUMB))

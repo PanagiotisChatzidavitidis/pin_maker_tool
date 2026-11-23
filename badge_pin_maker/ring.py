@@ -19,7 +19,7 @@ import math
 import os
 from collections import namedtuple
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 
 from . import shapes
 
@@ -28,8 +28,12 @@ MAX_MM = 6.0          # an absolute cap, however big the pin is
 MAX_SHARE = 0.12      # of the pin's shorter side
 DEFAULT_SHARE = 0.05
 
-Ring = namedtuple("Ring", "mm col style image scale col2",
-                  defaults=("solid", None, 0.3, None))
+# the last five fields only matter for a custom pattern image: how it repeats ("tile", "mirror"
+# or "fill"), how far it is moved across / down (fractions of one repeat), its turn in degrees
+# and how much the ring colour tints it (0 to 1).
+Ring = namedtuple("Ring", "mm col style image scale col2 mode ox oy rot tint",
+                  defaults=("solid", None, 0.3, None, "tile", 0.0, 0.0, 0.0, 0.0))
+PATTERN_MODES = (("tile", "Repeat"), ("mirror", "Mirror"), ("fill", "Fill"))
 
 STYLES = (("solid", "Solid"), ("duo", "Duo"), ("double", "Double"), ("gradient", "Ombre"),
           ("dots", "Polka"), ("stitch", "Stitch"), ("foil", "Foil"), ("pattern", "Mine"))
@@ -114,7 +118,9 @@ def key(r):
         return None
     r = as_ring(r)
     return (round(r.mm, 2), tuple(r.col), r.style, r.image or "", round(r.scale, 2),
-            tuple(r.col2) if r.col2 else None)
+            tuple(r.col2) if r.col2 else None,
+            (r.mode, round(r.ox, 3), round(r.oy, 3), round(r.rot, 1), round(r.tint, 2))
+            if r.image else None)
 
 
 def to_saved(r, base=None):
@@ -127,6 +133,7 @@ def to_saved(r, base=None):
         d["color2"] = to_hex(r.col2)
     if r.image:
         d["image"], d["scale"] = r.image, r.scale
+        d["pattern"] = {"mode": r.mode, "ox": r.ox, "oy": r.oy, "rot": r.rot, "tint": r.tint}
         if base:
             try:
                 d["rel"] = os.path.relpath(r.image, base)
@@ -151,8 +158,11 @@ def from_saved(data, base=None):
         if st == "pattern" and not image:
             st = "solid"
         col2 = from_hex(str(data["color2"])) if data.get("color2") else None
+        p = data.get("pattern") or {}
+        mode = p.get("mode") if p.get("mode") in dict(PATTERN_MODES) else "tile"
         return Ring(float(data["mm"]), from_hex(str(data["color"])), st, image,
-                    float(data.get("scale", 0.3)), col2)
+                    float(data.get("scale", 0.3)), col2, mode, float(p.get("ox", 0)),
+                    float(p.get("oy", 0)), float(p.get("rot", 0)), float(p.get("tint", 0)))
     except (TypeError, ValueError, IndexError, KeyError, AttributeError):
         return None
 
@@ -347,21 +357,43 @@ def pattern_ppi(ring, fw, fh):
 
 
 def _tiled(r, ctx):
-    """The pattern image repeated over the whole area (None if it cannot be read)."""
-    size, cx, cy = ctx["size"], ctx["cx"], ctx["cy"]
+    """The pattern image laid over the whole area, repeated, mirrored or enlarged to fill, moved,
+    turned and tinted as the ring says (None if the image cannot be read).
+    """
+    size = ctx["size"]
     w, hh = size
     try:
         t = _tile_image(r.image)
     except (OSError, ValueError):
         return None
-    tp = max(8, int(r.scale * min(ctx["fw"], ctx["fh"]) * ctx["px"]))
-    t = t.resize((tp, max(1, round(tp * t.size[1] / t.size[0]))), Image.LANCZOS)
-    out = Image.new("RGB", size)
-    x0 = int(cx - w // 2) % t.size[0] - t.size[0]
-    y0 = int(cy - hh // 2) % t.size[1] - t.size[1]
-    for y in range(y0, hh, t.size[1]):
-        for x in range(x0, w, t.size[0]):
+    iw, ih = t.size
+    if r.mode == "fill":              # one big picture: this size covers the pin (1x to 3x)
+        zoom = 1 + (r.scale - 0.08) / 0.72 * 2
+        tp = max(8, int(max(w, hh * iw / ih) * zoom))
+    else:
+        tp = max(8, int(r.scale * min(ctx["fw"], ctx["fh"]) * ctx["px"]))
+    t = t.resize((tp, max(1, round(tp * ih / iw))), Image.LANCZOS)
+    if r.mode == "mirror":            # 2 x 2 mirrored: no hard seams between repeats
+        m = Image.new("RGB", (t.size[0] * 2, t.size[1] * 2))
+        m.paste(t, (0, 0))
+        m.paste(ImageOps.mirror(t), (t.size[0], 0))
+        m.paste(ImageOps.flip(t), (0, t.size[1]))
+        m.paste(ImageOps.flip(ImageOps.mirror(t)), t.size)
+        t = m
+    tw, th = t.size
+    diag = int(math.hypot(w, hh)) + 4      # big enough to turn and still cover the area
+    out = Image.new("RGB", (diag, diag))
+    x0 = (int(diag / 2 - tw / 2 + r.ox * tw)) % tw - tw
+    y0 = (int(diag / 2 - th / 2 + r.oy * th)) % th - th
+    for y in range(y0, diag, th):
+        for x in range(x0, diag, tw):
             out.paste(t, (x, y))
+    if r.rot:
+        out = out.rotate(-r.rot, Image.BICUBIC)
+    left, top = (diag - w) // 2, (diag - hh) // 2
+    out = out.crop((left, top, left + w, top + hh))
+    if r.tint > 0:
+        out = Image.blend(out, _solid(size, tuple(r.col)), min(1.0, r.tint))
     return out
 
 
@@ -457,7 +489,7 @@ def layer(ring, shape, fw, fh, size, sx, sy, cx, cy, ss=2):
     'L' mask that is white where the pin's picture shows.
     """
     r = as_ring(ring)
-    style = "pattern" if r.image else r.style
+    style = r.style if r.style != "pattern" or r.image else "solid"
     mm = clamp(r.mm, fw, fh, style)
     ck = (key(r._replace(mm=mm)), shape, round(fw, 2), round(fh, 2), size, round(sx, 3),
           round(sy, 3), round(cx, 1), round(cy, 1))

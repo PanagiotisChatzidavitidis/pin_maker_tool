@@ -99,6 +99,10 @@ class CropDialog(tk.Toplevel):
         self.ring_col2 = tuple(had.col2) if had and had.col2 else None   # None = automatic
         self.ring_image = had.image if had else None
         self.ring_scale = had.scale if had else 0.3
+        # how the custom pattern image is laid out (see ring.Ring)
+        self.ring_pat = dict(mode=had.mode, ox=had.ox, oy=had.oy, rot=had.rot,
+                             tint=had.tint) if had else dict(mode="tile", ox=0.0, oy=0.0,
+                                                             rot=0.0, tint=0.0)
         self.pick_id = None                  # which recommendation was tapped last (None once tweaked)
         self._picks = None
         self._palette = []
@@ -692,7 +696,8 @@ class CropDialog(tk.Toplevel):
         if style == "pattern" and not self.ring_image:
             style = "solid"
         return ring_mod.Ring(round(self._ring_mm(), 2), tuple(self.ring_col), style,
-                             self.ring_image, self.ring_scale, self.ring_col2)
+                             self.ring_image, self.ring_scale, self.ring_col2,
+                             **self.ring_pat)
 
     def _with_ring(self, img):
         """``img`` (the picture area) with the ring painted over it."""
@@ -731,7 +736,8 @@ class CropDialog(tk.Toplevel):
                 keep = r.image if r.image and os.path.isfile(r.image) else None
                 self.ring_change(_pick=pick, style=r.style if keep or r.style != "pattern"
                                  else "solid", col=r.col, col2=r.col2, image=keep,
-                                 scale=r.scale, mm=r.mm)
+                                 scale=r.scale, mm=r.mm, mode=r.mode, ox=r.ox, oy=r.oy,
+                                 rot=r.rot, tint=r.tint)
             else:                        # the best recommendation for this picture
                 self.apply_pick(0)
         self._sync_ring_ui()
@@ -770,7 +776,7 @@ class CropDialog(tk.Toplevel):
         """
         if _pick is not _KEEP:
             self.pick_id = _pick
-        elif kw.keys() - {"mm", "scale"}:
+        elif kw.keys() - {"mm", "scale", "mode", "ox", "oy", "rot", "tint", "reset_pattern"}:
             self.pick_id = None
         if "style" in kw:
             self.ring_style = kw["style"]
@@ -782,6 +788,12 @@ class CropDialog(tk.Toplevel):
             self.ring_image = kw["image"]
         if "scale" in kw:
             self.ring_scale = float(kw["scale"])
+        for k in ("mode", "ox", "oy", "rot", "tint"):
+            if k in kw:
+                self.ring_pat[k] = kw[k]
+        if kw.get("reset_pattern"):
+            self.ring_scale = 0.3
+            self.ring_pat = dict(mode="tile", ox=0.0, oy=0.0, rot=0.0, tint=0.0)
         if "mm" in kw:
             self.v_ring_mm.set(ring_mod.clamp(kw["mm"], self.pin["fw"], self.pin["fh"],
                                               self.ring_style))
