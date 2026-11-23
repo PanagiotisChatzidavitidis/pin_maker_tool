@@ -79,6 +79,12 @@ def icon(name, colour, bg, size=ICON):
                                 radius=3 * k, outline=colour, width=round(1.6 * k))
             d.rounded_rectangle([6 * k, 6 * k, (size - 6) * k, (size - 6) * k], radius=1.5 * k,
                                 fill=colour)
+        elif name == "centre":                # a target: ring with a dot
+            smooth._oval(d, k, m, m, size * 0.38, bg, outline=colour, width=1.6)
+            smooth._oval(d, k, m, m, 2.2, colour)
+            for a, b in (((m, 1.5), (m, 5)), ((m, size - 5), (m, size - 1.5)),
+                         ((1.5, m), (5, m)), ((size - 5, m), (size - 1.5, m))):
+                smooth._line(d, k, [a, b], colour, 1.5)
         elif name == "image":
             d.rounded_rectangle([2.5 * k, 3.5 * k, (size - 2.5) * k, (size - 3.5) * k],
                                 radius=3 * k, outline=colour, width=round(1.6 * k))

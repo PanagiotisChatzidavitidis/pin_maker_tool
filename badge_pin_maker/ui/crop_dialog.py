@@ -182,12 +182,26 @@ class CropDialog(tk.Toplevel):
         self._section(f, "Quick fixes")
         grid = tk.Frame(f, bg=T.CARD)
         grid.pack(fill="x", padx=18)
-        for n, (text, ic, cmd) in enumerate((("Fill", "fill", self.fill), ("Fit", "fit", self.fit),
-                                             ("Reset", "reset", self.reset),
-                                             ("Flip", "flip", self.flip_h))):
-            Btn(grid, text, cmd, icon=ic).grid(row=n // 2, column=n % 2, sticky="ew",
-                                               padx=3, pady=3)
-            grid.columnconfigure(n % 2, weight=1, uniform="quick")
+        grid.columnconfigure((0, 1), weight=1, uniform="quick")
+        # "Fit" only differs from "Fill" when the picture is not the pin's shape; if they would
+        # do the same thing it is greyed out instead of pretending to be a second choice
+        self.btn_fit = Btn(grid, "Fit", self.fit, icon="fit")
+        same = self.fit_zoom >= 0.97
+        if same:
+            self.btn_fit.configure(state="disabled")
+        for n, (w, span) in enumerate((
+                (Btn(grid, "Fill", self.fill, icon="fill"), 1), (self.btn_fit, 1),
+                (Btn(grid, "Centre", self.centre, icon="centre"), 1),
+                (Btn(grid, "Flip", self.flip_h, icon="flip"), 1),
+                (Btn(grid, "Reset all", self.reset, icon="reset"), 2))):
+            w.grid(row=n // 2, column=n % 2 if span == 1 else 0, columnspan=span,
+                   sticky="ew", padx=3, pady=3)
+        self.fit_note = tk.Label(
+            f, text="Fit is off: your picture already matches the pin's shape, so Fill shows all of it."
+            if same else "Fill covers the pin. Fit shows the whole picture inside it.",
+            bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8), wraplength=self.SIDE_W - 50,
+            justify="left")
+        self.fit_note.pack(anchor="w", padx=18, pady=(4, 0))
         self._section(f, "Ring")
         self.frame_card = RingCard(f, self, on_open=self._open_ring_tab)
         self.frame_card.pack(fill="x", padx=18)
@@ -555,6 +569,12 @@ class CropDialog(tk.Toplevel):
         """Zoom so the picture just covers the pin, centred."""
         self._recentre()
         self._animate_to(1.0)
+
+    def centre(self):
+        """Move the picture so its middle is under the middle of the pin (zoom unchanged)."""
+        self._stop_anim()
+        self._recentre()
+        self.update_view()
 
     def fit(self):
         """Zoom out so the whole picture sits inside the pin, centred."""
