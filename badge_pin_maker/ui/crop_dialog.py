@@ -16,6 +16,7 @@ from . import smooth
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .ring_card import RingCard
+from .buttons import Btn
 from .ring_studio import RingStudio
 from .widgets import FlatSlider, Segmented
 
@@ -105,6 +106,7 @@ class CropDialog(tk.Toplevel):
                                                              rot=0.0, tint=0.0)
         self.pick_id = None                  # which recommendation was tapped last (None once tweaked)
         self._picks = None
+        self._stale = {"frame", "ring"}     # pages that need repainting for the ring
         self._palette = []
         self._plain = None                   # the picture without the ring, as last drawn
         self.studio = None                   # the Ring page (built with the side panel)
@@ -144,15 +146,12 @@ class CropDialog(tk.Toplevel):
         brow = tk.Frame(act, bg=T.CARD)
         brow.pack(fill="x")
         if batch and batch[1] > 1:
-            ttk.Button(brow, text="Stop", style="Soft.TButton",
-                       command=self.on_stop).pack(side="left")
-            ttk.Button(brow, text="Skip", style="Soft.TButton",
-                       command=self.destroy).pack(side="left", padx=(6, 0))
+            Btn(brow, "Stop", self.on_stop, height=42).pack(side="left")
+            Btn(brow, "Skip", self.destroy, height=42).pack(side="left", padx=(6, 0))
         else:
-            ttk.Button(brow, text="Cancel", style="Soft.TButton",
-                       command=self.destroy).pack(side="left")
-        ttk.Button(brow, text="Continue", style="Accent.TButton", command=self.on_ok
-                   ).pack(side="right", fill="x", expand=True, padx=(10, 0))
+            Btn(brow, "Cancel", self.destroy, height=42).pack(side="left")
+        Btn(brow, "Continue", self.on_ok, kind="accent", height=42
+            ).pack(side="right", fill="x", expand=True, padx=(10, 0))
 
         pages = tk.Frame(panel, bg=T.CARD)
         pages.pack(side="top", fill="both", expand=True)
@@ -162,29 +161,32 @@ class CropDialog(tk.Toplevel):
         self.zoom_lbl = self._section(f, "Zoom", "100%")
         zr = tk.Frame(f, bg=T.CARD)
         zr.pack(fill="x", padx=18)
-        ttk.Button(zr, text="−", style="Tool.TButton", width=3,
-                   command=lambda: self.zoom_by(1 / self.WHEEL_STEP)).pack(side="left")
+        zr.columnconfigure(1, weight=1)
+        Btn(zr, icon="minus", command=lambda: self.zoom_by(1 / self.WHEEL_STEP)
+            ).grid(row=0, column=0)
         FlatSlider(zr, self.v_zoom, math.log(self.zmin), math.log(self.zmax),
                    origin=math.log(self.zmin), snaps=(0.0,), snap_tol=0.025,
-                   command=self._stop_anim).pack(side="left", fill="x", expand=True, padx=8)
-        ttk.Button(zr, text="+", style="Tool.TButton", width=3,
-                   command=lambda: self.zoom_by(self.WHEEL_STEP)).pack(side="left")
+                   command=self._stop_anim).grid(row=0, column=1, sticky="ew", padx=10)
+        Btn(zr, icon="plus", command=lambda: self.zoom_by(self.WHEEL_STEP)
+            ).grid(row=0, column=2)
         self.angle_lbl = self._section(f, "Rotate", "0°")
         rr = tk.Frame(f, bg=T.CARD)
         rr.pack(fill="x", padx=18)
-        ttk.Button(rr, text="↺ 90°", style="Tool.TButton", width=6,
-                   command=lambda: self.rotate_by(-90)).pack(side="left")
+        rr.columnconfigure(1, weight=1)
+        Btn(rr, "90°", lambda: self.rotate_by(-90), icon="rot_l", width=78
+            ).grid(row=0, column=0)
         FlatSlider(rr, self.v_angle, -180, 180, origin=0, snaps=(-180, -90, 0, 90, 180),
-                   snap_tol=3).pack(side="left", fill="x", expand=True, padx=8)
-        ttk.Button(rr, text="↻ 90°", style="Tool.TButton", width=6,
-                   command=lambda: self.rotate_by(90)).pack(side="left")
+                   snap_tol=3).grid(row=0, column=1, sticky="ew", padx=10)
+        Btn(rr, "90°", lambda: self.rotate_by(90), icon="rot_r", width=78
+            ).grid(row=0, column=2)
         self._section(f, "Quick fixes")
         grid = tk.Frame(f, bg=T.CARD)
         grid.pack(fill="x", padx=18)
-        for n, (text, cmd) in enumerate((("Fill", self.fill), ("Fit", self.fit),
-                                         ("Reset", self.reset), ("Flip ⇆", self.flip_h))):
-            ttk.Button(grid, text=text, style="Soft.TButton", command=cmd).grid(
-                row=n // 2, column=n % 2, sticky="ew", padx=3, pady=3)
+        for n, (text, ic, cmd) in enumerate((("Fill", "fill", self.fill), ("Fit", "fit", self.fit),
+                                             ("Reset", "reset", self.reset),
+                                             ("Flip", "flip", self.flip_h))):
+            Btn(grid, text, cmd, icon=ic).grid(row=n // 2, column=n % 2, sticky="ew",
+                                               padx=3, pady=3)
             grid.columnconfigure(n % 2, weight=1, uniform="quick")
         self._section(f, "Ring")
         self.frame_card = RingCard(f, self, on_open=self._open_ring_tab)
@@ -286,9 +288,22 @@ class CropDialog(tk.Toplevel):
         self._tab_changed()
 
     def _sync_ring_ui(self):
-        """Bring the Ring page and the Frame page's ring card up to date."""
-        self.studio.sync()
-        self.frame_card.refresh()
+        """The one way the ring tells the two pages it changed: the page on screen is brought
+        up to date now, the other is only marked stale and catches up when it is opened. This
+        keeps the Frame and Ring pages from repainting each other (and the previews) twice.
+        """
+        self._stale = {"frame", "ring"}
+        self._refresh_page()
+
+    def _refresh_page(self):
+        """Repaint the visible page if the ring changed since it was last painted."""
+        want = self.v_tab.get()
+        if want in self._stale:
+            self._stale.discard(want)
+            if want == "ring":
+                self.studio.sync()
+            else:
+                self.frame_card.refresh()
 
     def _tab_changed(self):
         """Show the Frame or the Ring page."""
@@ -300,8 +315,10 @@ class CropDialog(tk.Toplevel):
                 page.pack_forget()
         if want == "ring":
             self.refresh_picks()
+            self._stale.discard("ring")
             self.studio.refresh()
-            self.frame_card.refresh()
+        else:
+            self._refresh_page()
 
     def _maximise(self):
         """Make the window fill the screen (where the system can)."""

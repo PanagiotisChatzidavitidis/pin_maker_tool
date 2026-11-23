@@ -41,15 +41,6 @@ class RingCard(tk.Canvas):
         self.bind("<Button-1>", self._click)
         self.bind("<Enter>", lambda e: self._set_hover(True))
         self.bind("<Leave>", lambda e: self._set_hover(False))
-        self._tid = dlg.v_ring.trace_add("write", lambda *_: self.refresh())
-        self.bind("<Destroy>", self._gone)
-
-    def _gone(self, e):
-        if e.widget is self:
-            try:
-                self.dlg.v_ring.trace_remove("write", self._tid)
-            except (tk.TclError, ValueError):
-                pass
 
     def _set_hover(self, on):
         self._hover = on and self.on_open is not None

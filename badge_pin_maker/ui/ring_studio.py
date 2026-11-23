@@ -14,6 +14,7 @@ from PIL import Image, ImageTk
 from .. import ring as ring_mod
 from ..constants import IMG_EXTS
 from . import theme as T
+from .buttons import Btn
 from .ring_card import RingCard
 from .ring_picker import RingPicker, _disc
 from .widgets import FlatSlider, Segmented
@@ -143,8 +144,8 @@ class RingStudio(tk.Frame):
                                     command=self.sync, bg=T.CARD)
         self.swatches = _Swatches(self.s_colour)
         self.swatches.pack(fill="x", padx=18)
-        self.more_btn = ttk.Button(self.s_colour, text="Custom colour", style="Soft.TButton",
-                                   command=self._toggle_picker)
+        self.more_btn = Btn(self.s_colour, "Custom colour", self._toggle_picker, icon="palette",
+                        height=34)
         self.more_btn.pack(anchor="w", padx=18, pady=(10, 0))
         self.picker = None
         self._picker_open = False
@@ -167,11 +168,10 @@ class RingStudio(tk.Frame):
         self.s_pat = self._section("Your pattern")
         prow = tk.Frame(self.s_pat, bg=T.CARD)
         prow.pack(fill="x", padx=18)
-        self.choose_btn = ttk.Button(prow, text="Choose image…", style="Soft.TButton",
-                                     command=self._choose_image)
+        self.choose_btn = Btn(prow, "Choose image…", self._choose_image, icon="image", height=34)
         self.choose_btn.pack(side="left")
-        ttk.Button(prow, text="Reset", style="Soft.TButton",
-                   command=lambda: dlg.ring_change(reset_pattern=True)).pack(side="right")
+        Btn(prow, "Reset", lambda: dlg.ring_change(reset_pattern=True), icon="reset",
+            height=34).pack(side="right")
         self.pat_lbl = ttk.Label(self.s_pat, text="", style="Muted.TLabel", wraplength=340,
                                  justify="left")
         self.pat_lbl.pack(anchor="w", padx=18, pady=(6, 0))
