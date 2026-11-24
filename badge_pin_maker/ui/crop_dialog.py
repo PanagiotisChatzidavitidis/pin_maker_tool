@@ -20,8 +20,9 @@ from .buttons import Btn
 from .filter_studio import FilterStudio
 from .ring_card import FilterCard, RingCard
 from .ring_studio import RingStudio
+from .tabs import PillTabs
 from .tiles import ScrollPage
-from .widgets import FlatSlider, Segmented
+from .widgets import FlatSlider
 
 
 _KEEP = object()        # "leave the current style alone"
@@ -142,7 +143,7 @@ class CropDialog(tk.Toplevel):
         panel.pack_propagate(False)
 
         self.v_tab = tk.StringVar(value="frame")
-        self.tabs = Segmented(panel, self.v_tab, [("frame", "Frame"), ("filter", "Filter"), ("ring", "Ring")],
+        self.tabs = PillTabs(panel, self.v_tab, [("frame", "Frame"), ("filter", "Filter"), ("ring", "Ring")],
                               command=self._tab_changed, bg=T.CARD)
         self.tabs.pack(fill="x", padx=18, pady=(18, 6))
 
@@ -353,10 +354,9 @@ class CropDialog(tk.Toplevel):
                 self.filter_card.refresh()
 
     def _badges(self):
-        """A dot on the Filter / Ring tab names while those are in use."""
-        for name, text, on in (("filter", "Filter", self.f_name is not None),
-                               ("ring", "Ring", bool(self.v_ring.get()))):
-            self.tabs._labels[name].config(text=text + ("  •" if on else ""))
+        """A glowing dot on the Filter / Ring tabs while those are in use."""
+        for name, on in (("filter", self.f_name is not None), ("ring", bool(self.v_ring.get()))):
+            self.tabs.set_badge(name, on)
 
     def _tab_changed(self):
         """Show the Frame, Filter or Ring page."""

@@ -59,6 +59,7 @@ class FeatureCard(tk.Canvas):
         self._hover = False
         self._imgs = []
         self._sw = (0, 0, 0, 0)               # where the switch is, for hit-testing clicks
+        self._drawn = None                    # what was last painted (to skip needless repaints)
         self.bind("<Configure>", lambda e: self.refresh())
         self.bind("<Button-1>", self._click)
         self.bind("<Enter>", lambda e: self._set_hover(True))
@@ -77,6 +78,10 @@ class FeatureCard(tk.Canvas):
     def icon(self, fill):
         return None
 
+    def state_key(self):
+        """Anything besides the summary that changes how the card looks."""
+        return None
+
     # ---- drawing
     def _set_hover(self, on):
         self._hover = on and self.on_open is not None
@@ -93,6 +98,10 @@ class FeatureCard(tk.Canvas):
         """Repaint for the current width and state."""
         w, h = max(200, self.winfo_width()), self.H
         on = self.is_on()
+        key = (w, on, self.summary(), self._hover, self.state_key())
+        if key == self._drawn:
+            return
+        self._drawn = key
         self.delete("all")
         fill = T._mix(T.CARD, T.SAND, 0.45)
         edge = T._mix(T.BORDER, T.TEAL, 0.55) if self._hover else T.BORDER
@@ -130,6 +139,9 @@ class RingCard(FeatureCard):
         if not self.is_on():
             return "Add a border inside the edge"
         return f"{ring_mod.STYLE_NAMES.get(d.cur_ring().style, '')}  ·  {d._ring_mm():.1f} mm"
+
+    def state_key(self):
+        return tuple(self.dlg.ring_col)
 
     def icon(self, fill):
         d = self.dlg

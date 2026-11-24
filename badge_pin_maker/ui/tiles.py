@@ -53,38 +53,59 @@ class Tiles(tk.Frame):
 
 
 class Swatches(tk.Frame):
-    """Rows of round colours with a small name under each. The chosen one gets a teal rim."""
+    """Rows of round colours with a small name under each. The chosen one gets a teal rim.
+    The rows are built only when the set of colours changes; choosing a colour (or dragging
+    the hue bar) just swaps the rims, so nothing is rebuilt or blinks.
+    """
 
     def __init__(self, parent):
         super().__init__(parent, bg=T.CARD)
         self._key = None
+        self._cells = []                 # (colour, label widget, caption widget)
+        self._cur = None
 
     def show(self, rows, current, on_pick):
-        key = (tuple((t, tuple(s)) for t, s in rows), tuple(current))
-        if key == self._key:
+        key = tuple((t, tuple(tuple(s) for s in sw)) for t, sw in rows)
+        if key != self._key:
+            self._key = key
+            self._cur = None
+            self._cells = []
+            for c in self.winfo_children():
+                c.destroy()
+            for title, swatches in rows:
+                if title:
+                    tk.Label(self, text=title, bg=T.CARD, fg=T.MUTED, anchor="w",
+                             font=("TkDefaultFont", 8)).pack(fill="x", pady=(6, 2))
+                row = tk.Frame(self, bg=T.CARD)
+                row.pack(fill="x")
+                for name, col in swatches:
+                    cell = tk.Frame(row, bg=T.CARD, cursor="hand2")
+                    cell.pack(side="left", padx=(0, 6))
+                    lab = tk.Label(cell, bg=T.CARD, bd=0)
+                    lab.pack()
+                    cap = tk.Label(cell, text=name, bg=T.CARD, font=("TkDefaultFont", 7),
+                                   width=7)
+                    cap.pack()
+                    for w in (cell, lab, cap):
+                        w.bind("<Button-1>", lambda e, c=col: on_pick(c))
+                    self._cells.append((tuple(col), lab, cap))
+        self.mark(current)
+
+    def mark(self, current):
+        """Draw the rim round the swatch that is ``current`` (only those that changed)."""
+        cur = tuple(current)
+        if cur == self._cur:
             return
-        self._key = key
-        for c in self.winfo_children():
-            c.destroy()
-        for title, swatches in rows:
-            if title:
-                tk.Label(self, text=title, bg=T.CARD, fg=T.MUTED, anchor="w",
-                         font=("TkDefaultFont", 8)).pack(fill="x", pady=(6, 2))
-            row = tk.Frame(self, bg=T.CARD)
-            row.pack(fill="x")
-            for name, col in swatches:
-                on = tuple(col) == tuple(current)
-                img = _disc(30, ring_mod.to_hex(col), T.TEAL if on else T.BORDER, 3 if on else 1)
-                cell = tk.Frame(row, bg=T.CARD, cursor="hand2")
-                cell.pack(side="left", padx=(0, 6))
-                lab = tk.Label(cell, image=img, bg=T.CARD, bd=0)
-                lab.image = img
-                lab.pack()
-                cap = tk.Label(cell, text=name, bg=T.CARD, fg=T.TEXT if on else T.MUTED,
-                               font=("TkDefaultFont", 7), width=7)
-                cap.pack()
-                for w in (cell, lab, cap):
-                    w.bind("<Button-1>", lambda e, c=col: on_pick(c))
+        for col, lab, cap in self._cells:
+            was, now = col == self._cur, col == cur
+            if was == now and getattr(lab, "image", None) is not None:
+                continue
+            img = _disc(30, ring_mod.to_hex(col), T.TEAL if now else T.BORDER,
+                        3 if now else 1)
+            lab.config(image=img)
+            lab.image = img
+            cap.config(fg=T.TEXT if now else T.MUTED)
+        self._cur = cur
 
 
 class ScrollPage(tk.Frame):

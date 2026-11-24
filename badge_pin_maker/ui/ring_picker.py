@@ -49,6 +49,10 @@ class RingPicker(tk.Frame):
             cv.bind("<B1-Motion>", fn)
 
         self._row = None
+        self._hue_img = self._shade_img = None
+        self._hue_item = self._shade_item = self._hue_knob = self._shade_knob = None
+        self._shade_key = None
+        self._job = None
         if palette is not None:
             tk.Label(self, text="FROM YOUR PICTURE", bg=T.CARD, fg=T.MUTED, anchor="w",
                      font=("TkDefaultFont", 8, "bold")).pack(fill="x", pady=(4, 0))
@@ -71,7 +75,11 @@ class RingPicker(tk.Frame):
             c.bind("<Button-1>", lambda e, col=col: self._chip(col))
 
     def set_colour(self, colour):
-        """Move the strips to a colour chosen elsewhere (a style, say)."""
+        """Move the strips to a colour chosen elsewhere (a swatch, say). Does nothing when the
+        colour is the one the picker itself just made, so dragging never fights the page."""
+        colour = tuple(colour)
+        if colour == self._rgb():
+            return
         self.h, self.l, self.s = colorsys.rgb_to_hls(*(v / 255 for v in colour))
         self.s = max(self.s, 0.35)
         self._draw()
@@ -81,30 +89,50 @@ class RingPicker(tk.Frame):
 
     def _strip(self, colours):
         """A smooth horizontal gradient image from a list of RGB tuples (one per pixel)."""
-        im = Image.new("RGB", (self.W, self.BAR))
-        d = ImageDraw.Draw(im)
-        for x, c in enumerate(colours):
-            d.line([(x, 0), (x, self.BAR)], fill=c)
-        return ImageTk.PhotoImage(im)
+        row = Image.new("RGB", (self.W, 1))
+        row.putdata(colours)
+        return ImageTk.PhotoImage(row.resize((self.W, self.BAR), Image.NEAREST))
 
     def _draw(self):
-        """Repaint both strips and their knobs for the current colour."""
-        hs = [tuple(round(v * 255) for v in colorsys.hls_to_rgb(x / (self.W - 1), 0.5, 0.75))
-              for x in range(self.W)]
-        ls = [tuple(round(v * 255) for v in colorsys.hls_to_rgb(
-            self.h, 0.18 + 0.64 * x / (self.W - 1), self.s)) for x in range(self.W)]
-        self._hi, self._si = self._strip(hs), self._strip(ls)
-        for cv, img, pos in ((self.hue, self._hi, self.h * (self.W - 1)),
-                             (self.shade, self._si,
-                              (self.l - 0.18) / 0.64 * (self.W - 1))):
-            cv.delete("all")
-            cv.create_image(0, 3, anchor="nw", image=img)
-            x = max(3, min(self.W - 3, pos))
-            cv.create_rectangle(x - 3, 0, x + 3, self.BAR + 6, fill="white",
-                                outline=T.TEAL, width=2)
+        """Update both strips and their knobs. The canvas items are made once and only changed
+        after that, so nothing blinks while a knob is dragged.
+        """
+        W = self.W
+        if self._hue_img is None:                 # the hue strip never changes
+            hs = [tuple(round(v * 255) for v in colorsys.hls_to_rgb(x / (W - 1), 0.5, 0.75))
+                  for x in range(W)]
+            self._hue_img = self._strip(hs)
+            self._hue_item = self.hue.create_image(0, 3, anchor="nw", image=self._hue_img)
+            self._hue_knob = self.hue.create_rectangle(0, 0, 6, self.BAR + 6, fill="white",
+                                                       outline=T.TEAL, width=2)
+        # the light-to-dark strip depends on the hue and richness only (not on the lightness)
+        key = (round(self.h, 3), round(self.s, 3))
+        if key != self._shade_key:
+            self._shade_key = key
+            ls = [tuple(round(v * 255) for v in colorsys.hls_to_rgb(
+                self.h, 0.18 + 0.64 * x / (W - 1), self.s)) for x in range(W)]
+            self._shade_img = self._strip(ls)
+            if self._shade_item is None:
+                self._shade_item = self.shade.create_image(0, 3, anchor="nw",
+                                                           image=self._shade_img)
+                self._shade_knob = self.shade.create_rectangle(
+                    0, 0, 6, self.BAR + 6, fill="white", outline=T.TEAL, width=2)
+            else:
+                self.shade.itemconfigure(self._shade_item, image=self._shade_img)
+        for cv, knob, pos in ((self.hue, self._hue_knob, self.h * (W - 1)),
+                              (self.shade, self._shade_knob, (self.l - 0.18) / 0.64 * (W - 1))):
+            x = max(3, min(W - 3, pos))
+            cv.coords(knob, x - 3, 0, x + 3, self.BAR + 6)
 
     def _emit(self):
+        """Move the knobs now, tell the page once the mouse events have caught up (a fast drag
+        makes many events; the pin only needs the latest colour)."""
         self._draw()
+        if self._job is None:
+            self._job = self.after_idle(self._flush)
+
+    def _flush(self):
+        self._job = None
         self.on_pick(self._rgb())
 
     def _hue_at(self, e):

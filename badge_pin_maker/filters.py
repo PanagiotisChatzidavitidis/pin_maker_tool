@@ -9,10 +9,11 @@ A filter on a pin is ``(name, amount)`` or ``None``. Filters are applied to the 
 picture (``apply``), before the ring is painted.
 """
 
-import colorsys
+import random
 from collections import namedtuple
+from functools import lru_cache
 
-from PIL import Image, ImageEnhance, ImageOps, ImageStat
+from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps, ImageStat
 
 Filter = namedtuple("Filter", "name amount")
 
@@ -56,6 +57,36 @@ def _duo(img, dark, light, mid=None, cutoff=1, contrast=1.0):
 
 def _mono(img):
     return ImageOps.grayscale(img).convert("RGB")
+
+
+@lru_cache(maxsize=8)
+def _noise(cells_w, cells_h):
+    """Fixed (seeded) noise, 128 on average, so a pin looks the same every time it is drawn."""
+    rnd = random.Random(20260)
+    a = Image.frombytes("L", (cells_w, cells_h), rnd.randbytes(cells_w * cells_h))
+    b = Image.frombytes("L", (cells_w, cells_h), rnd.randbytes(cells_w * cells_h))
+    return ImageChops.add(a, b, scale=2.0)       # two uniforms averaged: a softer bell curve
+
+
+def _grain(img, amount, cells=360):
+    """Film grain: ``cells`` grains across the picture whatever its pixel size, so it is the
+    same size on screen and on paper (about a printer dot at 32 mm), with ``amount`` 0 to 255
+    of swing.
+    """
+    w, h = img.size
+    ch = max(8, round(cells * h / w))
+    g = _noise(cells, ch).resize((w, h), Image.BICUBIC)
+    k = amount / 60.0                             # the noise itself swings about +-60
+    g = g.point(_lut(lambda v: 128 + (v - 128) * k))
+    return ImageChops.add(img, g.convert("RGB"), scale=1.0, offset=-128)
+
+
+def _split(img, shadow, light):
+    """Tint the shadows and the highlights differently: shadow / light are (r, g, b) pushes."""
+    chans = []
+    for c in range(3):
+        chans += _lut(lambda v, c=c: v + shadow[c] * (1 - v / 255) ** 2 + light[c] * (v / 255) ** 2)
+    return img.point(chans)
 
 
 # ---- the filters: name -> function that turns a picture into the full-strength result -----
@@ -120,8 +151,51 @@ def _lilac(i):
     return _duo(i, (58, 36, 100), (246, 238, 255))
 
 
+def _grain35(i):                      # classic 35 mm: warm, a touch faded, visible grain
+    return _grain(_tone(_sat(_tint(i, 1.04, 1.0, 0.94), 0.92), 10, 246), 24)
+
+
+def _analog(i):                       # faded, warm, soft: an old print in a shoebox
+    return _grain(_tint(_tone(_sat(i, 0.85), 22, 238), 1.06, 1.0, 0.88), 12)
+
+
+def _finegrain(i):                    # fine, even grain and nothing else
+    return _grain(_con(i, 1.04), 14, 520)
+
+
+def _cinema(i):                       # teal shadows, warm highlights, firm contrast
+    return _grain(_con(_sat(_split(i, (-8, 2, 14), (16, 4, -12)), 0.92), 1.1), 16, 420)
+
+
+def _polaroid(i):                     # instant film: creamy lift, slightly green shadows
+    return _grain(_tint(_tone(_con(i, 0.92), 28, 240, 0.95), 1.04, 1.02, 0.92), 10, 300)
+
+
+def _silver(i):                       # black and white film, punchy with coarse grain
+    g = _con(ImageOps.autocontrast(ImageOps.grayscale(i), cutoff=1), 1.2).convert("RGB")
+    return _grain(_tone(g, 10, 244), 26, 330)
+
+
+def _dream(i):                        # soft glow: highlights bloom over the picture
+    w = i.size[0]
+    glow = i.filter(ImageFilter.GaussianBlur(max(2, w / 55)))
+    return _tone(ImageChops.screen(i, _bri(glow, 0.8)), 8, 250)
+
+
+def _disposable(i):                   # flash-on-a-disposable: punchy, warm, coarse grain
+    return _grain(_tint(_con(_sat(i, 1.22), 1.12), 1.05, 1.0, 0.94), 20, 280)
+
+
 # id, label, group, function, the intensity it starts at
 _ALL = (
+    ("grain35", "35mm Grain", "Aesthetic", _grain35, 0.8),
+    ("analog", "Analog", "Aesthetic", _analog, 0.8),
+    ("finegrain", "Fine Grain", "Aesthetic", _finegrain, 0.9),
+    ("cinema", "Cinematic", "Aesthetic", _cinema, 0.8),
+    ("polaroid", "Polaroid", "Aesthetic", _polaroid, 0.8),
+    ("silver", "Silver", "Aesthetic", _silver, 0.9),
+    ("dream", "Dreamy", "Aesthetic", _dream, 0.7),
+    ("disposable", "Disposable", "Aesthetic", _disposable, 0.8),
     ("pop", "Pop", "Colour", _pop, 0.6),
     ("vivid", "Vivid", "Colour", _vivid, 0.6),
     ("warm", "Warm", "Colour", _warm, 0.7),
@@ -209,17 +283,17 @@ def recommend(img):
     sat = ImageStat.Stat(small.convert("HSV")).mean[1] / 255
     warmth = r - b
     if lum < 0.38:
-        order = ["soft", "golden", "pop"]
+        order = ["cinema", "soft", "golden"]
     elif lum > 0.70:
-        order = ["matte", "cool", "sepia"]
+        order = ["matte", "dream", "cool"]
     elif sat > 0.55:
-        order = ["matte", "soft", "mono"]
+        order = ["matte", "analog", "finegrain"]
     elif sat < 0.18:
-        order = ["pop", "warm", "sepia"]
+        order = ["silver", "pop", "grain35"]
     elif warmth > 25:
-        order = ["matte", "cool", "sage"]
+        order = ["cinema", "matte", "cool"]
     elif warmth < -15:
-        order = ["warm", "golden", "blush"]
+        order = ["analog", "warm", "polaroid"]
     else:
-        order = ["pop", "warm", "matte"]
+        order = ["grain35", "pop", "polaroid"]
     return [(n, DEFAULTS[n]) for n in order]

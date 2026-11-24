@@ -34,6 +34,7 @@ class RingStudio(tk.Frame):
         self._job = None
         self._shown = None
         self._tkeys = {}
+        self._cw = None                      # colours of the picture, cached
         self.target = tk.StringVar(value="main")
         self.preset = tk.StringVar(value="")
 
@@ -299,7 +300,10 @@ class RingStudio(tk.Frame):
         if d.ring_style == "foil":
             rows = [("Metals", list(ring_mod.FOILS))]
         else:
-            mine, classics = ring_mod.colourways(pic) if pic is not None else ([], [])
+            vk = self._view_key(d) + (d.f_name, round(d.f_amount, 2))
+            if self._cw is None or self._cw[0] != vk:      # only when the picture changed
+                self._cw = (vk, ring_mod.colourways(pic) if pic is not None else ([], []))
+            mine, classics = self._cw[1]
             rows = []
             if accent:
                 auto = ring_mod.accent_for(d.ring_style, d.ring_col)
@@ -307,16 +311,18 @@ class RingStudio(tk.Frame):
             rows += [("From your picture", mine[:6]), ("Classics", classics)]
         if accent and d.ring_col2 is None:
             cur = ring_mod.accent_for(d.ring_style, d.ring_col)
+        built = self.swatches._key
         self.swatches.show(rows, cur, self._colour)
-        self._bind_wheel(self.swatches)
-        if accent:       # the "Auto" swatch must clear the chosen accent
+        if self.swatches._key != built:      # the set of colours changed: wire the new ones up
+            self._bind_wheel(self.swatches)
+        if accent and self.swatches._key != built:   # the "Auto" swatch must clear the accent
             auto_cell = self.swatches.winfo_children()[1].winfo_children()[0]
             for w in (auto_cell, *auto_cell.winfo_children()):
                 w.bind("<Button-1>", self._auto_accent)
         if self.picker is not None and self._picker_open:
             self.picker.set_colour(cur)
 
-    def soon(self, ms=150):
+    def soon(self, ms=260):
         """Redraw the previews shortly (so dragging stays smooth)."""
         if self._job is not None:
             self.after_cancel(self._job)
