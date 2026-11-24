@@ -85,6 +85,10 @@ def icon(name, colour, bg, size=ICON):
             for a, b in (((m, 1.5), (m, 5)), ((m, size - 5), (m, size - 1.5)),
                          ((1.5, m), (5, m)), ((size - 5, m), (size - 1.5, m))):
                 smooth._line(d, k, [a, b], colour, 1.5)
+        elif name == "compare":               # a disc, half filled: before | after
+            smooth._oval(d, k, m, m, size * 0.38, bg, outline=colour, width=1.6)
+            d.pieslice([(m - size * 0.38) * k, (m - size * 0.38) * k, (m + size * 0.38) * k,
+                        (m + size * 0.38) * k], 90, 270, fill=colour)
         elif name == "image":
             d.rounded_rectangle([2.5 * k, 3.5 * k, (size - 2.5) * k, (size - 3.5) * k],
                                 radius=3 * k, outline=colour, width=round(1.6 * k))

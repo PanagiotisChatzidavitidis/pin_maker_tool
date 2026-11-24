@@ -40,6 +40,7 @@ from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABE
                          PAGE_MARGIN, PAPER_SIZES, CANVAS_EXT, cut_dims,
                          DEFAULT_PAPER, paper_from_saved, pin_from_saved, paper_short,
                          default_pin, sizes_for)
+from .. import filters as filters_mod
 from .. import ring as ring_mod
 from ..imaging import Art, load_source, render_art
 from ..shapes import DEFAULT_SHAPE, ICON_RATIO, ONE_SIZE, SHAPES, canvas_points, contains, mask
@@ -1373,7 +1374,7 @@ class BadgeApp(RootBase):
                 break
             if dlg.result is None:
                 continue
-            zoom, cx, cy, angle, copies, flip, ring = dlg.result
+            zoom, cx, cy, angle, copies, flip, ring, filt = dlg.result
             if start is not None and start not in occupied:
                 s, start = start, None
             else:
@@ -1383,7 +1384,7 @@ class BadgeApp(RootBase):
                 self._push_undo()
                 pushed = True
             for i in fill_order(n, occupied, s, copies):
-                self.slots[i] = Art(source, zoom, cx, cy, angle, flip, ring)
+                self.slots[i] = Art(source, zoom, cx, cy, angle, flip, ring, filt)
             placed += copies
             self.redraw()
         if placed:
@@ -1397,13 +1398,14 @@ class BadgeApp(RootBase):
         if art is None:
             return
         p = self._params()
-        dlg = CropDialog(self, art.source, p, max_copies=0, art=art, title="Modify crop")
+        dlg = CropDialog(self, art.source, p, max_copies=0, art=art, title="Edit pin")
         self.wait_window(dlg)
         if dlg.result is not None:
             self._push_undo()
             art.zoom, art.cx, art.cy, art.angle = dlg.result[:4]
             art.flip = dlg.result[5]
             art.ring = dlg.result[6]
+            art.filter = dlg.result[7]
             self.schedule_redraw()
 
     def clear_slot(self, idx):
@@ -2175,7 +2177,8 @@ class BadgeApp(RootBase):
             "photos": images,  # key name kept so older saves still open
             "slots": [{"slot": i, "photo": index[a.source.path], "zoom": a.zoom,
                        "cx": a.cx, "cy": a.cy, "angle": a.angle, "flip": bool(a.flip),
-                       **({"ring": ring_mod.to_saved(a.ring, base)} if a.ring else {})}
+                       **({"ring": ring_mod.to_saved(a.ring, base)} if a.ring else {}),
+                       **({"filter": filters_mod.to_saved(a.filter)} if a.filter else {})}
                       for i, a in sorted(self.slots.items())],
         }
         return data
@@ -2283,7 +2286,8 @@ class BadgeApp(RootBase):
                                              float(sl.get("cx", 0.5)), float(sl.get("cy", 0.5)),
                                              float(sl.get("angle", 0.0)),
                                              bool(sl.get("flip", False)),
-                                             ring_mod.from_saved(sl.get("ring"), base))
+                                             ring_mod.from_saved(sl.get("ring"), base),
+                                             filters_mod.from_saved(sl.get("filter")))
             except (KeyError, ValueError, TypeError, IndexError):
                 continue
 

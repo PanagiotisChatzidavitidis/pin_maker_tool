@@ -8,6 +8,7 @@ from tkinter import ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
+from .. import filters as filters_mod
 from .. import ring as ring_mod
 from .. import shapes
 from ..constants import LOW_PPI
@@ -15,9 +16,11 @@ from ..imaging import base_crop, ppi_for, render_transform
 from . import smooth
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
-from .ring_card import RingCard
 from .buttons import Btn
+from .filter_studio import FilterStudio
+from .ring_card import FilterCard, RingCard
 from .ring_studio import RingStudio
+from .tiles import ScrollPage
 from .widgets import FlatSlider, Segmented
 
 
@@ -41,7 +44,8 @@ class CropDialog(tk.Toplevel):
     SIDE_W = 400                 # width of the side panel
     FIN_W, FIN_H, FIN_PIN = 168, 208, 124    # the floating "Final pin" card
     CORNER = 26                              # rounded corners of the picture stage
-    last_ring = None             # (ring, pick) of the last crop, offered again next time
+    last_ring = None
+    last_filter = None             # (ring, pick) of the last crop, offered again next time
 
     def __init__(self, parent, source, pin, max_copies=0, art=None, title="Crop image",
                  batch=None):
@@ -106,7 +110,18 @@ class CropDialog(tk.Toplevel):
                                                              rot=0.0, tint=0.0)
         self.pick_id = None                  # which recommendation was tapped last (None once tweaked)
         self._picks = None
-        self._stale = {"frame", "ring"}     # pages that need repainting for the ring
+        self._stale = {"frame", "filter", "ring"}     # pages that need repainting
+        # the filter (optional): name None = off
+        had_f = filters_mod.as_filter(art.filter) if art else None
+        self.f_name = had_f.name if had_f else None
+        self.f_amount = had_f.amount if had_f else 0.7
+        self._f_touched = bool(had_f)        # True once the intensity was set by hand
+        self.v_f_amount = tk.DoubleVar(value=self.f_amount)
+        self._compare = False                # True while "hold to compare" is pressed
+        self._fpicks = None
+        self._raw = None                     # the picture without filter or ring, as last drawn
+        self.fstudio = None
+        self._tmasks = {}
         self._palette = []
         self._plain = None                   # the picture without the ring, as last drawn
         self.studio = None                   # the Ring page (built with the side panel)
@@ -127,7 +142,7 @@ class CropDialog(tk.Toplevel):
         panel.pack_propagate(False)
 
         self.v_tab = tk.StringVar(value="frame")
-        self.tabs = Segmented(panel, self.v_tab, [("frame", "Frame"), ("ring", "Ring")],
+        self.tabs = Segmented(panel, self.v_tab, [("frame", "Frame"), ("filter", "Filter"), ("ring", "Ring")],
                               command=self._tab_changed, bg=T.CARD)
         self.tabs.pack(fill="x", padx=18, pady=(18, 6))
 
@@ -157,7 +172,8 @@ class CropDialog(tk.Toplevel):
         pages.pack(side="top", fill="both", expand=True)
 
         # -- Frame page: zoom, rotate and the quick buttons
-        self.page_frame = f = tk.Frame(pages, bg=T.CARD)
+        self.page_frame = ScrollPage(pages)
+        f = self.page_frame.inner
         self.zoom_lbl = self._section(f, "Zoom", "100%")
         zr = tk.Frame(f, bg=T.CARD)
         zr.pack(fill="x", padx=18)
@@ -202,12 +218,20 @@ class CropDialog(tk.Toplevel):
             bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8), wraplength=self.SIDE_W - 50,
             justify="left")
         self.fit_note.pack(anchor="w", padx=18, pady=(4, 0))
-        self._section(f, "Ring")
-        self.frame_card = RingCard(f, self, on_open=self._open_ring_tab)
-        self.frame_card.pack(fill="x", padx=18)
+        self._section(f, "Look")
+        self.filter_card = FilterCard(f, self, on_open=lambda: self._open_tab("filter"))
+        self.filter_card.open_label = "Looks ›"
+        self.filter_card.pack(fill="x", padx=18)
+        self.frame_card = RingCard(f, self, on_open=lambda: self._open_tab("ring"))
+        self.frame_card.pack(fill="x", padx=18, pady=(8, 0))
         tk.Label(f, text="Tip: double-click the picture to switch between Fill and Fit.",
                  bg=T.CARD, fg=T.MUTED, font=("TkDefaultFont", 8), wraplength=self.SIDE_W - 50,
-                 justify="left").pack(anchor="w", padx=18, pady=(14, 0))
+                 justify="left").pack(anchor="w", padx=18, pady=(14, 18))
+        self.page_frame.bind_wheel()
+
+        # -- Filter page
+        self.fstudio = FilterStudio(pages, self)
+        self.page_filter = self.fstudio
 
         # -- Ring page
         self.v_ring_mm.trace_add("write", lambda *_: self._ring_slid())
@@ -222,7 +246,7 @@ class CropDialog(tk.Toplevel):
         head.pack(side="top", fill="x", pady=(0, 10))
         titles = ttk.Frame(head)
         titles.pack(side="left")
-        ttk.Label(titles, text="Position your image", style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(titles, text="Edit your pin", style="Heading.TLabel").pack(anchor="w")
         ttk.Label(titles, text=f"{self._d_text()}  ·  the pin stays put, "
                                "the picture moves", style="Sub.TLabel").pack(anchor="w")
         self.q_pill = tk.Label(head, bg=T.CARD, fg=T.TEAL, font=self._bold, padx=12, pady=5,
@@ -281,6 +305,7 @@ class CropDialog(tk.Toplevel):
         except tk.TclError:
             pass
         self.focus_force()
+        self._badges()
 
     # ---- helpers
     def _section(self, parent, title, value=None):
@@ -296,33 +321,48 @@ class CropDialog(tk.Toplevel):
         lbl.pack(side="right")
         return lbl
 
-    def _open_ring_tab(self):
-        """Go to the Ring page."""
-        self.v_tab.set("ring")
+    def _open_tab(self, name):
+        """Go to the Frame, Filter or Ring page."""
+        self.v_tab.set(name)
         self._tab_changed()
 
-    def _sync_ring_ui(self):
-        """The one way the ring tells the two pages it changed: the page on screen is brought
-        up to date now, the other is only marked stale and catches up when it is opened. This
-        keeps the Frame and Ring pages from repainting each other (and the previews) twice.
+    def _notify(self, *pages):
+        """The one way a change (ring, filter) tells the pages about it: the page on screen is
+        brought up to date now, the others are only marked stale and catch up when opened. This
+        keeps the pages from repainting each other (and their previews) several times over.
         """
-        self._stale = {"frame", "ring"}
+        self._stale |= set(pages)
         self._refresh_page()
+        self._badges()
+
+    def _sync_ring_ui(self):
+        """The ring changed."""
+        self._notify("frame", "ring")
 
     def _refresh_page(self):
-        """Repaint the visible page if the ring changed since it was last painted."""
+        """Repaint the visible page if something changed since it was last painted."""
         want = self.v_tab.get()
         if want in self._stale:
             self._stale.discard(want)
             if want == "ring":
                 self.studio.sync()
+            elif want == "filter":
+                self.fstudio.sync()
             else:
                 self.frame_card.refresh()
+                self.filter_card.refresh()
+
+    def _badges(self):
+        """A dot on the Filter / Ring tab names while those are in use."""
+        for name, text, on in (("filter", "Filter", self.f_name is not None),
+                               ("ring", "Ring", bool(self.v_ring.get()))):
+            self.tabs._labels[name].config(text=text + ("  •" if on else ""))
 
     def _tab_changed(self):
-        """Show the Frame or the Ring page."""
+        """Show the Frame, Filter or Ring page."""
         want = self.v_tab.get()
-        for name, page in (("frame", self.page_frame), ("ring", self.page_ring)):
+        for name, page in (("frame", self.page_frame), ("filter", self.page_filter),
+                           ("ring", self.page_ring)):
             if name == want:
                 page.pack(fill="both", expand=True)
             else:
@@ -331,6 +371,10 @@ class CropDialog(tk.Toplevel):
             self.refresh_picks()
             self._stale.discard("ring")
             self.studio.refresh()
+        elif want == "filter":
+            self._fpicks = None
+            self._stale.discard("filter")
+            self.fstudio.refresh()
         else:
             self._refresh_page()
 
@@ -672,12 +716,18 @@ class CropDialog(tk.Toplevel):
                                   angle, self._cache,
                                   resample=Image.BILINEAR if fast else Image.BICUBIC,
                                   fill=self.src.bg)
+        self._raw = bright
+        f = None if self._compare else self.cur_filter()
+        if f is not None:
+            bright = filters_mod.apply(bright, f)
         self._plain = bright
         if self.v_ring.get():
             bright = self._with_ring(bright)
         self._final_card(bright)
         if self.studio is not None and self.v_tab.get() == "ring":
             self.studio.soon()                  # the previews follow the picture
+        elif self.fstudio is not None and self.v_tab.get() == "filter":
+            self.fstudio.soon()
         final = Image.composite(self.dim, bright, self.alpha)
         self._image = ImageTk.PhotoImage(final)
         self.cv.itemconfigure(self._img_item, image=self._image)
@@ -744,12 +794,95 @@ class CropDialog(tk.Toplevel):
             self.vw / self.d, self.vh / self.dh, mx, my)
         return Image.composite(img.convert("RGB"), surface, inside)
 
-    def view_picture(self):
-        """What is showing on the pin right now (without the ring), for previews."""
-        if self._plain is None:
+    def view_picture(self, raw=False):
+        """What is showing on the pin right now, for previews: with the filter but without the
+        ring (``raw=True``: without the filter either).
+        """
+        pic = self._raw if raw else self._plain
+        if pic is None:
             return None
         box = (int(self.vx0), int(self.vy0), int(self.vx0 + self.vw), int(self.vy0 + self.vh))
-        return self._plain.crop(box).convert("RGB")
+        return pic.crop(box).convert("RGB")
+
+    def thumb(self, picture, size):
+        """``picture`` (the pin's picture area) cut to the pin's shape, as a size x size preview
+        on the panel colour.
+        """
+        w, h = self.d, self.dh
+        k = size / max(w, h)
+        tw, th = max(8, round(w * k)), max(8, round(h * k))
+        mask = self._tmasks.get((tw, th))
+        if mask is None:
+            mask = self._tmasks[(tw, th)] = ring_mod.mask(
+                self.shape, w, h, 0, (tw * 2, th * 2), tw * 2 / w, th * 2 / h, tw, th)
+        base = picture.resize((tw * 2, th * 2), Image.BILINEAR)
+        card = Image.new("RGB", base.size, T.CARD)
+        card.paste(base, (0, 0), mask)
+        canvas = Image.new("RGB", (size * 2, size * 2), T.CARD)
+        canvas.paste(card, ((size * 2 - card.size[0]) // 2, (size * 2 - card.size[1]) // 2))
+        return canvas.resize((size, size), Image.LANCZOS)
+
+    # ---- the filter ---------------------------------------------------------
+    def cur_filter(self):
+        """The filter as it is now (None when off)."""
+        if self.f_name is None:
+            return None
+        return filters_mod.Filter(self.f_name, round(self.f_amount, 3))
+
+    def amount_for(self, name):
+        """The intensity a look gets when tapped: the one set by hand, else its own default."""
+        return self.f_amount if self._f_touched else filters_mod.DEFAULTS[name]
+
+    def filter_picks(self):
+        """Looks that suit the picture now showing: [(id, amount)], best first."""
+        if self._fpicks is None:
+            pic = self.view_picture(raw=True)
+            if pic is None:
+                return []
+            self._fpicks = filters_mod.recommend(pic)
+        return self._fpicks
+
+    def filter_set(self, name):
+        """Use look ``name`` (None = no filter) at the right intensity."""
+        self.f_name = name
+        if name is not None:
+            self.f_amount = self.amount_for(name)
+            self.v_f_amount.set(self.f_amount)
+        self._after_filter()
+
+    def filter_change(self, amount):
+        """The intensity slider moved."""
+        if self.f_name is None:
+            return
+        self.f_amount = max(0.05, min(1.0, float(amount)))
+        self._f_touched = True
+        self._after_filter()
+
+    def filter_toggle(self):
+        """The filter switch: off, or on with the last used look (else the best pick)."""
+        if self.f_name is not None:
+            return self.filter_set(None)
+        last = CropDialog.last_filter
+        if last is not None:
+            self._f_touched = True
+            self.f_amount = last.amount
+            self.filter_set(last.name)
+            return
+        picks = self.filter_picks()
+        self.filter_set(picks[0][0] if picks else "pop")
+
+    def compare(self, on):
+        """Show the untouched picture while "hold to compare" is pressed."""
+        if on != self._compare:
+            self._compare = on
+            self.update_view(fast=False)
+
+    def _after_filter(self):
+        """Show a filter change, and tell the ring (its colours come from the filtered picture)."""
+        self._palette = []
+        self._picks = None
+        self.update_view()
+        self._notify("frame", "filter", "ring")
 
     def palette(self):
         """The main colours of what shows on the pin (best ring colour first)."""
@@ -876,6 +1009,12 @@ class CropDialog(tk.Toplevel):
                 except tk.TclError:
                     pass
         self._hq_job = self._cfg_job = self._anim_job = self._guide_job = None
+        if self.fstudio is not None and self.fstudio._job is not None:
+            try:
+                self.fstudio.after_cancel(self.fstudio._job)
+            except tk.TclError:
+                pass
+            self.fstudio._job = None
         if self.studio is not None and self.studio._job is not None:
             try:
                 self.studio.after_cancel(self.studio._job)
@@ -905,6 +1044,9 @@ class CropDialog(tk.Toplevel):
         ring = self.cur_ring() if self.v_ring.get() else None
         if ring:
             CropDialog.last_ring = (ring, self.pick_id)
+        filt = self.cur_filter()
+        if filt:
+            CropDialog.last_filter = filt
         self.result = (self.zoom, self.cx, self.cy, self.v_angle.get(), copies,
-                       self.flipped, ring)
+                       self.flipped, ring, filt)
         self.destroy()
