@@ -89,6 +89,10 @@ def icon(name, colour, bg, size=ICON):
             smooth._oval(d, k, m, m, size * 0.38, bg, outline=colour, width=1.6)
             d.pieslice([(m - size * 0.38) * k, (m - size * 0.38) * k, (m + size * 0.38) * k,
                         (m + size * 0.38) * k], 90, 270, fill=colour)
+        elif name == "eye":
+            d.ellipse([2 * k, (m - 4.5) * k, (size - 2) * k, (m + 4.5) * k], outline=colour,
+                      width=round(1.6 * k))
+            smooth._oval(d, k, m, m, 2.6, colour)
         elif name == "image":
             d.rounded_rectangle([2.5 * k, 3.5 * k, (size - 2.5) * k, (size - 3.5) * k],
                                 radius=3 * k, outline=colour, width=round(1.6 * k))

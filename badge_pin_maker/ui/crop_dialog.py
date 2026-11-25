@@ -12,12 +12,13 @@ from .. import filters as filters_mod
 from .. import ring as ring_mod
 from .. import shapes
 from ..constants import LOW_PPI
-from ..imaging import base_crop, ppi_for, render_transform
+from ..imaging import Art, base_crop, ppi_for, render_transform
 from . import smooth
 from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .buttons import Btn
 from .filter_studio import FilterStudio
+from .preview_dialog import PreviewDialog
 from .ring_card import FilterCard, RingCard
 from .ring_studio import RingStudio
 from .tabs import PillTabs
@@ -253,6 +254,8 @@ class CropDialog(tk.Toplevel):
         self.q_pill = tk.Label(head, bg=T.CARD, fg=T.TEAL, font=self._bold, padx=12, pady=5,
                                highlightthickness=1, highlightbackground=T.BORDER)
         self.q_pill.pack(side="right")
+        Btn(head, "Preview", self.preview, icon="eye", kind="ghost", bg=T.BG, height=34
+            ).pack(side="right", padx=(0, 10))
         ttk.Label(main, style="Hint.TLabel", justify="left",
                   text="Drag to move  ·  scroll to zoom  ·  arrow keys nudge  ·  "
                        "bright = visible on the pin, shaded = folds behind"
@@ -821,6 +824,15 @@ class CropDialog(tk.Toplevel):
         canvas = Image.new("RGB", (size * 2, size * 2), T.CARD)
         canvas.paste(card, ((size * 2 - card.size[0]) // 2, (size * 2 - card.size[1]) // 2))
         return canvas.resize((size, size), Image.LANCZOS)
+
+    def current_art(self):
+        """An ``Art`` with everything as it is now (for the preview window)."""
+        return Art(self.src, self.zoom, self.cx, self.cy, self.v_angle.get(), self.flipped,
+                   self.cur_ring() if self.v_ring.get() else None, self.cur_filter())
+
+    def preview(self):
+        """Open the realistic scene window with the pin as designed so far."""
+        PreviewDialog(self, self.current_art(), self.pin)
 
     # ---- the filter ---------------------------------------------------------
     def cur_filter(self):

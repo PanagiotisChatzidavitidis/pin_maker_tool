@@ -53,6 +53,7 @@ from ..system_actions import print_pdf, reveal_folder
 from ..version import ART_CREDIT, version_text
 from . import mascot, smooth, theme as T
 from .crop_dialog import CropDialog
+from .preview_dialog import PreviewDialog
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
@@ -1267,6 +1268,9 @@ class BadgeApp(RootBase):
         inner.pack(padx=1, pady=1)
         ttk.Button(inner, text="Clear", style="Soft.TButton",
                    command=lambda: self._popup_action(self.clear_slot, idx)).pack(side="left")
+        ttk.Button(inner, text="Preview", style="Soft.TButton",
+                   command=lambda: self._popup_action(self.preview_slot, idx)).pack(
+            side="left", padx=(8, 0))
         ttk.Button(inner, text="Modify", style="Accent.TButton",
                    command=lambda: self._popup_action(self.modify_slot, idx)).pack(
             side="left", padx=(8, 0))
@@ -1407,6 +1411,12 @@ class BadgeApp(RootBase):
             art.ring = dlg.result[6]
             art.filter = dlg.result[7]
             self.schedule_redraw()
+
+    def preview_slot(self, idx):
+        """Show the pin in a realistic scene, at its real size."""
+        art = self.slots.get(idx)
+        if art is not None:
+            PreviewDialog(self, art, self._params())
 
     def clear_slot(self, idx):
         """Remove the image from one circle (can be undone)."""
