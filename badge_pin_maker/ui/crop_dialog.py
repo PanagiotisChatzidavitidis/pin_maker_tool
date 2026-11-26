@@ -832,7 +832,7 @@ class CropDialog(tk.Toplevel):
 
     def preview(self):
         """Open the realistic scene window with the pin as designed so far."""
-        PreviewDialog(self, self.current_art(), self.pin)
+        PreviewDialog(self, [("This pin", self.current_art())], [0], self.pin)
 
     # ---- the filter ---------------------------------------------------------
     def cur_filter(self):

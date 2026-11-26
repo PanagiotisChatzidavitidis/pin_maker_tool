@@ -759,8 +759,12 @@ class BadgeApp(RootBase):
             tip += " You can also drop image files onto the sheet."
         ttk.Label(f, style="Muted.TLabel", justify="left", wraplength=250,
                   text=tip).pack(anchor="w")
-        ttk.Button(f, text="Clear all", style="Soft.TButton",
-                   command=self.clear_all).pack(anchor="w", pady=(8, 0))
+        r = ttk.Frame(f, style="Card.TFrame")
+        r.pack(anchor="w", pady=(8, 0))
+        ttk.Button(r, text="Clear all", style="Soft.TButton",
+                   command=self.clear_all).pack(side="left")
+        ttk.Button(r, text="Preview bundle", style="Soft.TButton",
+                   command=self.preview_many).pack(side="left", padx=(8, 0))
 
         f = make_card(left, "Display")
         r = ttk.Frame(f, style="Card.TFrame")
@@ -1412,11 +1416,28 @@ class BadgeApp(RootBase):
             art.filter = dlg.result[7]
             self.schedule_redraw()
 
+    def _preview_pool(self):
+        """Every pin on the sheet that could go in a preview: ([(label, Art)], [slot indexes])."""
+        n = self._n()
+        idxs = sorted(i for i in self.slots if i < n)
+        return [(f"Pin {i + 1}", self.slots[i]) for i in idxs], idxs
+
     def preview_slot(self, idx):
-        """Show the pin in a realistic scene, at its real size."""
-        art = self.slots.get(idx)
-        if art is not None:
-            PreviewDialog(self, art, self._params())
+        """Show one pin (and, if wanted, more of them) in a realistic scene."""
+        pool, idxs = self._preview_pool()
+        if idx in idxs:
+            PreviewDialog(self, pool, [idxs.index(idx)], self._params(), title=self._preview_title())
+
+    def preview_many(self):
+        """Show every pin on the sheet (up to ten) as one bundle."""
+        pool, idxs = self._preview_pool()
+        if not pool:
+            messagebox.showinfo("Preview bundle", "Add at least one image to a pin first.", parent=self)
+            return
+        PreviewDialog(self, pool, list(range(len(pool))), self._params(), title=self._preview_title())
+
+    def _preview_title(self):
+        return ""
 
     def clear_slot(self, idx):
         """Remove the image from one circle (can be undone)."""
