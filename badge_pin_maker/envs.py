@@ -971,18 +971,20 @@ def layout(n, stage, foot, turn, seed=7, gap=1.12):
     for c in range(1, n + 1):
         r = math.ceil(n / c)
         s = min(1.0, sw / (c * bw * gap), sh / (r * bh * gap))
-        score = (round(s, 3), -(c * r - n), -abs((c * bw) / (r * bh) - sw / sh))
+        score = (round(s, 3), -(c * r - n), -abs(math.log((c * bw) / (r * bh) / (sw / sh))))
         if best is None or score > best[0]:
             best = (score, c, r, s)
     _, c, r, s = best
     rng = random.Random(seed * 100 + n)
     out = []
-    cw, ch = sw / c, sh / r
+    # a few pins sit together in the middle rather than scattering across the whole picture
+    cw, ch = min(sw / c, bw * gap * 1.7), min(sh / r, bh * gap * 1.7)
+    top = y0 + (sh - r * ch) / 2
     for i in range(n):
         row, col = divmod(i, c)
         count = c if row < r - 1 else n - (r - 1) * c
         left = x0 + (sw - count * cw) / 2
-        cx, cy = left + (col + 0.5) * cw, y0 + (row + 0.5) * ch
+        cx, cy = left + (col + 0.5) * cw, top + (row + 0.5) * ch
         room_x, room_y = max(0, cw - bw * s * gap) * 0.32, max(0, ch - bh * s * gap) * 0.32
         out.append((cx + rng.uniform(-room_x, room_x), cy + rng.uniform(-room_y, room_y),
                     rng.uniform(-turn, turn)))

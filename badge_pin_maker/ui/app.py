@@ -53,6 +53,7 @@ from ..system_actions import print_pdf, reveal_folder
 from ..version import ART_CREDIT, version_text
 from . import mascot, smooth, theme as T
 from .crop_dialog import CropDialog
+from .preview_dialog import PreviewDialog
 from .preview_setup import PreviewSetup
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
@@ -1426,7 +1427,7 @@ class BadgeApp(RootBase):
         """Show one pin (and, if wanted, more of them) in a realistic scene."""
         pool, idxs = self._preview_pool()
         if idx in idxs:
-            PreviewSetup(self, pool, [idxs.index(idx)], self._params(), title=self._preview_title())
+            PreviewDialog(self, pool, [idxs.index(idx)], self._params(), single=True)
 
     def preview_many(self):
         """Show every pin on the sheet (up to ten) as one bundle."""
@@ -1434,7 +1435,7 @@ class BadgeApp(RootBase):
         if not pool:
             messagebox.showinfo("Preview bundle", "Add at least one image to a pin first.", parent=self)
             return
-        PreviewSetup(self, pool, list(range(len(pool))), self._params(), title=self._preview_title())
+        PreviewSetup(self, pool, self._params())
 
     def _preview_title(self):
         return ""

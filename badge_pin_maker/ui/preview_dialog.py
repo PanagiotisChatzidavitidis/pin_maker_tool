@@ -26,7 +26,6 @@ from ..imaging import render_art
 from ..system_actions import print_pdf, reveal_folder
 from . import theme as T
 from .buttons import Btn
-from .widgets import Dropdown
 
 SIZES = (("Web  (1600 px)", 1600), ("HD  (2400 px)", 2400), ("Print  (3000 px)", 3000))
 THUMB = (118, 79)                      # a film-strip picture, in pixels
@@ -86,19 +85,17 @@ class _Loading(tk.Frame):
 
 
 class PreviewDialog(tk.Toplevel):
-    def __init__(self, parent, pool, sel, pin, type_="pin", env=None, title=""):
+    def __init__(self, parent, pool, sel, pin, single=False):
         super().__init__(parent)
         self.title("Shop pictures")
         self.configure(bg=T.BG)
         self.transient(parent)
-        self.parent, self.pool, self.pin, self.type = parent, list(pool), pin, type_
+        self.parent, self.pool, self.pin, self.type, self.single = parent, list(pool), pin, "pin", single
         self.sel = list(sel)[:envs.MAX_PINS] or [0]
-        self.env = env if env in envs.BY_TYPE[type_] else envs.BY_TYPE[type_][0]
-        self.view = "bundle"
+        self.env = "studio"
+        self.view = 0 if single else "bundle"
         self.ruler = self.details = self.real = False
-        self.labels = {envs.LABELS[k]: k for k in envs.BY_TYPE[type_]}
-        self.v_env = tk.StringVar(value=envs.LABELS[self.env])
-        self.v_title = tk.StringVar(value=title)
+        self.v_title = tk.StringVar(value="")
         self.v_size = tk.IntVar(value=2400)
         self._faces, self._set, self._thumbs = {}, {}, {}
         self._shown, self._job, self._busy, self._again = None, None, False, False
@@ -109,40 +106,27 @@ class PreviewDialog(tk.Toplevel):
         self.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 3)}")
         self.minsize(860, 560)
 
-        # ---- top bar -----------------------------------------------------------------------
+        # ---- top bar: just Save, Print and Close ---------------------------------------------
         bar = tk.Frame(self, bg=T.BG)
-        bar.pack(side="top", fill="x", padx=20, pady=(16, 6))
-        tk.Label(bar, text=envs.TYPE_LABEL[type_], bg=T.TEAL, fg="white", padx=12, pady=5,
-                 font=("TkDefaultFont", 10, "bold")).pack(side="left")
-        self.dd = Dropdown(bar, self.v_env, list(self.labels), width=250, icon="shapes", outer=T.BG, align="left")
-        self.dd.pack(side="left", padx=(10, 0))
-        Btn(bar, "Change…", self._change_setup, kind="ghost", bg=T.BG).pack(side="left", padx=(10, 0))
+        bar.pack(side="top", fill="x", padx=20, pady=(16, 10))
+        tk.Label(bar, text="Pin preview" if single else "Bundle preview", bg=T.BG, fg=T.TEXT,
+                 font=("TkDefaultFont", 14, "bold")).pack(side="left")
         right = tk.Frame(bar, bg=T.BG)
         right.pack(side="right")
-        self.b_details = Btn(right, "Caption", self._toggle_details, kind="ghost", bg=T.BG)
-        self.b_ruler = Btn(right, "Ruler", self._toggle_ruler, kind="ghost", bg=T.BG)
-        self.b_real = Btn(right, "Real size", self._toggle_real, kind="ghost", bg=T.BG, icon="fit")
-        self.b_save = Btn(right, "Save", lambda: self._menu(self.b_save, self.m_save), bg=T.BG, icon="image")
-        self.b_print = Btn(right, "Print", lambda: self._menu(self.b_print, self.m_print), bg=T.BG)
-        for b in (self.b_details, self.b_ruler, self.b_real, self.b_save, self.b_print):
-            b.pack(side="left", padx=3)
-        Btn(right, "Close", self.destroy, kind="accent", bg=T.BG).pack(side="left", padx=(6, 0))
-
-        row2 = tk.Frame(self, bg=T.BG)
-        row2.pack(side="top", fill="x", padx=20, pady=(0, 8))
-        tk.Label(row2, text="Caption title", bg=T.BG, fg=T.MUTED).pack(side="left")
-        ttk.Entry(row2, textvariable=self.v_title, width=34).pack(side="left", padx=8, ipady=3)
-        tk.Label(row2, text="(shown under the picture when Caption is on)", bg=T.BG, fg=T.MUTED).pack(side="left")
-
         self.m_save = tk.Menu(self, tearoff=0)
         self.m_save.add_command(label="This picture…", command=lambda: self._save(False))
         self.m_save.add_command(label="All pictures (to a folder)…", command=lambda: self._save(True))
-        self.m_save.add_separator()
-        for lab, v in SIZES:
-            self.m_save.add_radiobutton(label=lab, variable=self.v_size, value=v)
         self.m_print = tk.Menu(self, tearoff=0)
         self.m_print.add_command(label="This picture", command=lambda: self._print(False))
         self.m_print.add_command(label="All pictures (one per page)", command=lambda: self._print(True))
+        if single:
+            Btn(right, "Save image", lambda: self._save(False), bg=T.BG, icon="image").pack(side="left", padx=3)
+        else:
+            self.b_save = Btn(right, "Save", lambda: self._menu(self.b_save, self.m_save), bg=T.BG, icon="image")
+            self.b_print = Btn(right, "Print", lambda: self._menu(self.b_print, self.m_print), bg=T.BG)
+            self.b_save.pack(side="left", padx=3)
+            self.b_print.pack(side="left", padx=3)
+        Btn(right, "Close", self.destroy, kind="accent", bg=T.BG).pack(side="left", padx=(6, 0))
 
         self.info = tk.Label(self, bg=T.BG, fg=T.MUTED, anchor="w", justify="left")
         self.info.pack(side="bottom", fill="x", padx=22, pady=(4, 12))
@@ -150,7 +134,8 @@ class PreviewDialog(tk.Toplevel):
         mid = tk.Frame(self, bg=T.BG)
         mid.pack(side="top", fill="both", expand=True, padx=20)
         self.strip = tk.Canvas(mid, bg=T.BG, height=THUMB[1] + 28, highlightthickness=0)
-        self.strip.pack(side="bottom", fill="x", pady=(8, 0))
+        if not single:
+            self.strip.pack(side="bottom", fill="x", pady=(8, 0))
         stage = tk.Frame(mid, bg=T.BG)
         stage.pack(side="top", fill="both", expand=True)
         self.cv = tk.Canvas(stage, bg=T.BG, highlightthickness=0)
@@ -164,8 +149,6 @@ class PreviewDialog(tk.Toplevel):
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Left>", self._typed(lambda: self._step(-1)))
         self.bind("<Right>", self._typed(lambda: self._step(1)))
-        self.v_env.trace_add("write", lambda *_: self._env_changed())
-        self.v_title.trace_add("write", lambda *_: self._soon(250))
         self.after(80, self._prepare)
         self.focus_set()
 
@@ -189,7 +172,7 @@ class PreviewDialog(tk.Toplevel):
         return f"{txt} {self.pin['shape'].lower()}"
 
     def _views(self):
-        return ["bundle"] + list(range(len(self.sel)))
+        return [0] if self.single else ["bundle"] + list(range(len(self.sel)))
 
     def _vname(self, view):
         return "Bundle" if view == "bundle" else f"Pin {view + 1}"
@@ -285,7 +268,7 @@ class PreviewDialog(tk.Toplevel):
             self._again = True
             return
         env, ruler, n = self.env, self.ruler, len(self.sel)
-        self._job_run("Preparing your pictures", n + 1,
+        self._job_run("Preparing your picture" + ("" if self.single else "s"), n + 1,
                       lambda step: self._render(self._views(), env, ruler, envs.SCREEN_PX, step),
                       lambda res: self._prepared(res))
 
@@ -328,19 +311,12 @@ class PreviewDialog(tk.Toplevel):
         self._shown = ImageTk.PhotoImage(pic)
         self.cv.delete("all")
         self.cv.create_image(cw // 2, ch // 2, image=self._shown)
-        n, noun = len(self.sel), envs.NOUN[self.kind]
-        what = (f"{n} {noun} together" if self.view == "bundle" else f"close-up of {self.pool[self.sel[self.view]][0]}")
-        if self.kind in envs.BACK_KINDS:
-            what += ", front and back" if self.view != "bundle" else " and a back view"
-        scale_txt = ("true to size" if scale >= 0.995 else
-                     f"shown at {round(scale * 100)}% so they all fit")
-        tip = (("Real size: 1 mm here is 1 mm on your screen." if real else
-                "Real size needs a bigger window, so it is shown to fit.") if self.real else
-               "Arrow keys switch pictures.")
-        self.info.configure(text=f"{envs.LABELS[self.env]}  ·  {what}  ·  {self._size_txt()}, {scale_txt}\n{tip}")
-        for b, on in ((self.b_details, self.details), (self.b_ruler, self.ruler), (self.b_real, self.real)):
-            b.configure(kind="accent" if on else "ghost")
-        self._draw_strip()
+        n = len(self.sel)
+        what = (f"{n} pin{'s' if n != 1 else ''} together" if self.view == "bundle" else self.pool[self.sel[self.view]][0])
+        self.info.configure(text=f"{what}  ·  {self._size_txt()}" +
+                            ("" if scale >= 0.995 else f"  ·  shown at {round(scale * 100)}% so they all fit"))
+        if not self.single:
+            self._draw_strip()
 
     def _draw_strip(self):
         self.strip.delete("all")
@@ -379,31 +355,6 @@ class PreviewDialog(tk.Toplevel):
         self._go(views[(views.index(self.view) + d) % len(views)])
 
     # ---- controls ---------------------------------------------------------------------------------
-    def _env_changed(self):
-        key = self.labels.get(self.v_env.get())
-        if key and key != self.env:
-            self.env = key
-            self._prepare()
-
-    def _toggle_details(self):
-        self.details = not self.details
-        self._soon(0)
-
-    def _toggle_ruler(self):
-        self.ruler = not self.ruler
-        self._prepare()
-        self._soon(0)
-
-    def _toggle_real(self):
-        self.real = not self.real
-        self._soon(0)
-
-    def _change_setup(self):
-        from .preview_setup import PreviewSetup
-        parent, args = self.parent, (self.pool, list(self.sel), self.pin, self.type, self.env, self.v_title.get())
-        self.destroy()
-        PreviewSetup(parent, *args)
-
     # ---- saving and printing ----------------------------------------------------------------------
     def _export_views(self, everything):
         return self._views() if everything else [self.view]

@@ -18,7 +18,7 @@ from . import theme as T
 from .dialogs import messagebox, set_titlebar, set_window_icon
 from .buttons import Btn
 from .filter_studio import FilterStudio
-from .preview_setup import PreviewSetup
+from .preview_dialog import PreviewDialog
 from .ring_card import FilterCard, RingCard
 from .ring_studio import RingStudio
 from .tabs import PillTabs
@@ -832,7 +832,7 @@ class CropDialog(tk.Toplevel):
 
     def preview(self):
         """Open the realistic scene window with the pin as designed so far."""
-        PreviewSetup(self, [("This pin", self.current_art())], [0], self.pin)
+        PreviewDialog(self, [("This pin", self.current_art())], [0], self.pin, single=True)
 
     # ---- the filter ---------------------------------------------------------
     def cur_filter(self):
