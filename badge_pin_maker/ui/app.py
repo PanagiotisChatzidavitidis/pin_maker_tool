@@ -53,6 +53,7 @@ from ..system_actions import print_pdf, reveal_folder
 from ..version import ART_CREDIT, version_text
 from . import mascot, smooth, theme as T
 from .crop_dialog import CropDialog
+from .buttons import Btn
 from .preview_dialog import PreviewDialog
 from .preview_setup import PreviewSetup
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
@@ -1257,7 +1258,7 @@ class BadgeApp(RootBase):
 
     # ---- floating Clear / Modify buttons ------------------------------------
     def show_popup(self, idx):
-        """Show the little Clear / Modify box next to circle ``idx``."""
+        """Show the little Preview / Edit / Remove box next to circle ``idx``."""
         self.close_popup()
         self.selected = idx
         s, ox, oy, p = self.geo
@@ -1269,16 +1270,17 @@ class BadgeApp(RootBase):
                             outline=T.SELECT_RING, width=3, tags="selected")
 
         frame = tk.Frame(self.cv, bg=T.POPUP_EDGE)
-        inner = ttk.Frame(frame, style="Card.TFrame", padding=(8, 8))
+        inner = tk.Frame(frame, bg=T.CARD)
         inner.pack(padx=1, pady=1)
-        ttk.Button(inner, text="Clear", style="Soft.TButton",
-                   command=lambda: self._popup_action(self.clear_slot, idx)).pack(side="left")
-        ttk.Button(inner, text="Preview", style="Soft.TButton",
-                   command=lambda: self._popup_action(self.preview_slot, idx)).pack(
-            side="left", padx=(8, 0))
-        ttk.Button(inner, text="Modify", style="Accent.TButton",
-                   command=lambda: self._popup_action(self.modify_slot, idx)).pack(
-            side="left", padx=(8, 0))
+        box = tk.Frame(inner, bg=T.CARD)
+        box.pack(padx=8, pady=8)
+        # what you most often want first: look at it, change it, or take it off the sheet
+        Btn(box, "Preview", lambda: self._popup_action(self.preview_slot, idx), kind="soft", bg=T.CARD,
+            icon="eye", height=34).pack(side="left")
+        Btn(box, "Edit", lambda: self._popup_action(self.modify_slot, idx), kind="accent", bg=T.CARD,
+            icon="image", height=34).pack(side="left", padx=(8, 0))
+        Btn(box, "Remove", lambda: self._popup_action(self.clear_slot, idx), kind="ghost", bg=T.CARD,
+            height=34).pack(side="left", padx=(8, 0))
         frame.update_idletasks()
         pw, ph = frame.winfo_reqwidth(), frame.winfo_reqheight()
         cw, ch = self.cv.winfo_width(), self.cv.winfo_height()
