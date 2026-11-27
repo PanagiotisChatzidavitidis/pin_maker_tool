@@ -16,7 +16,9 @@ The look comes from ``scene`` (shadows, the pin dome and rim, grain), whose pixe
 switched for the duration of each render.
 """
 
+import json
 import math
+import os
 import random
 from functools import lru_cache
 
@@ -26,46 +28,72 @@ from . import ring as ring_mod
 from . import scene as S
 
 W_MM, H_MM = 420, 280                  # a bundle picture, in mm (3:2)
-LONG_PX = 2520                         # every picture is this many pixels along its long edge
-BUNDLE_PX = LONG_PX / W_MM             # 6 px per mm
+SCREEN_PX = 1680                       # long edge of the pictures shown on screen (saving re-renders larger)
 MAX_PINS = 10
 FOOT_MM = 20                           # the caption band under the picture ("Details")
+CACHE_VERSION = 4                      # bump when a scene changes, so cached backdrops are redrawn
 
-# key, label, how the pin is presented
+# what the customer is selling, and the scenes that suit it
+TYPES = (
+    ("pin", "Pin", "A flat badge. Shown on desks and bags."),
+    ("magnet", "Magnet", "A pin with a magnet back. Shown on steel."),
+    ("opener", "Bottle opener", "A pin whose back is a bottle opener. Shown front and back."),
+    ("keychain", "Keychain", "A pin with a tab, chain and ring. Shown front and back."),
+)
+TYPE_LABEL = {k: lab for k, lab, _ in TYPES}
+TYPE_NOTE = {k: note for k, _, note in TYPES}
+# key, label, one line about the scene
 ENVS = (
-    ("desk", "Modern desk", "flat"),
-    ("school", "School desk", "flat"),
-    ("backpack", "On a backpack", "fabric"),
-    ("fridge", "Fridge magnets", "magnet"),
-    ("keychain", "Keychains on a coffee table", "keychain"),
-    ("opener", "Bottle openers on a party table", "opener"),
+    ("studio", "Clean studio", "White seamless paper and soft light: the classic shop picture."),
+    ("desk", "Modern desk", "Oak desk with a felt mat, a notebook and a coffee."),
+    ("school", "School desk", "A lined notebook page on a classroom desk."),
+    ("backpack", "Backpack", "Ripstop fabric beside a zipper pocket."),
+    ("fridge", "Fridge door", "Brushed stainless steel with a handle."),
+    ("coffee", "Coffee table", "Dark walnut with a mug on a cork coaster."),
+    ("party", "Party table", "A bar table with beer bottles and string lights."),
 )
 LABELS = {k: lab for k, lab, _ in ENVS}
-KINDS = {k: kind for k, _, kind in ENVS}
+NOTES = {k: note for k, _, note in ENVS}
+BY_TYPE = {"pin": ("studio", "desk", "school", "backpack"), "magnet": ("studio", "fridge"),
+           "opener": ("studio", "party"), "keychain": ("studio", "coffee")}
 NOUN = {"flat": "pins", "fabric": "pins", "magnet": "magnets", "keychain": "keychains",
         "opener": "bottle openers"}
+BACK_KINDS = ("opener", "keychain")     # these also show the back of the pin
+
+
+def kind_for(type_, env):
+    """How a pin is presented: by its type, except on a backpack where it is sewn on."""
+    return "fabric" if env == "backpack" else {"pin": "flat", "magnet": "magnet", "opener": "opener",
+                                              "keychain": "keychain"}[type_]
+
+
 # where the pins go (mm, in a 420 x 280 picture): left, top, right, bottom
-STAGE = {"desk": (50, 86, 372, 252), "school": (78, 46, 342, 236),
+STAGE = {"studio": (34, 26, 386, 254), "desk": (50, 86, 372, 252), "school": (78, 46, 342, 236),
          "backpack": (52, 84, 340, 252), "fridge": (36, 70, 340, 252),
-         "keychain": (56, 34, 316, 248), "opener": (52, 120, 366, 256)}
+         "coffee": (56, 34, 316, 248), "party": (52, 120, 366, 256)}
 # things in each scene that the pins must stay clear of (mm: left, top, right, bottom)
 OBSTACLES = {
+    "studio": [],
     "desk": [(0, 0, 150, 76), (150, 28, 285, 52), (298, 0, 420, 80)],
     "school": [(0, 0, 68, 280), (352, 0, 420, 280), (0, 0, 420, 24), (0, 254, 420, 280)],
     "backpack": [(0, 0, 420, 78), (344, 0, 420, 280)],
     "fridge": [(0, 0, 70, 62), (364, 0, 420, 280)],
-    "keychain": [(326, 0, 420, 100), (200, 258, 300, 280)],
-    "opener": [(0, 0, 420, 112), (0, 226, 50, 280), (380, 150, 420, 230)],
+    "coffee": [(326, 0, 420, 100), (200, 258, 300, 280)],
+    "party": [(0, 0, 420, 112), (0, 226, 50, 280), (380, 150, 420, 230)],
 }
 # how far each pin may be turned (degrees) and how much it may wander in its cell
 TURN = {"flat": 9, "fabric": 4, "magnet": 6, "keychain": 14, "opener": 12}
 SHADOWS = {
-    "flat": ((0.5, 0.9, 1.0, 0.55), (1.8, 3.0, 4.5, 0.36)),
-    "fabric": ((0.2, 0.4, 0.6, 0.62), (0.9, 1.5, 2.3, 0.38)),
-    "magnet": ((0.3, 0.5, 0.5, 0.6), (1.0, 1.7, 2.3, 0.3)),
-    "keychain": ((0.6, 1.0, 1.1, 0.5), (2.2, 3.4, 4.5, 0.32)),
-    "opener": ((0.6, 1.0, 1.1, 0.5), (2.2, 3.4, 4.5, 0.32)),
+    "flat": ((0.25, 0.4, 0.5, 0.55), (0.9, 1.5, 1.6, 0.34), (2.6, 4.2, 5.5, 0.26)),
+    "fabric": ((0.2, 0.4, 0.6, 0.62), (0.9, 1.5, 2.3, 0.38), (2.4, 3.6, 6.0, 0.16)),
+    "magnet": ((0.2, 0.3, 0.4, 0.6), (0.8, 1.3, 1.6, 0.3), (2.2, 3.4, 5.0, 0.2)),
+    "keychain": ((0.3, 0.5, 0.6, 0.5), (1.2, 1.9, 2.0, 0.32), (3.0, 4.6, 6.0, 0.24)),
+    "opener": ((0.3, 0.5, 0.6, 0.5), (1.2, 1.9, 2.0, 0.32), (3.0, 4.6, 6.0, 0.24)),
 }
+# on white paper the light is soft and the shadows are grey and wide
+STUDIO_SHADOWS = {k: ((0.2, 0.35, 0.45, 0.8), (0.9, 1.6, 1.8, 0.5), (3.0, 5.0, 7.0, 0.42), (7.0, 11.0, 16.0, 0.22))
+                  for k in SHADOWS}
+STUDIO_SHADOW_COL = (52, 52, 58)
 
 
 class at_px:
@@ -499,7 +527,6 @@ def _paint_desk(W, H, px, close, dense):
     d.rounded_rectangle(inner, radius=6 * px, outline=(36, 38, 44, 200), width=max(1, int(0.5 * px)))
     if not close:
         S._put(img, notebook(), 74 * px, -38 * px, -4)
-        S._put(img, pen(), 214 * px, 40 * px, 4)
         S._put(img, mug(), 340 * px, 34 * px, 0)
     return S._vignette(img, 0.26)
 
@@ -616,7 +643,7 @@ def _paint_fridge(W, H, px, close, dense):
     return S._vignette(img, 0.2)
 
 
-def _paint_keychain(W, H, px, close, dense):
+def _paint_coffee(W, H, px, close, dense):
     w, h = int(W * px), int(H * px)
     f = W / W_MM
     img = _wood(w, h, px, (46, 28, 18), (86, 56, 36), (128, 90, 62), seed=13, plank_mm=int(88 * 1.0) if not close else 0,
@@ -624,7 +651,6 @@ def _paint_keychain(W, H, px, close, dense):
     if not close:
         S._put(img, coaster(), 376 * px, 44 * px, 0, ((0.4, 0.6, 0.8, 0.5), (1.4, 2.2, 3.0, 0.3)))
         S._put(img, mug(78), 376 * px, 44 * px, 0, ((0.8, 1.2, 1.4, 0.5), (2.6, 3.6, 5.0, 0.32)))
-        S._put(img, pen(), 250 * px, 266 * px, -3)
     return S._vignette(img, 0.3)
 
 
@@ -639,7 +665,7 @@ def _reflect(img, spr, cx_px, base_px, fade=0.22, depth_mm=40):
     img.paste(flip.convert("RGB"), (int(cx_px - flip.width / 2), int(base_px)), a.filter(ImageFilter.GaussianBlur(1.2)))
 
 
-def _paint_opener(W, H, px, close, dense):
+def _paint_party(W, H, px, close, dense):
     w, h = int(W * px), int(H * px)
     f = W / W_MM
     img = _wood(w, h, px, (56, 38, 28), (98, 68, 48), (140, 102, 72), seed=17, plank_mm=94 if not close else 0,
@@ -679,27 +705,107 @@ def _paint_opener(W, H, px, close, dense):
     return S._vignette(img, 0.42)
 
 
-PAINT = {"desk": _paint_desk, "school": _paint_school, "backpack": _paint_backpack,
-         "fridge": _paint_fridge, "keychain": _paint_keychain, "opener": _paint_opener}
+def _paint_studio(W, H, px, close, dense):
+    """A seamless white paper sweep lit from the upper left by a big soft box."""
+    w, h = int(W * px), int(H * px)
+    top = ImageOps.colorize(Image.linear_gradient("L").resize((w, h)), (250, 250, 248), (230, 230, 228))
+    glow = ImageOps.colorize(Image.radial_gradient("L").resize((w, h), Image.BICUBIC), (255, 255, 255),
+                             (206, 207, 208))
+    img = ImageChops.multiply(top, glow)
+    side = ImageOps.colorize(S._diag(w, h, flip=True), (240, 240, 238), (255, 255, 255))
+    img = ImageChops.multiply(img, side)
+    grain = _nz(w, h, 0.4, 0.4, 7, px)
+    return ImageChops.multiply(img, ImageOps.colorize(grain, (246, 246, 245), (255, 255, 255)))
 
 
-@lru_cache(maxsize=6)
-def backdrop(env, w_mm=W_MM, dense=False):
-    """The empty scene for ``env`` as an RGB picture ``LONG_PX`` wide (cached). A close-up is a
-    smaller ``w_mm`` window drawn at a higher pixel density."""
+PAINT = {"studio": _paint_studio, "desk": _paint_desk, "school": _paint_school, "backpack": _paint_backpack,
+         "fridge": _paint_fridge, "coffee": _paint_coffee, "party": _paint_party}
+
+
+def cache_dir():
+    """Where drawn scenes are kept between runs, so a scene is only ever drawn once."""
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
+    d = os.path.join(base, "ozzies-pin-studio")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        pass
+    return d
+
+
+def _photo_dirs():
+    return (os.path.join(os.path.dirname(os.path.abspath(__file__)), "backdrops"),
+            os.path.join(cache_dir(), "backdrops"))
+
+
+def _custom_file(env):
+    """A real photograph the shop has put in a ``backdrops`` folder for this scene, if any."""
+    for d in _photo_dirs():
+        for ext in (".jpg", ".jpeg", ".png"):
+            f = os.path.join(d, env + ext)
+            if os.path.isfile(f):
+                return f
+    return None
+
+
+def stage_for(env):
+    """The pin area (mm) for ``env``: from a ``<env>.json`` next to a custom photo, else built in."""
+    f = _custom_file(env)
+    if f:
+        try:
+            with open(os.path.splitext(f)[0] + ".json", encoding="utf-8") as fh:
+                st = json.load(fh)["stage"]
+            if len(st) == 4:
+                return tuple(float(v) for v in st)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return STAGE[env]
+
+
+def _from_photo(f, w_mm, long_px):
+    im = Image.open(f).convert("RGB")
+    W, H = im.size
+    cw, ch = (W, W * 2 // 3) if W * 2 <= H * 3 else (H * 3 // 2, H)
+    cx, cy = W // 2, H // 2
+    k = w_mm / W_MM                                     # a close-up is a crop of the middle
+    cw, ch = int(cw * k), int(ch * k)
+    im = im.crop((cx - cw // 2, cy - ch // 2, cx - cw // 2 + cw, cy - ch // 2 + ch))
+    return im.resize((long_px, long_px * 2 // 3), Image.LANCZOS)
+
+
+@lru_cache(maxsize=8)
+def backdrop(env, w_mm=W_MM, dense=False, long_px=SCREEN_PX):
+    """The empty scene for ``env`` as an RGB picture ``long_px`` wide. A close-up is a smaller
+    ``w_mm`` window drawn at a higher pixel density. Drawn scenes are cached on disk."""
+    f = _custom_file(env)
+    if f:
+        return _from_photo(f, w_mm, long_px)
+    path = os.path.join(cache_dir(), f"v{CACHE_VERSION}-{env}-{w_mm}-{int(dense)}-{long_px}.jpg")
+    if os.path.isfile(path):
+        try:
+            return Image.open(path).convert("RGB")
+        except OSError:
+            pass
     h_mm = w_mm * 2 / 3
-    px = LONG_PX / w_mm
+    px = long_px / w_mm
     close = w_mm != W_MM
     with at_px(px):
         img = PAINT[env](w_mm, h_mm, px, close, dense)
-    return _photo(img, env, px, close)
+    img = _photo(img, env, px, close)
+    try:
+        img.save(path, quality=93)
+    except OSError:
+        pass
+    return img
 
 
 def _photo(img, env, px, close):
     """Make the painting read as a photograph: a shallow depth of field (everything away from
     where the pins go is slightly soft), a gentle warm grade and a little bloom in the lights."""
     w, h = img.size
-    soft = img.filter(ImageFilter.GaussianBlur(0.75 * px))
+    if env == "studio":
+        return img
+    soft = img.filter(ImageFilter.GaussianBlur(0.9 * px))
     if close:
         m = Image.radial_gradient("L").resize((w, h), Image.BICUBIC).point(lambda v: max(0, min(255, (v - 120) * 2)))
     else:
@@ -711,7 +817,11 @@ def _photo(img, env, px, close):
     glow = img.filter(ImageFilter.GaussianBlur(6 * px)).point(lambda v: max(0, v - 170) * 3)
     img = ImageChops.screen(img, glow.point(lambda v: v // 6))
     warm = Image.new("RGB", (w, h), (255, 246, 232))
-    return Image.blend(img, ImageChops.multiply(img, warm), 0.5)
+    img = Image.blend(img, ImageChops.multiply(img, warm), 0.5)
+    # one light, up and to the left: a broad gradient over everything
+    lit = ImageOps.colorize(S._diag(w, h, flip=True).filter(ImageFilter.GaussianBlur(20 * px)),
+                            (214, 214, 214), (255, 255, 255))
+    return ImageChops.multiply(img, lit)
 
 
 # ---- the pin, as it is presented in each environment --------------------------------------
@@ -729,81 +839,57 @@ def _ring(d, box, wire, ss):
           fill=(255, 255, 255), width=max(1, wire // 2))
 
 
-def keychain_unit(base, fw, fh):
-    """Pin plus eyelet, split ring, ball chain and key ring. Returns (RGBA, (ax, ay)): the
-    picture and where the middle of the pin is in it."""
-    px, ss = S.PX, 3
-    W, H = base.size
-    top = int((5.5 + 7 + 17 + 19) * px)
-    w = max(W, int(28 * px))
-    out = Image.new("RGBA", (w * ss, (H + top) * ss), (0, 0, 0, 0))
-    ox = (w - W) // 2
-    rgb = Image.new("RGB", out.size, (0, 0, 0))
-    a = Image.new("L", out.size, 0)
-    d, da = ImageDraw.Draw(rgb), ImageDraw.Draw(a)
-    cx = w * ss / 2
-    pin_top = top * ss
-    # eyelet tab
-    tw, th = min(10, max(6, fw * 0.24)) * px * ss, 8 * px * ss
-    ty0 = pin_top - 5.6 * px * ss
-    for dd, col in ((d, (150, 154, 162)), (da, 255)):
-        dd.rounded_rectangle([cx - tw / 2, ty0, cx + tw / 2, ty0 + th], radius=tw / 2, fill=col)
-    d.rounded_rectangle([cx - tw / 2 + ss, ty0 + ss, cx + tw / 2 - ss, ty0 + th * 0.6], radius=tw / 2,
-                        fill=(214, 218, 226))
-    d.ellipse([cx - 1.4 * px * ss, ty0 + 1.2 * px * ss, cx + 1.4 * px * ss, ty0 + 3.8 * px * ss], fill=(40, 40, 46))
-    # split ring through the hole
-    rw = max(3, int(0.9 * px * ss))
-    rb = [cx - 4.6 * px * ss, ty0 - 7 * px * ss, cx + 4.6 * px * ss, ty0 + 5 * px * ss]
-    _ring(d, rb, rw, ss)
-    ImageDraw.Draw(a).ellipse(rb, outline=255, width=rw + ss)
-    # the ball chain, a little wavy
-    y, n = ty0 - 6.5 * px * ss, 0
-    br = 1.25 * px * ss
-    while y > (top - 5.5 - 7 - 17) * px * ss + 2 * px * ss:
-        x = cx + math.sin(n * 0.35) * 0.6 * px * ss
-        _metal_dot(d, x, y, br, ss)
-        da.ellipse([x - br, y - br, x + br, y + br], fill=255)
-        y -= br * 1.7
-        n += 1
-    # a connector and the key ring
-    ky = y - 2 * px * ss
-    d.rounded_rectangle([cx - 2 * px * ss, ky - 2.4 * px * ss, cx + 2 * px * ss, ky + 1.4 * px * ss], radius=px * ss,
-                        fill=(190, 194, 202))
-    da.rounded_rectangle([cx - 2 * px * ss, ky - 2.4 * px * ss, cx + 2 * px * ss, ky + 1.4 * px * ss], radius=px * ss,
-                         fill=255)
-    kr = 9 * px * ss
-    kb = [cx - kr, ky - 2 * kr + 1 * px * ss, cx + kr, ky + 1 * px * ss]
-    _ring(d, kb, int(1.5 * px * ss), ss)
-    ImageDraw.Draw(a).ellipse(kb, outline=255, width=int(1.5 * px * ss) + ss)
-    rgb = rgb.resize((w, H + top), Image.LANCZOS)
-    a = a.resize((w, H + top), Image.LANCZOS)
-    rgb.putalpha(a)
-    out = rgb
-    out.alpha_composite(base, (ox, top))
-    return out, (w / 2, top + H / 2)
+def _link(d, da, cx, cy, w, h, wire, ss):
+    """One chain link, an oval of wire. A narrow one is a link seen edge-on."""
+    box = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
+    if w < 2.2 * wire:                                  # edge-on: a short polished bar
+        d.rounded_rectangle(box, radius=w / 2, fill=(176, 180, 188))
+        d.rounded_rectangle([box[0], box[1], box[0] + w * 0.45, box[3]], radius=w / 2, fill=(246, 248, 252))
+        da.rounded_rectangle(box, radius=w / 2, fill=255)
+        return
+    _ring(d, box, wire, ss)
+    da.ellipse(box, outline=255, width=wire + ss)
 
 
-def opener_front(base, fw, fh):
-    """A pin with an eyelet and one key ring, the way a bottle opener badge hangs."""
+def keychain_hardware(base, fw, fh):
+    """A pin with its plastic tab, a short chain of links and a split ring, as on a badge
+    keyring. Returns (RGBA, (ax, ay)): the picture and where the middle of the pin is in it."""
     px, ss = S.PX, 3
     W, H = base.size
-    top = int(19 * px)
-    w = max(W, int(18 * px))
+    top = int(52 * px)
+    w = max(W, int(26 * px))
     full = (w * ss, (H + top) * ss)
     rgb = Image.new("RGB", full, (0, 0, 0))
     a = Image.new("L", full, 0)
     d, da = ImageDraw.Draw(rgb), ImageDraw.Draw(a)
     cx = w * ss / 2
-    tw, th = min(10, max(6, fw * 0.22)) * px * ss, 8 * px * ss
-    ty0 = top * ss - 5.6 * px * ss
-    for dd, col in ((d, (150, 154, 162)), (da, 255)):
-        dd.rounded_rectangle([cx - tw / 2, ty0, cx + tw / 2, ty0 + th], radius=tw / 2, fill=col)
-    d.rounded_rectangle([cx - tw / 2 + ss, ty0 + ss, cx + tw / 2 - ss, ty0 + th * 0.6], radius=tw / 2, fill=(214, 218, 226))
-    d.ellipse([cx - 1.4 * px * ss, ty0 + 1.2 * px * ss, cx + 1.4 * px * ss, ty0 + 3.8 * px * ss], fill=(40, 40, 46))
-    wire = max(3, int(1.2 * px * ss))
-    rb = [cx - 7 * px * ss, ty0 - 11 * px * ss, cx + 7 * px * ss, ty0 + 4 * px * ss]
-    _ring(d, rb, wire, ss)
-    ImageDraw.Draw(a).ellipse(rb, outline=255, width=wire + ss)
+    u = px * ss
+    y0 = top * ss                                       # the top of the pin
+    # the tab: a small rounded loop that grows out of the badge
+    tw, th = 9.5 * u, 9.0 * u
+    ty = y0 - 6.4 * u
+    for dd, col in ((d, (238, 238, 236)), (da, 255)):
+        dd.rounded_rectangle([cx - tw / 2, ty, cx + tw / 2, ty + th], radius=tw * 0.42, fill=col)
+    d.rounded_rectangle([cx - tw / 2, ty, cx + tw / 2, ty + th], radius=tw * 0.42, outline=(190, 192, 196),
+                        width=max(1, int(0.35 * u)))
+    d.ellipse([cx - 1.8 * u, ty + 1.2 * u, cx + 1.8 * u, ty + 4.8 * u], fill=(118, 120, 126))
+    d.arc([cx - 1.8 * u, ty + 1.2 * u, cx + 1.8 * u, ty + 4.8 * u], 190, 330, fill=(250, 250, 250), width=max(1, int(0.3 * u)))
+    wire = max(3, int(0.95 * u))
+    cy = ty + 3 * u
+    # three links: the first goes through the tab, then one seen edge-on, then another
+    _link(d, da, cx, cy - 4.6 * u, 5.6 * u, 11 * u, wire, ss)
+    _link(d, da, cx, cy - 12.8 * u, 1.9 * u, 7.4 * u, wire, ss)
+    _link(d, da, cx, cy - 20.2 * u, 5.6 * u, 11 * u, wire, ss)
+    # the split ring, a double turn of wire
+    kr = 11.2 * u
+    ky = cy - 24.5 * u
+    box = [cx - kr, ky - 2 * kr, cx + kr, ky]
+    kw = max(3, int(1.25 * u))
+    d.ellipse(box, outline=(150, 154, 162), width=int(1.1 * u) + kw + ss)
+    _ring(d, box, kw, ss)
+    box2 = [box[0] + 1.1 * u, box[1] + 1.1 * u, box[2] - 1.1 * u, box[3] - 1.1 * u]
+    _ring(d, box2, kw, ss)
+    ImageDraw.Draw(a).ellipse(box, outline=255, width=int(1.1 * u) + kw + ss)
     rgb = rgb.resize((w, H + top), Image.LANCZOS)
     a = a.resize((w, H + top), Image.LANCZOS)
     rgb.putalpha(a)
@@ -811,47 +897,56 @@ def opener_front(base, fw, fh):
     return rgb, (w / 2, top + H / 2)
 
 
-def back_unit(shape, fw, fh):
-    """The back of a bottle opener pin: polished steel with the opening cut through it (so the
-    table shows through). No chain."""
+def back_disc(shape, fw, fh, opening=False):
+    """The back of a pin. Opener: polished steel with the opening cut through it (the table
+    shows through). Keychain / others: a plain white back inside a silver rim, as on a real
+    badge. RGBA, the same size as ``scene.pin_sprite``."""
     px, ss = S.PX, 3
     pad = 6
     W, H = int(fw * px) + 2 * pad, int(fh * px) + 2 * pad
     mask = ring_mod.mask(shape, fw, fh, 0, (W, H), px, px, W / 2, H / 2, 3)
-    metal = ImageOps.colorize(S._diag(W, H, flip=True), (168, 172, 180), (252, 252, 255), mid=(214, 218, 226))
-    metal = ImageChops.multiply(metal, ImageOps.colorize(_nz(W, H, 6, 6, 61, px), (232, 232, 234), (255, 255, 255)))
-    art = metal.copy()
-    rim = max(2, int(0.7 * px))
+    rim = max(2, int(0.8 * px))
     inner = mask.filter(ImageFilter.MinFilter(2 * rim + 1))
-    art.paste(ImageOps.colorize(S._diag(W, H, flip=False), (120, 124, 132), (236, 238, 244)), (0, 0),
-              ImageChops.subtract(mask, inner))
-    # the opening: a rounded slot with a hump on its top edge, as on a real opener
-    hole = Image.new("L", (W * ss, H * ss), 0)
-    hd = ImageDraw.Draw(hole)
-    u = min(fw, fh) * px * ss
-    cx, cy = W * ss / 2, H * ss / 2 + 0.03 * u
-    hd.rounded_rectangle([cx - 0.27 * u, cy - 0.12 * u, cx + 0.27 * u, cy + 0.17 * u], radius=0.07 * u, fill=255)
-    hd.pieslice([cx - 0.16 * u, cy - 0.27 * u, cx + 0.16 * u, cy + 0.05 * u], 180, 360, fill=255)
-    hole = hole.resize((W, H), Image.LANCZOS)
-    wall = ImageChops.subtract(hole.filter(ImageFilter.MaxFilter(2 * max(1, int(0.5 * px)) + 1)), hole)
-    art.paste(Image.new("RGB", (W, H), (98, 102, 110)), (0, 0), wall)
-    lit = ImageChops.subtract(ImageChops.offset(hole, int(0.7 * px), int(0.9 * px)), hole)
-    art.paste(Image.new("RGB", (W, H), (255, 255, 255)), (0, 0), ImageChops.multiply(lit, mask))
+    if opening:
+        art = ImageOps.colorize(S._diag(W, H, flip=True), (168, 172, 180), (252, 252, 255), mid=(214, 218, 226))
+        art = ImageChops.multiply(art, ImageOps.colorize(_nz(W, H, 6, 6, 61, px), (232, 232, 234), (255, 255, 255)))
+    else:
+        art = ImageOps.colorize(S._diag(W, H, flip=True), (226, 226, 224), (252, 252, 250))
+        art = ImageChops.multiply(art, ImageOps.colorize(_nz(W, H, 0.7, 0.7, 62, px), (244, 244, 242), (255, 255, 255)))
+    rimimg = ImageOps.colorize(S._diag(W, H, flip=False), (122, 126, 134), (238, 240, 246), mid=(186, 190, 198))
+    art.paste(rimimg, (0, 0), ImageChops.subtract(mask, inner))
+    bevel = ImageChops.subtract(inner, inner.filter(ImageFilter.MinFilter(3)))
+    art.paste(Image.new("RGB", (W, H), (150, 152, 158)), (0, 0), bevel)
+    alpha = mask
+    if opening:
+        hole = Image.new("L", (W * ss, H * ss), 0)
+        hd = ImageDraw.Draw(hole)
+        u = min(fw, fh) * px * ss
+        cx, cy = W * ss / 2, H * ss / 2 + 0.03 * u
+        hd.rounded_rectangle([cx - 0.27 * u, cy - 0.12 * u, cx + 0.27 * u, cy + 0.17 * u], radius=0.07 * u, fill=255)
+        hd.pieslice([cx - 0.16 * u, cy - 0.27 * u, cx + 0.16 * u, cy + 0.05 * u], 180, 360, fill=255)
+        hole = hole.resize((W, H), Image.LANCZOS)
+        wall = ImageChops.subtract(hole.filter(ImageFilter.MaxFilter(2 * max(1, int(0.5 * px)) + 1)), hole)
+        art.paste(Image.new("RGB", (W, H), (98, 102, 110)), (0, 0), wall)
+        lit = ImageChops.subtract(ImageChops.offset(hole, int(0.7 * px), int(0.9 * px)), hole)
+        art.paste(Image.new("RGB", (W, H), (255, 255, 255)), (0, 0), ImageChops.multiply(lit, mask))
+        alpha = ImageChops.subtract(mask, hole)
     glint = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(glint).polygon([(0, H * 0.2), (W * 0.5, 0), (W * 0.7, 0), (0, H * 0.62)], fill=70)
+    ImageDraw.Draw(glint).polygon([(0, H * 0.2), (W * 0.5, 0), (W * 0.7, 0), (0, H * 0.62)], fill=60)
     art = Image.composite(Image.new("RGB", (W, H), (255, 255, 255)), art, glint.filter(ImageFilter.GaussianBlur(px * 2)))
-    alpha = ImageChops.subtract(mask, hole)
     art.putalpha(alpha)
-    return art, (W / 2, H / 2)
+    return art
 
 
-def unit(kind, face, shape, fw, fh):
-    """The finished object for one pin in the environment's style: (RGBA, anchor)."""
-    base = S.pin_sprite(face, shape, fw, fh)
+def unit(kind, face, shape, fw, fh, back=False):
+    """The finished object for one pin in the environment's style: (RGBA, anchor). ``back`` is
+    the reverse of the pin (bottle openers and keychains show both sides)."""
+    if back:
+        base = back_disc(shape, fw, fh, opening=(kind == "opener"))
+    else:
+        base = S.pin_sprite(face, shape, fw, fh)
     if kind == "keychain":
-        return keychain_unit(base, fw, fh)
-    if kind == "opener":
-        return opener_front(base, fw, fh)
+        return keychain_hardware(base, fw, fh)
     return base, (base.width / 2, base.height / 2)
 
 
@@ -926,31 +1021,35 @@ def ruler_strip(img, px, mm_len=100, at=None):
 
 
 # ---- the pictures ------------------------------------------------------------------------
-def kind_of(env):
-    return KINDS[env]
+def _shadows(env, kind):
+    return (STUDIO_SHADOWS if env == "studio" else SHADOWS)[kind]
 
 
-def bundle(env, faces, pin, ruler=False, return_spots=False):
-    """The bundle picture: all ``faces`` (one per pin, rendered at ``BUNDLE_PX``) in ``env``.
-    Returns (RGB image, scale) where scale < 1 means the pins were shrunk to fit. Bottle
-    openers get one extra object: the back of the first pin, with its opening."""
-    px, kind = BUNDLE_PX, KINDS[env]
+def _put(img, spr, x, y, ang, env, kind):
+    S._put(img, spr, x, y, ang, _shadows(env, kind), STUDIO_SHADOW_COL if env == "studio" else (28, 18, 10))
+
+
+def bundle(env, kind, faces, pin, ruler=False, long_px=SCREEN_PX, return_spots=False):
+    """The bundle picture: all ``faces`` (one per pin, rendered at ``long_px / W_MM`` px per mm)
+    in ``env``. Returns (RGB image, scale): scale < 1 means the pins were shrunk to fit.
+    Bottle openers and keychains get one extra object, the back of the first pin."""
+    px = long_px / W_MM
     with at_px(px):
-        img = backdrop(env, W_MM, len(faces) > 6).copy()
+        img = backdrop(env, W_MM, len(faces) > 6, long_px).copy()
         units = [unit(kind, f, pin["shape"], pin["fw"], pin["fh"]) for f in faces]
-        if kind == "opener":
-            units.append(back_unit(pin["shape"], pin["fw"], pin["fh"]))
+        if kind in BACK_KINDS:
+            units.append(unit(kind, None, pin["shape"], pin["fw"], pin["fh"], back=True))
         foot = (max(u[0].width for u in units) / px, max(u[0].height for u in units) / px)
-        stage = list(STAGE[env])
+        stage = list(stage_for(env))
         if ruler:
             stage[3] = min(stage[3], H_MM - 30)
         spots, s = layout(len(units), stage, foot, TURN[kind])
         # the pin's middle sits where the footprint's middle should be
         for (spr, anchor), (x, y, ang) in zip(units, spots):
             off = (anchor[1] - spr.height / 2) * s
-            S._put(img, _centred(_scaled(spr, s), (anchor[0] * s, anchor[1] * s)), x * px,
-                   y * px + off, ang, SHADOWS[kind])
-        img = S._grainy(img, 4, 91)
+            _put(img, _centred(_scaled(spr, s), (anchor[0] * s, anchor[1] * s)), x * px, y * px + off, ang,
+                 env, kind)
+        img = S._grainy(img, 3, 91)
         if ruler:
             ruler_strip(img, px)
     if return_spots:
@@ -962,34 +1061,33 @@ def window_mm(pin, kind):
     """Width (mm) of the close-up window: the pin (with its hardware) fills about 60% of the
     height, in steps of 10 mm."""
     fw, fh = pin["fw"], pin["fh"]
-    extra = {"keychain": 52, "opener": 22}.get(kind, 0)
+    extra = {"keychain": 52, "opener": 0}.get(kind, 0)
     need = max(fw / 0.42, (fh + extra) * 1.5 / 0.6)
-    if kind == "opener":
+    if kind in BACK_KINDS:
         need = max(need, fw * 2.4 / 0.66)
     return int(min(W_MM / 2, max(90, math.ceil(need / 10) * 10)))
 
 
-def close_up(env, face, pin, px, w_mm, ruler=False):
-    """One pin, large, in a tighter window. ``face`` is rendered at ``px`` = LONG_PX / w_mm.
-    A bottle opener is shown front and back, side by side."""
-    kind = KINDS[env]
+def close_up(env, kind, face, pin, w_mm, ruler=False, long_px=SCREEN_PX):
+    """One pin, large, in a tighter window. ``face`` is rendered at ``long_px / w_mm`` px per mm.
+    Bottle openers and keychains are shown front and back, side by side."""
+    px = long_px / w_mm
     with at_px(px):
-        img = backdrop(env, w_mm, False).copy()
+        img = backdrop(env, w_mm, False, long_px).copy()
         units = [unit(kind, face, pin["shape"], pin["fw"], pin["fh"])]
-        if kind == "opener":
-            units.append(back_unit(pin["shape"], pin["fw"], pin["fh"]))
+        if kind in BACK_KINDS:
+            units.append(unit(kind, None, pin["shape"], pin["fw"], pin["fh"], back=True))
         h_mm = w_mm * 2 / 3
         spr = units[0][0]
         n = len(units)
         s = min(1.0, (h_mm * 0.82) / (spr.height / px), (w_mm * 0.7) / (n * spr.width / px))
-        ang = {"keychain": -10, "opener": 6, "fabric": 3, "magnet": 4, "flat": 6}[kind]
+        ang = {"keychain": -6, "opener": 6, "fabric": 3, "magnet": 4, "flat": 6}[kind]
         for i, (spr, anchor) in enumerate(units):
             off = (anchor[1] - spr.height / 2) * s
-            x = img.width / 2 + (i - (n - 1) / 2) * pin["fw"] * 1.22 * px * s
-            S._put(img, _centred(_scaled(spr, s), (anchor[0] * s, anchor[1] * s)), x,
-                   img.height * (0.45 if ruler else 0.5) + off, ang * (1 if i == 0 else -0.6),
-                   SHADOWS[kind])
-        img = S._grainy(img, 4, 92)
+            x = img.width / 2 + (i - (n - 1) / 2) * max(pin["fw"], 26) * 1.3 * px * s
+            _put(img, _centred(_scaled(spr, s), (anchor[0] * s, anchor[1] * s)), x,
+                 img.height * (0.45 if ruler else 0.5) + off, ang * (1 if i == 0 else -0.6), env, kind)
+        img = S._grainy(img, 3, 92)
         if ruler:
             ruler_strip(img, px, 100 if w_mm >= 150 else 50)
     return img, s

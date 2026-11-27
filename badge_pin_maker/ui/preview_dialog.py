@@ -1,28 +1,30 @@
-"""The preview studio: show finished pins as a customer would see them, ready for a shop listing.
+"""The shop pictures window: the bundle and a close-up of every pin, ready to save or print.
 
-Pick an environment (modern desk, school desk, backpack, fridge magnets, keychains on a coffee
-table, bottle openers on a party table), tick up to ten pins, and get a bundle picture with all
-of them plus a close-up of each one. Every picture can be saved or printed on its own, or all
-together. Pins are drawn at their real size; they shrink only when ten big ones would not fit
-(and the caption then says so).
+It opens straight onto a loading screen while the whole set is prepared (the scene, then one
+close-up per pin), so afterwards flicking between pictures is instant. The pictures are drawn
+in a background thread so the window never freezes; saving and printing re-draw at full size the
+same way. The product type and pins are chosen on the setup screen (``PreviewSetup``); here the
+scene can still be switched, a caption added, and a ruler or real-size view turned on.
 
-``PreviewDialog(parent, pool, selected, pin)``: ``pool`` is [(label, Art)] (every pin that could
-be shown), ``selected`` the indexes into it that start ticked, ``pin`` the sheet's parameters.
+``PreviewDialog(parent, pool, sel, pin, type_, env, title)``: ``pool`` is [(label, Art)] for the
+pins on the sheet, ``sel`` the indexes in use, ``pin`` the sheet's parameters.
 """
 
 import io
 import os
+import queue
 import re
 import tempfile
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
-from .. import envs, ring as ring_mod
+from .. import envs
 from ..imaging import render_art
 from ..system_actions import print_pdf, reveal_folder
-from . import smooth, theme as T
+from . import theme as T
 from .buttons import Btn
 from .widgets import Dropdown
 
@@ -34,51 +36,103 @@ def _slug(text):
     return re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-").lower() or "pins"
 
 
+class _Loading(tk.Frame):
+    """A loading screen laid over the picture: a spinner, a title, a status line and a bar."""
+
+    def __init__(self, parent):
+        super().__init__(parent, bg=T.BG)
+        box = tk.Frame(self, bg=T.BG)
+        box.place(relx=0.5, rely=0.46, anchor="center")
+        self.spin = tk.Canvas(box, width=64, height=64, bg=T.BG, highlightthickness=0)
+        self.spin.pack()
+        self.title = tk.Label(box, bg=T.BG, fg=T.TEXT, font=("TkDefaultFont", 14, "bold"))
+        self.title.pack(pady=(12, 2))
+        self.status = tk.Label(box, bg=T.BG, fg=T.MUTED)
+        self.status.pack()
+        self.bar = tk.Canvas(box, width=360, height=12, bg=T.BG, highlightthickness=0)
+        self.bar.pack(pady=(14, 0))
+        self._angle, self._job, self._frac = 0, None, 0.0
+
+    def start(self, title, status=""):
+        self.title.configure(text=title)
+        self.status.configure(text=status)
+        self.set(0.0)
+        self.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.lift()
+        if self._job is None:
+            self._tick()
+
+    def set(self, frac, status=None):
+        self._frac = max(0.0, min(1.0, frac))
+        if status is not None:
+            self.status.configure(text=status)
+        self.bar.delete("all")
+        self.bar.create_line(6, 6, 354, 6, width=8, capstyle="round", fill=T.BORDER)
+        if self._frac > 0.01:
+            self.bar.create_line(6, 6, 6 + 348 * self._frac, 6, width=8, capstyle="round", fill=T.TEAL)
+
+    def stop(self):
+        if self._job is not None:
+            self.after_cancel(self._job)
+            self._job = None
+        self.place_forget()
+
+    def _tick(self):
+        self._angle = (self._angle + 14) % 360
+        self.spin.delete("all")
+        self.spin.create_oval(8, 8, 56, 56, outline=T.BORDER, width=5)
+        self.spin.create_arc(8, 8, 56, 56, start=self._angle, extent=100, style="arc", outline=T.TEAL, width=5)
+        self._job = self.after(40, self._tick)
+
+
 class PreviewDialog(tk.Toplevel):
-    def __init__(self, parent, pool, selected, pin, title=""):
+    def __init__(self, parent, pool, sel, pin, type_="pin", env=None, title=""):
         super().__init__(parent)
-        self.title("Preview")
+        self.title("Shop pictures")
         self.configure(bg=T.BG)
         self.transient(parent)
-        self.pool, self.pin = list(pool), pin
-        self.sel = sorted(set(i for i in selected if 0 <= i < len(self.pool)))[:envs.MAX_PINS] \
-            or [0]
-        self.view = "bundle"                       # "bundle" or the index within self.sel
+        self.parent, self.pool, self.pin, self.type = parent, list(pool), pin, type_
+        self.sel = list(sel)[:envs.MAX_PINS] or [0]
+        self.env = env if env in envs.BY_TYPE[type_] else envs.BY_TYPE[type_][0]
+        self.view = "bundle"
         self.ruler = self.details = self.real = False
-        self.labels = {lab: key for key, lab, _ in envs.ENVS}
-        self.v_env = tk.StringVar(value=envs.LABELS["desk"])
+        self.labels = {envs.LABELS[k]: k for k in envs.BY_TYPE[type_]}
+        self.v_env = tk.StringVar(value=envs.LABELS[self.env])
         self.v_title = tk.StringVar(value=title)
         self.v_size = tk.IntVar(value=2400)
-        self._faces, self._bases, self._thumbs, self._pool_imgs = {}, {}, {}, []
-        self._shown, self._job, self._tjob, self._gen = None, None, None, 0
-        self._strip_imgs = []
+        self._faces, self._set, self._thumbs = {}, {}, {}
+        self._shown, self._job, self._busy, self._again = None, None, False, False
+        self._strip_imgs, self._scale = [], 1.0
 
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        w, h = min(1380, int(sw * 0.92)), min(940, int(sh * 0.92))
+        w, h = min(1320, int(sw * 0.92)), min(900, int(sh * 0.92))
         self.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 3)}")
-        self.minsize(900, 600)
+        self.minsize(860, 560)
 
-        # ---- top bar: environment, title, then the tools --------------------------------
+        # ---- top bar -----------------------------------------------------------------------
         bar = tk.Frame(self, bg=T.BG)
-        bar.pack(side="top", fill="x", padx=20, pady=(16, 10))
-        self.dd = Dropdown(bar, self.v_env, [lab for _, lab, _ in envs.ENVS], width=300,
-                           icon="shapes", outer=T.BG, align="left")
-        self.dd.pack(side="left")
-        self.ent = ttk.Entry(bar, textvariable=self.v_title, width=24)
-        self.ent.pack(side="left", padx=(14, 0), ipady=5)
-        tk.Label(bar, text="caption title", bg=T.BG, fg=T.MUTED).pack(side="left", padx=(6, 0))
+        bar.pack(side="top", fill="x", padx=20, pady=(16, 6))
+        tk.Label(bar, text=envs.TYPE_LABEL[type_], bg=T.TEAL, fg="white", padx=12, pady=5,
+                 font=("TkDefaultFont", 10, "bold")).pack(side="left")
+        self.dd = Dropdown(bar, self.v_env, list(self.labels), width=250, icon="shapes", outer=T.BG, align="left")
+        self.dd.pack(side="left", padx=(10, 0))
+        Btn(bar, "Change…", self._change_setup, kind="ghost", bg=T.BG).pack(side="left", padx=(10, 0))
         right = tk.Frame(bar, bg=T.BG)
         right.pack(side="right")
-        self.b_details = Btn(right, "Details", self._toggle_details, kind="ghost", bg=T.BG)
+        self.b_details = Btn(right, "Caption", self._toggle_details, kind="ghost", bg=T.BG)
         self.b_ruler = Btn(right, "Ruler", self._toggle_ruler, kind="ghost", bg=T.BG)
         self.b_real = Btn(right, "Real size", self._toggle_real, kind="ghost", bg=T.BG, icon="fit")
-        self.b_save = Btn(right, "Save", lambda: self._menu(self.b_save, self.m_save), bg=T.BG,
-                          icon="image")
-        self.b_print = Btn(right, "Print", lambda: self._menu(self.b_print, self.m_print),
-                           bg=T.BG)
+        self.b_save = Btn(right, "Save", lambda: self._menu(self.b_save, self.m_save), bg=T.BG, icon="image")
+        self.b_print = Btn(right, "Print", lambda: self._menu(self.b_print, self.m_print), bg=T.BG)
         for b in (self.b_details, self.b_ruler, self.b_real, self.b_save, self.b_print):
             b.pack(side="left", padx=3)
         Btn(right, "Close", self.destroy, kind="accent", bg=T.BG).pack(side="left", padx=(6, 0))
+
+        row2 = tk.Frame(self, bg=T.BG)
+        row2.pack(side="top", fill="x", padx=20, pady=(0, 8))
+        tk.Label(row2, text="Caption title", bg=T.BG, fg=T.MUTED).pack(side="left")
+        ttk.Entry(row2, textvariable=self.v_title, width=34).pack(side="left", padx=8, ipady=3)
+        tk.Label(row2, text="(shown under the picture when Caption is on)", bg=T.BG, fg=T.MUTED).pack(side="left")
 
         self.m_save = tk.Menu(self, tearoff=0)
         self.m_save.add_command(label="This picture…", command=lambda: self._save(False))
@@ -90,80 +144,40 @@ class PreviewDialog(tk.Toplevel):
         self.m_print.add_command(label="This picture", command=lambda: self._print(False))
         self.m_print.add_command(label="All pictures (one per page)", command=lambda: self._print(True))
 
-        # ---- bottom: a caption ------------------------------------------------------------
-        self.info = tk.Label(self, bg=T.BG, fg=T.MUTED, font=("TkDefaultFont", 9), anchor="w",
-                             justify="left")
+        self.info = tk.Label(self, bg=T.BG, fg=T.MUTED, anchor="w", justify="left")
         self.info.pack(side="bottom", fill="x", padx=22, pady=(4, 12))
 
-        # ---- left: the pins ------------------------------------------------------------------
-        left = tk.Frame(self, bg=T.BG, width=250)
-        left.pack(side="left", fill="y", padx=(20, 0), pady=(0, 6))
-        left.pack_propagate(False)
-        head = tk.Frame(left, bg=T.BG)
-        head.pack(fill="x", pady=(0, 6))
-        tk.Label(head, text="Pins in the picture", bg=T.BG, fg=T.TEXT,
-                 font=("TkDefaultFont", 10, "bold")).pack(side="left")
-        self.count = tk.Label(head, bg=T.BG, fg=T.MUTED)
-        self.count.pack(side="right")
-        tools = tk.Frame(left, bg=T.BG)
-        tools.pack(fill="x", pady=(0, 6))
-        Btn(tools, "Select all", self._all, kind="ghost", bg=T.BG, height=30).pack(side="left")
-        Btn(tools, "Only first", self._first, kind="ghost", bg=T.BG, height=30).pack(side="left", padx=6)
-        self.note = tk.Label(left, bg=T.BG, fg=T.MUTED, font=("TkDefaultFont", 9), anchor="w",
-                             wraplength=240, justify="left")
-        self.note.pack(side="bottom", fill="x", pady=(6, 0))
-        box = tk.Frame(left, bg=T.BORDER)
-        box.pack(fill="both", expand=True)
-        self.pcv = tk.Canvas(box, bg=T.CARD, highlightthickness=0, bd=0)
-        self.pcv.pack(fill="both", expand=True, padx=1, pady=1)
-        self.rows_f = tk.Frame(self.pcv, bg=T.CARD)
-        self._rows_id = self.pcv.create_window(0, 0, window=self.rows_f, anchor="nw")
-        self.pcv.bind("<Configure>", lambda e: self.pcv.itemconfigure(self._rows_id, width=e.width))
-        self.rows_f.bind("<Configure>", lambda e: self.pcv.configure(scrollregion=self.pcv.bbox("all")))
-        self.pcv.bind("<MouseWheel>", lambda e: self.pcv.yview_scroll(-1 if e.delta > 0 else 1, "units"))
-        self.pcv.bind("<Button-4>", lambda e: self.pcv.yview_scroll(-1, "units"))
-        self.pcv.bind("<Button-5>", lambda e: self.pcv.yview_scroll(1, "units"))
-        self.rows = []
-
-        # ---- centre: the picture and the film strip --------------------------------------
         mid = tk.Frame(self, bg=T.BG)
-        mid.pack(side="left", fill="both", expand=True, padx=(16, 20))
+        mid.pack(side="top", fill="both", expand=True, padx=20)
         self.strip = tk.Canvas(mid, bg=T.BG, height=THUMB[1] + 28, highlightthickness=0)
         self.strip.pack(side="bottom", fill="x", pady=(8, 0))
-        self.cv = tk.Canvas(mid, bg=T.BG, highlightthickness=0)
-        self.cv.pack(side="top", fill="both", expand=True)
+        stage = tk.Frame(mid, bg=T.BG)
+        stage.pack(side="top", fill="both", expand=True)
+        self.cv = tk.Canvas(stage, bg=T.BG, highlightthickness=0)
+        self.cv.pack(fill="both", expand=True)
         self.cv.bind("<Configure>", lambda e: self._soon())
+        self.loading = _Loading(stage)
         self.strip.bind("<MouseWheel>", lambda e: self.strip.xview_scroll(-1 if e.delta > 0 else 1, "units"))
         self.strip.bind("<Button-4>", lambda e: self.strip.xview_scroll(-1, "units"))
         self.strip.bind("<Button-5>", lambda e: self.strip.xview_scroll(1, "units"))
 
         self.bind("<Escape>", lambda e: self.destroy())
-        for i, (key, _, _) in enumerate(envs.ENVS):
-            self.bind(str(i + 1), self._typed(lambda k=key: self._pick_env(k)))
         self.bind("<Left>", self._typed(lambda: self._step(-1)))
         self.bind("<Right>", self._typed(lambda: self._step(1)))
-        self.bind("r", self._typed(self._toggle_ruler))
-        self.v_env.trace_add("write", lambda *_: self._changed())
+        self.v_env.trace_add("write", lambda *_: self._env_changed())
         self.v_title.trace_add("write", lambda *_: self._soon(250))
-
-        self._build_rows()
-        self._sync_rows()
-        self.cv.create_text(20, 20, text="Setting the scene…", anchor="nw", fill=T.MUTED,
-                            font=("TkDefaultFont", 11), tags="wait")
-        self._soon(60)
+        self.after(80, self._prepare)
         self.focus_set()
 
     # ---- helpers ---------------------------------------------------------------------------
     @property
-    def env(self):
-        return self.labels[self.v_env.get()]
+    def kind(self):
+        return envs.kind_for(self.type, self.env)
 
     def _typed(self, fn):
-        """A key binding that does nothing while a text box has the keyboard."""
         def run(e):
-            if isinstance(self.focus_get(), (ttk.Entry, tk.Entry)):
-                return
-            fn()
+            if not isinstance(self.focus_get(), (ttk.Entry, tk.Entry)):
+                fn()
         return run
 
     def _menu(self, btn, menu):
@@ -174,158 +188,124 @@ class PreviewDialog(tk.Toplevel):
         txt = f"{fw:g} mm" if abs(fw - fh) < 0.05 else f"{fw:g} × {fh:g} mm"
         return f"{txt} {self.pin['shape'].lower()}"
 
-    # ---- the pin list -----------------------------------------------------------------------
-    def _chip(self, art, size=52):
-        """A small picture of the pin for the list."""
-        p = self.pin
-        k = size / max(p["fw"], p["fh"])
-        try:
-            face = render_art(art, p["w"], k, h_mm=p["h"], face=(p["shape"], p["fw"], p["fh"]))
-            W, H = max(8, int(p["fw"] * k)), max(8, int(p["fh"] * k))
-            base = Image.new("RGB", (W, H), (255, 255, 255))
-            base.paste(face.convert("RGB"), (W // 2 - face.width // 2, H // 2 - face.height // 2))
-            m = ring_mod.mask(p["shape"], p["fw"], p["fh"], 0, (W, H), k, k, W / 2, H / 2, 3)
-            out = Image.new("RGB", (size, size), T.CARD)
-            out.paste(base, ((size - W) // 2, (size - H) // 2), m)
-            return ImageTk.PhotoImage(out)
-        except Exception:
-            return ImageTk.PhotoImage(Image.new("RGB", (size, size), T.CARD))
-
-    def _build_rows(self):
-        for i, (label, art) in enumerate(self.pool):
-            img = self._chip(art)
-            self._pool_imgs.append(img)
-            row = tk.Frame(self.rows_f, bg=T.CARD, highlightthickness=2,
-                           highlightbackground=T.CARD, cursor="hand2")
-            row.pack(fill="x", padx=6, pady=(6 if i == 0 else 2, 2))
-            pic = tk.Label(row, image=img, bg=T.CARD, bd=0)
-            pic.pack(side="left", padx=(6, 8), pady=4)
-            tick = tk.Label(row, bg=T.CARD, bd=0)
-            tick.pack(side="right", padx=8)
-            txt = tk.Label(row, text=label, bg=T.CARD, fg=T.TEXT, anchor="w")
-            txt.pack(side="left", fill="x", expand=True)
-            for w in (row, pic, txt, tick):
-                w.bind("<Button-1>", lambda e, i=i: self._toggle(i))
-                w.bind("<MouseWheel>", lambda e: self.pcv.yview_scroll(-1 if e.delta > 0 else 1, "units"))
-                w.bind("<Button-4>", lambda e: self.pcv.yview_scroll(-1, "units"))
-                w.bind("<Button-5>", lambda e: self.pcv.yview_scroll(1, "units"))
-            self.rows.append((row, tick))
-        self._ticks = (smooth.nav_icon("check", T.TEAL, T.CARD, 18),
-                       smooth.nav_icon("check", T.CARD, T.CARD, 18))
-
-    def _sync_rows(self):
-        for i, (row, tick) in enumerate(self.rows):
-            on = i in self.sel
-            row.configure(highlightbackground=T.TEAL if on else T.CARD)
-            tick.configure(image=self._ticks[0 if on else 1])
-        self.count.configure(text=f"{len(self.sel)} of {envs.MAX_PINS}")
-
-    def _flash(self, text):
-        self.note.configure(text=text)
-        self.after(3200, lambda: self.note.winfo_exists() and self.note.configure(text=""))
-
-    def _toggle(self, i):
-        if i in self.sel:
-            if len(self.sel) == 1:
-                return self._flash("Keep at least one pin in the picture.")
-            self.sel.remove(i)
-        else:
-            if len(self.sel) >= envs.MAX_PINS:
-                return self._flash(f"A picture holds up to {envs.MAX_PINS} pins. "
-                                   "Untick one to add another.")
-            self.sel = sorted(self.sel + [i])
-        self._selection_changed()
-
-    def _all(self):
-        self.sel = list(range(min(len(self.pool), envs.MAX_PINS)))
-        if len(self.pool) > envs.MAX_PINS:
-            self._flash(f"The first {envs.MAX_PINS} are ticked: that is the most one picture holds.")
-        self._selection_changed()
-
-    def _first(self):
-        self.sel = [self.sel[0]]
-        self._selection_changed()
-
-    def _selection_changed(self):
-        if self.view != "bundle" and self.view >= len(self.sel):
-            self.view = "bundle"
-        self._sync_rows()
-        self._changed()
-
-    def _changed(self):
-        """Something that changes the pictures themselves: start over."""
-        self._gen += 1
-        self._bases.clear()
-        self._soon(30)
-
-    # ---- the pictures ---------------------------------------------------------------------
-    def _face(self, i, px):
-        key = (i, round(px, 3))
-        if key not in self._faces:
-            if len(self._faces) > 24:
-                self._faces.clear()
-            p = self.pin
-            self._faces[key] = render_art(self.pool[i][1], p["w"], px, h_mm=p["h"],
-                                          face=(p["shape"], p["fw"], p["fh"]))
-        return self._faces[key]
-
-    def _window(self):
-        return envs.window_mm(self.pin, envs.KINDS[self.env])
-
-    def _base(self, view):
-        """The picture for ``view`` with no caption: (image, scale)."""
-        key = (self.env, tuple(self.sel), self.ruler, view)
-        if key not in self._bases:
-            if len(self._bases) > 4:
-                self._bases.pop(next(iter(self._bases)))
-            if view == "bundle":
-                faces = [self._face(i, envs.BUNDLE_PX) for i in self.sel]
-                self._bases[key] = envs.bundle(self.env, faces, self.pin, self.ruler)
-            else:
-                w = self._window()
-                px = envs.LONG_PX / w
-                self._bases[key] = envs.close_up(self.env, self._face(self.sel[view], px), self.pin,
-                                                 px, w, self.ruler)
-        return self._bases[key]
-
-    def _caption_lines(self, view, scale):
-        n = len(self.sel)
-        if view == "bundle":
-            lines = [f"{n} {envs.NOUN[envs.KINDS[self.env]]}" if n > 1 else
-                     f"1 {envs.NOUN[envs.KINDS[self.env]]}".rstrip("s"), self._size_txt()]
-        else:
-            lines = [self.pool[self.sel[view]][0], self._size_txt()]
-        if scale < 0.995:
-            lines.append(f"shown at {round(scale * 100)}% size")
-        else:
-            lines.append("true to size")
-        return lines
-
-    def _final(self, view):
-        """The picture as saved / printed: with the caption band when Details is on."""
-        img, s = self._base(view)
-        if self.details:
-            img = envs.footer(img, self.v_title.get().strip(), self._caption_lines(view, s),
-                              img.width / envs.W_MM)
-        return img
-
     def _views(self):
         return ["bundle"] + list(range(len(self.sel)))
 
     def _vname(self, view):
         return "Bundle" if view == "bundle" else f"Pin {view + 1}"
 
-    # ---- showing it ---------------------------------------------------------------------
-    def _soon(self, ms=90):
+    def _fname(self, view):
+        return _slug(self.v_title.get() or "pins") + "-" + self.env + ("-bundle" if view == "bundle" else f"-pin{view + 1}")
+
+    # ---- drawing the pictures (these run in a worker thread) -------------------------------------
+    def _face(self, i, px):
+        key = (i, round(px, 3))
+        if key not in self._faces:
+            if len(self._faces) > 24:
+                self._faces.clear()
+            p = self.pin
+            self._faces[key] = render_art(self.pool[i][1], p["w"], px, h_mm=p["h"], face=(p["shape"], p["fw"], p["fh"]))
+        return self._faces[key]
+
+    def _render(self, views, env, ruler, long_px, step=None, first=0):
+        """Draw ``views`` ('bundle' and / or pin numbers) in ``env``: {view: (RGB image, scale)}."""
+        kind, out = envs.kind_for(self.type, env), {}
+        for n, view in enumerate(views):
+            if step:
+                step(first + n, "Setting the scene…" if view == "bundle" else f"Close-up {view + 1} of {len(self.sel)}…")
+            if view == "bundle":
+                px = long_px / envs.W_MM
+                out[view] = envs.bundle(env, kind, [self._face(i, px) for i in self.sel], self.pin, ruler, long_px)
+            else:
+                w = envs.window_mm(self.pin, kind)
+                out[view] = envs.close_up(env, kind, self._face(self.sel[view], long_px / w), self.pin, w, ruler, long_px)
+        return out
+
+    def _captioned(self, img, scale, view, ctx):
+        """The picture with its caption band, when the caption is on."""
+        if not ctx["details"]:
+            return img
+        n = len(self.sel)
+        noun = envs.NOUN[ctx["kind"]]
+        lines = [f"{n} {noun}" if (view == "bundle" and n > 1) else
+                 (f"1 {noun}".rstrip("s") if view == "bundle" else self.pool[self.sel[view]][0]), ctx["size"]]
+        lines.append("true to size" if scale >= 0.995 else f"shown at {round(scale * 100)}% size")
+        return envs.footer(img, ctx["title"], lines, img.width / envs.W_MM)
+
+    def _ctx(self):
+        return dict(details=self.details, title=self.v_title.get().strip(), kind=self.kind, size=self._size_txt())
+
+    # ---- running work with a loading screen ------------------------------------------------------
+    def _job_run(self, title, steps, work, done):
+        """Run ``work(step)`` in a thread behind the loading screen, then ``done(result)`` here."""
+        self._busy = True
+        self.loading.start(title, "Starting…")
+        q = queue.Queue()
+
+        def step(i, text):
+            q.put(("p", i, text))
+
+        def run():
+            try:
+                q.put(("d", work(step)))
+            except Exception as e:                       # shown to the person, not lost in the thread
+                q.put(("e", e))
+        threading.Thread(target=run, daemon=True).start()
+        self._poll(q, max(1, steps), done)
+
+    def _poll(self, q, steps, done):
+        if not self.winfo_exists():
+            return
+        end = None
+        try:
+            while True:
+                msg = q.get_nowait()
+                if msg[0] == "p":
+                    self.loading.set(msg[1] / steps, msg[2])
+                else:
+                    end = msg
+        except queue.Empty:
+            pass
+        if end is None:
+            self.after(50, self._poll, q, steps, done)
+            return
+        self._busy = False
+        self.loading.stop()
+        if end[0] == "e":
+            messagebox.showerror("Something went wrong", str(end[1]), parent=self)
+        else:
+            done(end[1])
+        if self._again:
+            self._again = False
+            self._prepare()
+
+    def _prepare(self):
+        """Draw the whole set for the current scene: the bundle, then each close-up."""
+        if self._busy:
+            self._again = True
+            return
+        env, ruler, n = self.env, self.ruler, len(self.sel)
+        self._job_run("Preparing your pictures", n + 1,
+                      lambda step: self._render(self._views(), env, ruler, envs.SCREEN_PX, step),
+                      lambda res: self._prepared(res))
+
+    def _prepared(self, res):
+        self._set = res
+        self._thumbs = {v: im.resize(THUMB, Image.LANCZOS) for v, (im, _s) in res.items()}
+        if self.view != "bundle" and self.view >= len(self.sel):
+            self.view = "bundle"
+        self._soon(0)
+
+    # ---- showing it -------------------------------------------------------------------------------
+    def _soon(self, ms=60):
         if self._job is not None:
             self.after_cancel(self._job)
         self._job = self.after(ms, self._show)
 
     def _screen_scale(self, img, cw, ch):
-        """(display scale, True when it is real size)."""
         fit = min(cw / img.width, ch / img.height)
         if self.real:
-            px = envs.BUNDLE_PX if self.view == "bundle" else envs.LONG_PX / self._window()
+            px = envs.SCREEN_PX / (envs.W_MM if self.view == "bundle" else envs.window_mm(self.pin, self.kind))
             true = self.winfo_fpixels("1m") / px
             if true * img.width <= cw and true * img.height <= ch:
                 return true, True
@@ -334,19 +314,10 @@ class PreviewDialog(tk.Toplevel):
     def _show(self):
         self._job = None
         cw, ch = self.cv.winfo_width(), self.cv.winfo_height()
-        if cw < 60 or ch < 60:
+        if cw < 60 or ch < 60 or self.view not in self._set:
             return
-        if (self.env, tuple(self.sel), self.ruler, self.view) not in self._bases:
-            self.config(cursor="watch")
-            self.cv.delete("all")
-            self.cv.create_text(cw // 2, ch // 2, text="Setting the scene…", fill=T.MUTED,
-                                font=("TkDefaultFont", 11))
-            self.update_idletasks()
-        try:
-            img = self._final(self.view)
-            scale = self._base(self.view)[1]
-        finally:
-            self.config(cursor="")
+        base, scale = self._set[self.view]
+        img = self._captioned(base, scale, self.view, self._ctx())
         k, real = self._screen_scale(img, cw, ch)
         size = (max(1, round(img.width * k)), max(1, round(img.height * k)))
         pic = img.resize(size, Image.LANCZOS)
@@ -357,37 +328,28 @@ class PreviewDialog(tk.Toplevel):
         self._shown = ImageTk.PhotoImage(pic)
         self.cv.delete("all")
         self.cv.create_image(cw // 2, ch // 2, image=self._shown)
-        kind = envs.KINDS[self.env]
-        what = (f"{len(self.sel)} {envs.NOUN[kind]} together" if self.view == "bundle"
-                else f"close-up of {self.pool[self.sel[self.view]][0]}")
+        n, noun = len(self.sel), envs.NOUN[self.kind]
+        what = (f"{n} {noun} together" if self.view == "bundle" else f"close-up of {self.pool[self.sel[self.view]][0]}")
+        if self.kind in envs.BACK_KINDS:
+            what += ", front and back" if self.view != "bundle" else " and a back view"
         scale_txt = ("true to size" if scale >= 0.995 else
-                     f"{len(self.sel)} large pins do not fit at real size, so they are shown at "
-                     f"{round(scale * 100)}%")
-        if self.real:
-            tip = ("Real size: 1 mm here is 1 mm on your screen." if real else
-                   "Real size needs a bigger window, so it is shown to fit.")
-        else:
-            tip = "Arrow keys switch pictures. 1-6 switch environments."
-        self.info.configure(text=f"{envs.LABELS[self.env]}  ·  {what}  ·  {self._size_txt()}, "
-                                 f"{scale_txt}\n{tip}")
-        for b, on in ((self.b_details, self.details), (self.b_ruler, self.ruler),
-                      (self.b_real, self.real)):
+                     f"shown at {round(scale * 100)}% so they all fit")
+        tip = (("Real size: 1 mm here is 1 mm on your screen." if real else
+                "Real size needs a bigger window, so it is shown to fit.") if self.real else
+               "Arrow keys switch pictures.")
+        self.info.configure(text=f"{envs.LABELS[self.env]}  ·  {what}  ·  {self._size_txt()}, {scale_txt}\n{tip}")
+        for b, on in ((self.b_details, self.details), (self.b_ruler, self.ruler), (self.b_real, self.real)):
             b.configure(kind="accent" if on else "ghost")
         self._draw_strip()
-        self._start_thumbs()
-
-    # ---- the film strip ---------------------------------------------------------------------
-    def _tkey(self, view):
-        return (self.env, tuple(self.sel), self.ruler, view)
 
     def _draw_strip(self):
         self.strip.delete("all")
         self._strip_imgs = []
         x = 4
+        w, h = THUMB
         for view in self._views():
-            t = self._thumbs.get(self._tkey(view))
+            t = self._thumbs.get(view)
             on = view == self.view
-            w, h = THUMB
             rim = Image.new("RGB", (w + 8, h + 8), T.BG)
             d = ImageDraw.Draw(rim)
             if on:
@@ -396,41 +358,19 @@ class PreviewDialog(tk.Toplevel):
                 m = Image.new("L", (w * 3, h * 3), 0)
                 ImageDraw.Draw(m).rounded_rectangle([0, 0, w * 3 - 1, h * 3 - 1], radius=24, fill=255)
                 rim.paste(t, (4, 4), m.resize((w, h), Image.LANCZOS))
-            else:
-                d.rounded_rectangle([4, 4, w + 3, h + 3], radius=8, fill=T.SAND)
             tk_img = ImageTk.PhotoImage(rim)
             self._strip_imgs.append(tk_img)
-            item = self.strip.create_image(x, 0, image=tk_img, anchor="nw", tags=("t",))
-            lab = self.strip.create_text(x + (w + 8) // 2, h + 18, text=self._vname(view),
-                                         fill=T.TEXT if on else T.MUTED,
+            item = self.strip.create_image(x, 0, image=tk_img, anchor="nw")
+            lab = self.strip.create_text(x + (w + 8) // 2, h + 18, text=self._vname(view), fill=T.TEXT if on else T.MUTED,
                                          font=("TkDefaultFont", 9, "bold" if on else "normal"))
             for it in (item, lab):
                 self.strip.tag_bind(it, "<Button-1>", lambda e, v=view: self._go(v))
-                self.strip.configure(cursor="hand2")
             x += w + 16
-        self.strip.configure(scrollregion=(0, 0, x, THUMB[1] + 28))
-
-    def _start_thumbs(self):
-        if self._tjob is not None:
-            self.after_cancel(self._tjob)
-        self._tjob = self.after(60, self._next_thumb, self._gen)
-
-    def _next_thumb(self, gen):
-        """Make the missing film-strip pictures one at a time, so the window stays usable."""
-        self._tjob = None
-        if gen != self._gen or not self.winfo_exists():
-            return
-        for view in self._views():
-            key = self._tkey(view)
-            if key in self._thumbs:
-                continue
-            img = self._base(view)[0]
-            self._thumbs[key] = img.resize(THUMB, Image.LANCZOS)
-            self._draw_strip()
-            self._tjob = self.after(50, self._next_thumb, gen)
-            return
+        self.strip.configure(scrollregion=(0, 0, x, h + 28), cursor="hand2")
 
     def _go(self, view):
+        if self._busy:
+            return
         self.view = view
         self._soon(0)
 
@@ -438,9 +378,12 @@ class PreviewDialog(tk.Toplevel):
         views = self._views()
         self._go(views[(views.index(self.view) + d) % len(views)])
 
-    # ---- controls -------------------------------------------------------------------------
-    def _pick_env(self, key):
-        self.v_env.set(envs.LABELS[key])
+    # ---- controls ---------------------------------------------------------------------------------
+    def _env_changed(self):
+        key = self.labels.get(self.v_env.get())
+        if key and key != self.env:
+            self.env = key
+            self._prepare()
 
     def _toggle_details(self):
         self.details = not self.details
@@ -448,83 +391,87 @@ class PreviewDialog(tk.Toplevel):
 
     def _toggle_ruler(self):
         self.ruler = not self.ruler
-        self._gen += 1
+        self._prepare()
         self._soon(0)
 
     def _toggle_real(self):
         self.real = not self.real
         self._soon(0)
 
-    # ---- saving and printing ----------------------------------------------------------------
-    def _export(self, view):
-        img = self._final(view)
-        long_edge = self.v_size.get()
-        if img.width != long_edge:
-            img = img.resize((long_edge, round(img.height * long_edge / img.width)), Image.LANCZOS)
-        return img
+    def _change_setup(self):
+        from .preview_setup import PreviewSetup
+        parent, args = self.parent, (self.pool, list(self.sel), self.pin, self.type, self.env, self.v_title.get())
+        self.destroy()
+        PreviewSetup(parent, *args)
 
-    def _stem(self):
-        return _slug(self.v_title.get() or "pins") + "-" + self.env
-
-    def _fname(self, view):
-        return self._stem() + ("-bundle" if view == "bundle" else f"-pin{view + 1}")
+    # ---- saving and printing ----------------------------------------------------------------------
+    def _export_views(self, everything):
+        return self._views() if everything else [self.view]
 
     def _save(self, everything):
-        try:
-            if not everything:
-                path = filedialog.asksaveasfilename(
-                    parent=self, title="Save this picture", defaultextension=".png",
-                    initialfile=self._fname(self.view) + ".png",
-                    filetypes=[("PNG image", "*.png"), ("JPEG image", "*.jpg")])
-                if path:
-                    self._write(self._export(self.view), path)
-                return
-            folder = filedialog.askdirectory(parent=self, title="Save all pictures in…")
-            if not folder:
-                return
-            self.config(cursor="watch")
-            self.update_idletasks()
-            for view in self._views():
-                self._write(self._export(view), os.path.join(folder, self._fname(view) + ".png"))
-            self.config(cursor="")
-            self._flash(f"Saved {len(self._views())} pictures.")
-            reveal_folder(folder)
-        except OSError as e:
-            self.config(cursor="")
-            messagebox.showerror("Could not save", str(e), parent=self)
+        if self._busy:
+            return
+        views = self._export_views(everything)
+        if everything:
+            target = filedialog.askdirectory(parent=self, title="Save all pictures in…")
+        else:
+            target = filedialog.asksaveasfilename(
+                parent=self, title="Save this picture", defaultextension=".png", initialfile=self._fname(views[0]) + ".png",
+                filetypes=[("PNG image", "*.png"), ("JPEG image", "*.jpg")])
+        if not target:
+            return
+        env, ruler, long_px, ctx = self.env, self.ruler, self.v_size.get(), self._ctx()
+        names = {v: self._fname(v) + ".png" for v in views}
 
-    @staticmethod
-    def _write(img, path):
-        img.save(path, quality=95)
+        def work(step):
+            done = self._render(views, env, ruler, long_px,
+                                lambda i, t: step(i, f"Drawing at {long_px} px: {t}"))
+            paths = []
+            for n, v in enumerate(views):
+                img, s = done[v]
+                step(len(views) + n, "Saving…")
+                path = os.path.join(target, names[v]) if everything else target
+                self._captioned(img, s, v, ctx).save(path, quality=95)
+                paths.append(path)
+            return paths
+
+        def finished(paths):
+            self.info.configure(text=f"Saved {len(paths)} picture{'s' if len(paths) != 1 else ''}.")
+            if everything:
+                reveal_folder(target)
+
+        self._job_run("Saving full-size pictures", 2 * len(views), work, finished)
 
     def _print(self, everything):
         """One picture per landscape A4 page, through the system's printing."""
-        from reportlab.lib.pagesizes import A4, landscape
-        from reportlab.lib.utils import ImageReader
-        from reportlab.pdfgen import canvas
-        views = self._views() if everything else [self.view]
-        fd, path = tempfile.mkstemp(suffix=".pdf", prefix="pin-preview-")
-        os.close(fd)
-        try:
-            self.config(cursor="watch")
-            self.update_idletasks()
+        if self._busy:
+            return
+        views = self._export_views(everything)
+        env, ruler, ctx = self.env, self.ruler, self._ctx()
+
+        def work(step):
+            from reportlab.lib.pagesizes import A4, landscape
+            from reportlab.lib.utils import ImageReader
+            from reportlab.pdfgen import canvas
+            done = self._render(views, env, ruler, 2000, lambda i, t: step(i, t))
+            fd, path = tempfile.mkstemp(suffix=".pdf", prefix="pin-pictures-")
+            os.close(fd)
             pw, ph = landscape(A4)
-            c = canvas.Canvas(path, pagesize=(pw, ph))
-            m = 28
-            for view in views:
-                img = self._final(view).convert("RGB")
+            c, m = canvas.Canvas(path, pagesize=(pw, ph)), 28
+            for n, v in enumerate(views):
+                step(len(views) + n, "Making the pages…")
+                img = self._captioned(done[v][0], done[v][1], v, ctx).convert("RGB")
                 k = min((pw - 2 * m) / img.width, (ph - 2 * m) / img.height)
-                w, h = img.width * k, img.height * k
                 buf = io.BytesIO()
-                img.resize((2000, round(2000 * img.height / img.width)), Image.LANCZOS).save(
-                    buf, "JPEG", quality=90)
+                img.save(buf, "JPEG", quality=90)
                 buf.seek(0)
-                c.drawImage(ImageReader(buf), (pw - w) / 2, (ph - h) / 2, w, h)
+                c.drawImage(ImageReader(buf), (pw - img.width * k) / 2, (ph - img.height * k) / 2, img.width * k, img.height * k)
                 c.showPage()
             c.save()
-            self.config(cursor="")
+            return path
+
+        def finished(path):
             print_pdf(path)
-            self._flash(f"Sent {len(views)} page{'s' if len(views) > 1 else ''} to the printer.")
-        except OSError as e:
-            self.config(cursor="")
-            messagebox.showerror("Could not print", str(e), parent=self)
+            self.info.configure(text=f"Sent {len(views)} page{'s' if len(views) != 1 else ''} to the printer.")
+
+        self._job_run("Preparing the pages", 2 * len(views), work, finished)

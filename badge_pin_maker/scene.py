@@ -74,7 +74,8 @@ def _font(size):
 
 
 # ---- placing a sprite with shadows -------------------------------------------------------
-def _put(canvas, spr, cx, cy, angle=0, shadows=((0.5, 0.8, 0.9, 0.5), (1.8, 2.8, 4.0, 0.32))):
+def _put(canvas, spr, cx, cy, angle=0, shadows=((0.5, 0.8, 0.9, 0.5), (1.8, 2.8, 4.0, 0.32)),
+         shadow_col=(28, 18, 10)):
     """Paste RGBA ``spr`` centred on (cx, cy) pixels, turned ``angle`` degrees anticlockwise,
     with soft shadows ``(dx mm, dy mm, blur mm, opacity)`` cast to the lower right."""
     if angle:
@@ -87,7 +88,7 @@ def _put(canvas, spr, cx, cy, angle=0, shadows=((0.5, 0.8, 0.9, 0.5), (1.8, 2.8,
         layer = Image.new("L", (w + 2 * pad, h + 2 * pad), 0)
         layer.paste(a, (pad, pad))
         layer = layer.filter(ImageFilter.GaussianBlur(blur * PX)).point(lambda v, op=op: int(v * op))
-        canvas.paste(Image.new("RGB", layer.size, (28, 18, 10)),
+        canvas.paste(Image.new("RGB", layer.size, shadow_col),
                      (x0 - pad + round(dx * PX), y0 - pad + round(dy * PX)), layer)
     canvas.paste(spr.convert("RGB"), (x0, y0), a)
 
