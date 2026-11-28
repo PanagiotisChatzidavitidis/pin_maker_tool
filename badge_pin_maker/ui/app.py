@@ -66,7 +66,7 @@ from .help_screen import HelpScreen
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
 from .size_guide import SizeGuide
-from .widgets import Dropdown, InfoButton, FlatSlider, IconButton, StatBar, Toggle, make_card, round_rect
+from .widgets import Dropdown, InfoButton, FlatSlider, IconButton, StatTile, Toggle, make_card, round_rect
 
 
 AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
@@ -817,8 +817,16 @@ class BadgeApp(RootBase):
             side="left", expand=True, fill="x", padx=(6, 0))
 
         # ---- right: stat tiles + sheet preview
-        self.stat_row = self.stats = StatBar(right, self.base_font[0])
-        self.stat_row.pack(fill="x")
+        hdr = self.stat_row = ttk.Frame(right)
+        hdr.pack(fill="x")
+        for c in range(3):
+            hdr.columnconfigure(c, weight=1, uniform="tiles")
+        ff = self.base_font[0]
+        self.t_sheet = StatTile(hdr, ff, "paper")
+        self.t_pins = StatTile(hdr, ff, "pins")
+        self.t_filled = StatTile(hdr, ff, "done", bar=True)
+        for c, tile in enumerate((self.t_sheet, self.t_pins, self.t_filled)):
+            tile.grid(row=0, column=c, sticky="nsew", padx=(0 if c == 0 else 8, 0))
 
         self._build_zoom_bar(right)
         self.cv = tk.Canvas(right, bg=T.BLUSH, highlightthickness=0)
@@ -1676,6 +1684,14 @@ class BadgeApp(RootBase):
         p = self.compute()
         L = self.layout
         W, H = L["page_w"], L["page_h"]
+        if self.select_mode:                     # undo / redo / removal may have emptied ticked spots
+            live = {i for i in self.checked if i in self.slots and i < len(L["points"])}
+            if live != self.checked:
+                self.checked = live
+            k = len(live)
+            self.sel_lbl.config(text=f"{k} pin{'s' if k != 1 else ''} ticked: click pins to tick them.")
+            self.btn_del_sel.text = f"Delete ({k})" if k else "Delete selected"
+            self.btn_del_sel._paint()
         cv = self.cv
         cv.delete("all")
         self.hover = None
@@ -2100,11 +2116,16 @@ class BadgeApp(RootBase):
         frame(1)
 
     def _update_stats(self, L, n, filled, low):
-        """Refresh the slim status line above the preview."""
+        """Refresh the three tiles above the preview."""
         W, H = L["page_w"], L["page_h"]
-        paper = f"{paper_short(self.v_paper.get())}  {W:g} × {H:g} mm" + (
-            "  Landscape" if L["orientation"] == "landscape" else "")
-        self.stats.set(paper, f"{n} pin{'s' if n != 1 else ''} per sheet", filled, n, low)
+        short = paper_short(self.v_paper.get())
+        self.t_sheet.set(short, f"{W:g} × {H:g} mm" + (" · Landscape" if L["orientation"] ==
+                                                          "landscape" else ""))
+        self.t_pins.set(str(n), f"pin{'s' if n != 1 else ''} per sheet")
+        pct = round(100 * filled / n) if n else 0
+        self.t_filled.set(f"{filled:02d}", f"{pct}% completed" + (f" · {low} low-res" if low
+                                                                  else ""),
+                          total=n, progress=filled / n if n else 0, warn=bool(low))
 
     def on_motion(self, e):
         """Highlight the circle under the mouse."""
