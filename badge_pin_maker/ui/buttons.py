@@ -114,6 +114,7 @@ class Btn(tk.Canvas):
         "soft": ("SAND", "SAND_HOVER", "SAND_PRESS", "TEXT", None),
         "accent": ("TEAL", "TEAL_HOVER", "TEAL_DARK", "ON_PRIMARY", None),
         "ghost": ("CARD", "HOVER", "SAND", "TEXT", "BORDER"),
+        "danger": ("CARD", "HOVER", "SAND", "ERR", "BORDER"),
     }
 
     def __init__(self, parent, text="", command=None, kind="soft", icon=None, width=None,
