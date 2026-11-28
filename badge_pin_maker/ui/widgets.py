@@ -86,6 +86,58 @@ class StatTile(tk.Frame):
             c.create_rectangle(0, 0, fw, self.BAR_H, fill=T.TEAL, outline="")
 
 
+class StatBar(tk.Frame):
+    """One slim line above the sheet: paper size, pins per sheet, how many are done (with a
+    thin progress bar) and a low-resolution warning when it applies.
+    """
+    BAR_W, BAR_H = 150, 6
+
+    def __init__(self, parent, font_family):
+        super().__init__(parent, bg=T.BORDER)
+        inner = tk.Frame(self, bg=T.CARD)
+        inner.pack(fill="both", expand=True, padx=1, pady=1)
+        row = tk.Frame(inner, bg=T.CARD)
+        row.pack(fill="x", padx=16, pady=9)
+        self._fam = font_family
+        self._frac = 0.0
+        self.paper = self._label(row, bold=True)
+        self._dot(row)
+        self.pins = self._label(row)
+        self._dot(row)
+        self.done = self._label(row, bold=True)
+        self.bar = tk.Canvas(row, width=self.BAR_W, height=self.BAR_H, bg=T.CARD,
+                             highlightthickness=0)
+        self.bar.pack(side="left", padx=(10, 0))
+        self.warn = tk.Label(row, bg=T.CARD, fg=T.WARN, font=(font_family, 9, "bold"))
+        self.warn.pack(side="right")
+
+    def _label(self, row, bold=False):
+        lbl = tk.Label(row, bg=T.CARD, fg=T.TEXT if bold else T.MUTED,
+                       font=(self._fam, 10, "bold" if bold else "normal"))
+        lbl.pack(side="left")
+        return lbl
+
+    def _dot(self, row):
+        tk.Label(row, text="·", bg=T.CARD, fg=T.MUTED, font=(self._fam, 12)).pack(
+            side="left", padx=10)
+
+    def set(self, paper, pins, filled, total, low=0):
+        """Show the paper line, the pins-per-sheet line and the progress."""
+        self.paper.config(text=paper)
+        self.pins.config(text=pins)
+        pct = round(100 * filled / total) if total else 0
+        self.done.config(text=f"{filled} / {total} done  ({pct}%)")
+        self.warn.config(text=f"!  {low} low-res" if low else "")
+        frac = filled / total if total else 0
+        self.bar.delete("all")
+        w, h = self.BAR_W, self.BAR_H
+        self.bar.create_line(h / 2, h / 2, w - h / 2, h / 2, width=h, capstyle="round",
+                             fill=T._mix(T.CARD, T.TEXT, 0.12))
+        if frac > 0.005:
+            self.bar.create_line(h / 2, h / 2, max(h / 2 + 1, w * frac - h / 2), h / 2, width=h,
+                                 capstyle="round", fill=T.TEAL)
+
+
 def round_rect(canvas, x0, y0, x1, y1, r, **kw):
     """Rounded rectangle on a canvas."""
     pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1,

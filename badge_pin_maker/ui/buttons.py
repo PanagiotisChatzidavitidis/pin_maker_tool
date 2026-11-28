@@ -99,6 +99,8 @@ def icon(name, colour, bg, size=ICON):
             smooth._oval(d, k, size * 0.66, size * 0.38, 1.9, colour)
             d.polygon([(4.5 * k, (size - 5.5) * k), (size * 0.4 * k, size * 0.5 * k),
                        (size * 0.58 * k, (size - 5.5) * k)], fill=colour)
+        elif name == "check":                 # a tick
+            smooth._line(d, k, [(3.5, m + 0.5), (m - 2, size - 5), (size - 3, 4.5)], colour, 2)
         elif name == "back":                  # an arrow pointing left
             smooth._line(d, k, [(size - 3, m), (3.5, m)], colour, 1.8)
             smooth._line(d, k, [(m - 1, 4), (3.5, m), (m - 1, size - 4)], colour, 1.8)

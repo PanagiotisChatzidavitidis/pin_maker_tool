@@ -86,7 +86,7 @@ EDITOR_STEPS = [
      "Press Delete while pointing at a pin to clear it.",
      lambda a: a.cv),
     ("Keep an eye on progress",
-     "These cards show your paper size, how many pins fit on one sheet and how many spots "
+     "This line shows your paper size, how many pins fit on one sheet and how many spots "
      "you've filled so far. The thin bar fills up as you go, and I'll warn you if a picture "
      "is too small and might print blurry.",
      lambda a: a.stat_row),
@@ -100,12 +100,12 @@ EDITOR_STEPS = [
      "safety copy while you work, but Save ({mod}+S) writes your canvas file for sure.",
      lambda a: [a.btn_undo, a.btn_redo, a.nav_row]),
     ("Ready to print?",
-     "Export PDF makes a file you can print anywhere, and Print sends the sheet straight to "
+     "Preview pins shows your pins as a picture for customers, Export PDF makes a file you can print anywhere, and Print sends the sheet straight to "
      "your printer.\n\nTip: print at 100% (\"Actual size\"), never \"Fit to page\", so the "
      "pins come out exactly the size you chose.",
      lambda a: a.export_row),
     ("Back to the menu",
-     "Back to menu takes you to all your canvases ({mod}+H). I'll ask first if there's "
+     "Menu takes you to all your canvases ({mod}+H). I'll ask first if there's "
      "something you haven't saved yet.",
      lambda a: a.btn_back),
     ("You did it!",
