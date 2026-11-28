@@ -298,8 +298,7 @@ class HomeScreen(tk.Frame):
         else:
             self.count_lbl.config(text=f"{total} {noun}")
         if not total:
-            self._empty_state("No canvases yet", "Create your first sheet and it will show up "
-                              "here.", button=True)
+            self._welcome()
         elif not items:
             self._empty_state("Nothing found", f"No canvas matches “{self.v_search.get().strip()}”.")
         else:
@@ -320,6 +319,45 @@ class HomeScreen(tk.Frame):
         """Pick a different greeting (called each time the menu is shown)."""
         others = [t for t in TAGLINES if t != self.tagline.cget("text")]
         self.tagline.config(text=random.choice(others))
+
+    def _welcome(self):
+        """The first-run page: a greeting and three big cards (new canvas, open one, tour)."""
+        box = tk.Frame(self.list, bg=T.BG)
+        box.pack(fill="x", pady=(40, 0))
+        self._empty_icon = load_logo(96)
+        tk.Label(box, image=self._empty_icon, bg=T.BG).pack()
+        tk.Label(box, text="Welcome! Let's make some pins", bg=T.BG, fg=T.PETROL,
+                 font=("Georgia", 20, "bold")).pack(pady=(14, 4))
+        tk.Label(box, text="Your canvases will show up here once you have made some.", bg=T.BG,
+                 fg=T.MUTED, font=(self._fam, 10)).pack()
+        row = tk.Frame(box, bg=T.BG)
+        row.pack(pady=(26, 0))
+        self._welcome_imgs = []
+        cards = (("page", "New canvas", "Start a fresh sheet and fill it with your pictures.",
+                  self.app.new_canvas),
+                 ("folder", "Open a canvas", "Pick up a sheet you saved earlier.",
+                  self.app.open_canvas),
+                 ("play", "Take the tour", "Ozzie shows you around in about a minute.",
+                  self.app.replay_guide))
+        for i, (icon, title, note, cmd) in enumerate(cards):
+            edge = tk.Frame(row, bg=T.BORDER, cursor="hand2")
+            edge.pack(side="left", padx=(0 if i == 0 else 16, 0))
+            card = tk.Frame(edge, bg=T.CARD, width=230, height=170, cursor="hand2")
+            card.pack(padx=1, pady=1)
+            card.pack_propagate(False)
+            img = smooth.nav_icon(icon, T.TEAL, T.CARD, 34)
+            self._welcome_imgs.append(img)
+            tk.Label(card, image=img, bg=T.CARD, bd=0).pack(pady=(22, 8))
+            tk.Label(card, text=title, bg=T.CARD, fg=T.TEXT,
+                     font=(self._fam, 12, "bold")).pack()
+            tk.Label(card, text=note, bg=T.CARD, fg=T.MUTED, font=(self._fam, 9),
+                     wraplength=190, justify="center").pack(pady=(4, 0))
+            def hover(on, e=edge):
+                e.configure(bg=T.TEAL if on else T.BORDER)
+            for w in (edge, card, *card.winfo_children()):
+                w.bind("<Button-1>", lambda e, c=cmd: c())
+                w.bind("<Enter>", lambda e, h=hover: h(True))
+                w.bind("<Leave>", lambda e, h=hover: h(False))
 
     def _empty_state(self, title, text, button=False):
         """The friendly message shown when there is nothing to list."""

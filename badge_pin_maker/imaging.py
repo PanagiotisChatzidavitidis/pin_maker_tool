@@ -10,6 +10,7 @@ import os
 
 from PIL import Image, ImageOps
 
+from . import filters as filters_mod
 from . import ring as ring_mod
 
 
@@ -81,7 +82,8 @@ class Source:
 
 class Art:
     """One pin's image + view: zoom, normalised centre (cx, cy), rotation."""
-    def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0, flip=False, ring=None):
+    def __init__(self, source, zoom=1.0, cx=0.5, cy=0.5, angle=0.0, flip=False, ring=None,
+                 filt=None):
         """zoom 1.0 = the image just covers the pin. cx / cy = the point of the image that sits
         in the middle of the pin, as a fraction (0 to 1) of its width and height. angle is
         in degrees, clockwise.
@@ -89,12 +91,14 @@ class Art:
         self.source, self.zoom, self.cx, self.cy, self.angle = source, zoom, cx, cy, angle
         self.flip = flip                   # True = the picture is mirrored left to right
         self.ring = ring                   # None, or (thickness mm, (r, g, b)): see ring.py
+        self.filter = filters_mod.as_filter(filt)   # None, or (name, amount): see filters.py
 
     def copy(self):
         """A separate copy of the view (used for undo snapshots). The image itself is shared,
         not duplicated.
         """
-        return Art(self.source, self.zoom, self.cx, self.cy, self.angle, self.flip, self.ring)
+        return Art(self.source, self.zoom, self.cx, self.cy, self.angle, self.flip, self.ring,
+                   self.filter)
 
     def key(self):
         """A hashable summary of this view, used to cache rendered images. Values are rounded
@@ -102,7 +106,7 @@ class Art:
         """
         return (id(self.source), round(self.zoom, 4), round(self.cx, 4),
                 round(self.cy, 4), round(self.angle, 2), bool(self.flip),
-                None if self.ring is None else (round(self.ring[0], 2), tuple(self.ring[1])))
+                ring_mod.key(self.ring), filters_mod.key(self.filter))
 
     def ppi(self, d_mm, aspect=1.0):
         """Effective print resolution of the image on a pin d_mm wide (width / height = aspect)."""
@@ -218,6 +222,8 @@ def render_art(art, d_mm, px_per_mm, small=False, h_mm=None, face=None):
         img = art.source.flipped(img)
     out = render_transform(img, t, th, k, art.cx * iw, art.cy * ih, art.angle,
                            fill=art.source.bg)
+    if art.filter:
+        out = filters_mod.apply(out, art.filter)
     if art.ring and face:
         out = ring_mod.apply(out.convert("RGB"), art.ring, face[0], face[1], face[2],
                              d_mm, h_mm)

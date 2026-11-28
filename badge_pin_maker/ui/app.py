@@ -40,6 +40,7 @@ from ..constants import (BADGE_GAP, EXPORT_DPI, IMG_EXTS, LOW_PPI, MOD, MOD_LABE
                          PAGE_MARGIN, PAPER_SIZES, CANVAS_EXT, cut_dims,
                          DEFAULT_PAPER, paper_from_saved, pin_from_saved, paper_short,
                          default_pin, sizes_for)
+from .. import filters as filters_mod
 from .. import ring as ring_mod
 from ..imaging import Art, load_source, render_art
 from ..shapes import DEFAULT_SHAPE, ICON_RATIO, ONE_SIZE, SHAPES, canvas_points, contains, mask
@@ -52,27 +53,24 @@ from ..system_actions import print_pdf, reveal_folder
 from ..version import ART_CREDIT, version_text
 from . import mascot, smooth, theme as T
 from .crop_dialog import CropDialog
+from .buttons import Btn
+from .preview_dialog import PreviewDialog
+from .preview_setup import PreviewSetup
 from .dialogs import AboutDialog, messagebox, set_titlebar, set_window_icon
 from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
 from .cover import FULLSCREEN_MESSAGES, WINDOWED_MESSAGES, ThemeCover
 from .options_dialog import OptionsDialog
+from .screens import Screen
+from .help_screen import HelpScreen
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
 from .size_guide import SizeGuide
-from .widgets import Dropdown, InfoButton, FlatSlider, IconButton, StatTile, Toggle, make_card, round_rect
+from .widgets import Dropdown, InfoButton, FlatSlider, IconButton, StatBar, Toggle, make_card, round_rect
 
 
 AUTOSAVE_MS = 10000     # unsaved work is copied to the recovery file this often
 RECENT_MAX = 20         # how many recently opened canvases are remembered
-
-
-def _ring_from_saved(data):
-    """A saved ring [mm, "#rrggbb"] -> (mm, (r, g, b)); anything unreadable means no ring."""
-    try:
-        return float(data[0]), ring_mod.from_hex(str(data[1]))
-    except (TypeError, ValueError, IndexError, KeyError):
-        return None
 
 
 def not_while_busy(fn):
@@ -135,6 +133,9 @@ class BadgeApp(RootBase):
         self.geo = None          # (scale, ox, oy, params)
         self.hover = None
         self.selected = None
+        self.select_mode = False       # ticking pins (to delete several at once)
+        self.checked = set()           # the ticked slots
+        self._clip = None              # the pin copied with Ctrl+C
         self.popup = None
         self.tour = None               # the guided tour that is running, if any
         self._morph = None             # the running theme change, if any
@@ -217,6 +218,8 @@ class BadgeApp(RootBase):
                     return "break"
                 if self._busy:
                     return "break"
+                if getattr(self, "_screen", None) is not None:
+                    return "break"            # a full page (Options, Preview...) is open
                 if home_ok or self.screen == "editor":
                     fn()
                 return "break"
@@ -225,7 +228,9 @@ class BadgeApp(RootBase):
                  ("s", self.save_canvas, False), ("Shift-S", self.save_canvas_as, False),
                  ("e", self.export_pdf, False), ("p", self.print_now, False),
                  ("z", self.undo, False), ("y", self.redo, False),
-                 ("Shift-Z", self.redo, False), ("h", self.go_home, False)]
+                 ("Shift-Z", self.redo, False), ("h", self.go_home, False),
+                 ("c", self.copy_pin, False), ("v", self.paste_pin, False),
+                 ("d", self.duplicate_pin, False), ("a", self.select_all_pins, False)]
         for key, fn, home_ok in table:
             self.bind(f"<{MOD}-{key}>", handler(fn, home_ok))
             if len(key) == 1:
@@ -237,6 +242,9 @@ class BadgeApp(RootBase):
                 self.bind(f"<{MOD}-{k}>", handler(fn, repeat=fn != self.reset_view))
         self.bind("<Delete>", lambda e: self._fresh_press("delete", e) and self.delete_selected(e))
         self.bind("<Escape>", self._on_escape)
+        for key, fn in (("<Return>", self.edit_pin_key), ("<p>", self.preview_pin_key),
+                        ("<F1>", self.open_help)):
+            self.bind(key, lambda e, fn=fn: self._plain_key(fn))
         self.bind("<F11>", lambda e: self._fresh_press("fullscreen", e) and self.toggle_fullscreen())
         self.bind("<KeyRelease>", self._key_released, add="+")
 
@@ -281,6 +289,8 @@ class BadgeApp(RootBase):
         """
         if self._dragging:
             self._cancel_drag()
+        elif self.select_mode:
+            self.toggle_select_mode()
         elif self.popup is not None:
             self.close_popup()
         elif self._is_full:
@@ -368,10 +378,11 @@ class BadgeApp(RootBase):
 
     @not_while_busy
     def open_options(self):
-        """Show the Options window (display mode, themes, canvases folder)."""
+        """Show the Options page (display mode, themes, canvases folder) over whatever is open.
+        Its Return button goes back to the start screen or the project.
+        """
         self.close_popup()
-        dlg = OptionsDialog(self)
-        self.wait_window(dlg)
+        Screen.open(self, OptionsDialog)
 
     def open_size_guide(self):
         """Ozzie's pop-up sheet about finished pin sizes and the paper circles."""
@@ -627,6 +638,9 @@ class BadgeApp(RootBase):
         old_home.destroy()
         old_editor.destroy()
         self._show(showing)
+        scr = getattr(self, "_screen", None)
+        if scr is not None and scr.winfo_exists():
+            scr.lift()                           # an open page (Options) stays on top
         set_titlebar(self)
         if self._morph:
             self._morph.lift()
@@ -715,15 +729,16 @@ class BadgeApp(RootBase):
         self.btn_undo = IconButton(head, "undo", self.undo, f"Undo  ({MOD_LABEL}+Z)",
                                    on_tip=self._tip)
         self.btn_undo.pack(side="right", padx=(0, 4))
-        self.btn_back = ttk.Button(left, text="←  Back to menu", style="Soft.TButton",
-                                   command=self.go_home)
-        self.btn_back.pack(fill="x", pady=(0, 6))
-        nav = self.nav_row = ttk.Frame(left)
+        nav = self.nav_row = tk.Frame(left, bg=T.BG)
         nav.pack(fill="x", pady=(0, 14))
-        ttk.Button(nav, text="Save", style="Soft.TButton",
-                   command=self.save_canvas).pack(side="left", expand=True, fill="x")
-        ttk.Button(nav, text="Options", style="Soft.TButton",
-                   command=self.open_options).pack(side="left", expand=True, fill="x", padx=(8, 0))
+        self.btn_back = Btn(nav, "Menu", self.go_home, kind="soft", icon="back", bg=T.BG, height=34, width=64)
+        self.btn_back.pack(side="left", expand=True, fill="x")
+        Btn(nav, "Save", self.save_canvas, kind="soft", bg=T.BG, height=34, width=54).pack(
+            side="left", expand=True, fill="x", padx=(6, 0))
+        Btn(nav, "Options", self.open_options, kind="soft", bg=T.BG, height=34, width=62).pack(
+            side="left", expand=True, fill="x", padx=(6, 0))
+        Btn(nav, "Help", self.open_help, kind="soft", bg=T.BG, height=34, width=54).pack(
+            side="left", expand=True, fill="x", padx=(6, 0))
 
         f = make_card(left, "1 · Paper size")
         self.card_paper = f.master
@@ -765,32 +780,45 @@ class BadgeApp(RootBase):
             tip += " You can also drop image files onto the sheet."
         ttk.Label(f, style="Muted.TLabel", justify="left", wraplength=250,
                   text=tip).pack(anchor="w")
-        ttk.Button(f, text="Clear all", style="Soft.TButton",
-                   command=self.clear_all).pack(anchor="w", pady=(8, 0))
+        r = tk.Frame(f, bg=T.CARD)
+        r.pack(fill="x", pady=(8, 0))
+        Btn(r, "Clear all", self.clear_all, kind="soft", bg=T.CARD, height=34).pack(
+            side="left", expand=True, fill="x")
+        self.btn_select = Btn(r, "Select pins", self.toggle_select_mode, kind="soft",
+                              icon="check", bg=T.CARD, height=34)
+        self.btn_select.pack(side="left", expand=True, fill="x", padx=(6, 0))
+        # shown only while selecting: how many are ticked, and the delete button
+        self.sel_bar = tk.Frame(f, bg=T.CARD)
+        self.sel_lbl = tk.Label(self.sel_bar, bg=T.CARD, fg=T.MUTED)
+        self.sel_lbl.pack(anchor="w", pady=(0, 6))
+        sr = tk.Frame(self.sel_bar, bg=T.CARD)
+        sr.pack(fill="x")
+        Btn(sr, "All", self.select_all_pins, kind="ghost", bg=T.CARD, height=32, width=52).pack(side="left")
+        self.btn_del_sel = Btn(sr, "Delete selected", self.delete_checked, kind="danger",
+                               icon="minus", bg=T.CARD, height=32)
+        self.btn_del_sel.pack(side="left", expand=True, fill="x", padx=(6, 0))
 
         f = make_card(left, "Display")
         r = ttk.Frame(f, style="Card.TFrame")
         r.pack(fill="x", pady=3)
         ttk.Label(r, text="Safe-area guide", style="Card.TLabel").pack(side="left")
         Toggle(r, self.v_guides, bg=T.CARD).pack(side="right")
-        a = self.export_row = ttk.Frame(left)
+
+        f = make_card(left, "4 · Preview & print")
+        a = self.export_row = tk.Frame(f, bg=T.CARD)
         a.pack(fill="x")
-        ttk.Button(a, text="Export PDF", style="Accent.TButton",
-                   command=self.export_pdf).pack(side="left", expand=True, fill="x")
-        ttk.Button(a, text="Print", style="Accent.TButton",
-                   command=self.print_now).pack(side="left", expand=True, fill="x", padx=(8, 0))
+        Btn(a, "Preview pins", self.preview_many, kind="soft", icon="eye", bg=T.CARD,
+            height=36).pack(fill="x", pady=(0, 6))
+        b2 = tk.Frame(a, bg=T.CARD)
+        b2.pack(fill="x")
+        Btn(b2, "Export PDF", self.export_pdf, kind="accent", bg=T.CARD, height=36).pack(
+            side="left", expand=True, fill="x")
+        Btn(b2, "Print", self.print_now, kind="accent", bg=T.CARD, height=36).pack(
+            side="left", expand=True, fill="x", padx=(6, 0))
 
         # ---- right: stat tiles + sheet preview
-        hdr = self.stat_row = ttk.Frame(right)
-        hdr.pack(fill="x")
-        for c in range(3):
-            hdr.columnconfigure(c, weight=1, uniform="tiles")
-        ff = self.base_font[0]
-        self.t_sheet = StatTile(hdr, ff, "paper")
-        self.t_pins = StatTile(hdr, ff, "pins")
-        self.t_filled = StatTile(hdr, ff, "done", bar=True)
-        for c, tile in enumerate((self.t_sheet, self.t_pins, self.t_filled)):
-            tile.grid(row=0, column=c, sticky="nsew", padx=(0 if c == 0 else 8, 0))
+        self.stat_row = self.stats = StatBar(right, self.base_font[0])
+        self.stat_row.pack(fill="x")
 
         self._build_zoom_bar(right)
         self.cv = tk.Canvas(right, bg=T.BLUSH, highlightthickness=0)
@@ -1122,7 +1150,7 @@ class BadgeApp(RootBase):
         if self._press is None:
             return
         src, x0, y0 = self._press
-        if src is None or src not in self.slots or not self.geo:
+        if src is None or src not in self.slots or not self.geo or self.select_mode:
             return
         if not self._dragging:
             if abs(e.x - x0) < self.DRAG_PX and abs(e.y - y0) < self.DRAG_PX:
@@ -1237,6 +1265,11 @@ class BadgeApp(RootBase):
         idx = self.hit(e.x, e.y)
         if idx is None:
             return
+        if self.select_mode:
+            if idx in self.slots:
+                self.checked ^= {idx}
+                self._selection_changed()
+            return
         if idx in self.slots:
             self.show_popup(idx)
         else:
@@ -1251,6 +1284,10 @@ class BadgeApp(RootBase):
                 return
         except (KeyError, tk.TclError):
             pass
+        if getattr(self, "_screen", None) is not None:
+            return
+        if self.select_mode and self.checked:
+            return self.delete_checked()
         idx = self.hover if self.hover in self.slots else self.selected
         if idx is not None and idx in self.slots:
             self.close_popup()
@@ -1258,7 +1295,7 @@ class BadgeApp(RootBase):
 
     # ---- floating Clear / Modify buttons ------------------------------------
     def show_popup(self, idx):
-        """Show the little Clear / Modify box next to circle ``idx``."""
+        """Show the little Edit / Preview / Remove box next to circle ``idx``."""
         self.close_popup()
         self.selected = idx
         s, ox, oy, p = self.geo
@@ -1272,11 +1309,15 @@ class BadgeApp(RootBase):
         frame = tk.Frame(self.cv, bg=T.POPUP_EDGE)
         inner = ttk.Frame(frame, style="Card.TFrame", padding=(8, 8))
         inner.pack(padx=1, pady=1)
-        ttk.Button(inner, text="Clear", style="Soft.TButton",
-                   command=lambda: self._popup_action(self.clear_slot, idx)).pack(side="left")
-        ttk.Button(inner, text="Modify", style="Accent.TButton",
-                   command=lambda: self._popup_action(self.modify_slot, idx)).pack(
-            side="left", padx=(8, 0))
+        # what you can do with this pin: change it, see it, or take it off the sheet
+        Btn(inner, "Edit", lambda: self._popup_action(self.modify_slot, idx), kind="accent",
+            icon="image", bg=T.CARD, width=88).pack(side="left")
+        Btn(inner, "Preview", lambda: self._popup_action(self.preview_slot, idx), kind="soft",
+            icon="eye", bg=T.CARD, width=104).pack(side="left", padx=(8, 0))
+        Btn(inner, "Duplicate", lambda: self._popup_action(self.duplicate_slot, idx), kind="soft",
+            icon="plus", bg=T.CARD, width=112).pack(side="left", padx=(8, 0))
+        Btn(inner, "Remove", lambda: self._popup_action(self.clear_slot, idx), kind="danger",
+            icon="minus", bg=T.CARD, width=100).pack(side="left", padx=(8, 0))
         frame.update_idletasks()
         pw, ph = frame.winfo_reqwidth(), frame.winfo_reqheight()
         cw, ch = self.cv.winfo_width(), self.cv.winfo_height()
@@ -1381,7 +1422,7 @@ class BadgeApp(RootBase):
                 break
             if dlg.result is None:
                 continue
-            zoom, cx, cy, angle, copies, flip, ring = dlg.result
+            zoom, cx, cy, angle, copies, flip, ring, filt = dlg.result
             if start is not None and start not in occupied:
                 s, start = start, None
             else:
@@ -1391,7 +1432,7 @@ class BadgeApp(RootBase):
                 self._push_undo()
                 pushed = True
             for i in fill_order(n, occupied, s, copies):
-                self.slots[i] = Art(source, zoom, cx, cy, angle, flip, ring)
+                self.slots[i] = Art(source, zoom, cx, cy, angle, flip, ring, filt)
             placed += copies
             self.redraw()
         if placed:
@@ -1405,14 +1446,169 @@ class BadgeApp(RootBase):
         if art is None:
             return
         p = self._params()
-        dlg = CropDialog(self, art.source, p, max_copies=0, art=art, title="Modify crop")
+        dlg = CropDialog(self, art.source, p, max_copies=0, art=art, title="Edit pin")
         self.wait_window(dlg)
         if dlg.result is not None:
             self._push_undo()
             art.zoom, art.cx, art.cy, art.angle = dlg.result[:4]
             art.flip = dlg.result[5]
             art.ring = dlg.result[6]
+            art.filter = dlg.result[7]
             self.schedule_redraw()
+
+    def _preview_pool(self):
+        """Every pin on the sheet that could go in a preview: ([(label, Art)], [slot indexes])."""
+        n = self._n()
+        idxs = sorted(i for i in self.slots if i < n)
+        return [(f"Pin {i + 1}", self.slots[i]) for i in idxs], idxs
+
+    def preview_slot(self, idx):
+        """Show one pin (and, if wanted, more of them) in a realistic scene."""
+        pool, idxs = self._preview_pool()
+        if idx in idxs:
+            Screen.open(self, PreviewDialog, pool, [idxs.index(idx)], self._params(), single=True)
+
+    def preview_many(self):
+        """Show every pin on the sheet (up to ten) as one bundle."""
+        pool, idxs = self._preview_pool()
+        if not pool:
+            messagebox.showinfo("Preview pins", "Add at least one image to a pin first.", parent=self)
+            return
+        Screen.open(self, PreviewSetup, pool, self._params())
+
+    def _preview_title(self):
+        return ""
+
+    # ---- copy, duplicate, paste -------------------------------------------
+    def _typing(self):
+        """True while the person is typing in a text field (letters then belong to the field)."""
+        try:
+            return isinstance(self.focus_get(), (tk.Entry, ttk.Entry, ttk.Spinbox, ttk.Combobox))
+        except (KeyError, tk.TclError):
+            return False
+
+    def _plain_key(self, fn):
+        """A key with no Ctrl: only in the editor, with no page open and not while typing."""
+        if (self.screen != "editor" or self._busy or self._typing()
+                or getattr(self, "_screen", None) is not None):
+            return None
+        fn()
+        return "break"
+
+    def _pin_target(self):
+        """The pin the keys act on: the one under the mouse, else the selected one."""
+        idx = self.hover if self.hover in self.slots else self.selected
+        return idx if idx in self.slots else None
+
+    def _first_free(self, prefer=None):
+        """An empty circle on the sheet: ``prefer`` if it is empty, else the first one."""
+        n = self._n()
+        if prefer is not None and prefer < n and prefer not in self.slots:
+            return prefer
+        return next((i for i in range(n) if i not in self.slots), None)
+
+    def edit_pin_key(self):
+        """Enter: crop / edit the pin under the mouse."""
+        idx = self._pin_target()
+        if idx is not None:
+            self.close_popup()
+            self.modify_slot(idx)
+
+    def preview_pin_key(self):
+        """P: preview the pin under the mouse."""
+        idx = self._pin_target()
+        if idx is not None:
+            self.close_popup()
+            self.preview_slot(idx)
+
+    def copy_pin(self):
+        """Ctrl+C: remember the pin under the mouse so Ctrl+V can paste it."""
+        idx = self._pin_target()
+        if idx is None:
+            return
+        self._clip = self.slots[idx].copy()
+        self.toasts.show("Pin copied", body=f"Press {MOD_LABEL}+V to paste it into an empty spot.")
+
+    def paste_pin(self):
+        """Ctrl+V: put the copied pin into the empty circle under the mouse, or the first one."""
+        if self._clip is None:
+            return
+        self._add_copy(self._clip, self.hover)
+
+    def duplicate_pin(self):
+        """Ctrl+D: copy the pin under the mouse into the next empty circle."""
+        idx = self._pin_target()
+        if idx is not None:
+            self.duplicate_slot(idx)
+
+    def duplicate_slot(self, idx):
+        """Copy the pin in circle ``idx`` into the first empty circle."""
+        if idx in self.slots:
+            self._add_copy(self.slots[idx].copy(), None)
+
+    def _add_copy(self, art, prefer):
+        spot = self._first_free(prefer)
+        if spot is None:
+            self.toasts.show("No empty spot", body="Every circle on this sheet is taken.")
+            return
+        self.close_popup()
+        self._push_undo()
+        self.slots[spot] = art.copy()
+        self.schedule_redraw()
+        self.toasts.show(f"Pin copied to spot {spot + 1}", body="Undo takes it back.",
+                         action=("Undo", self.undo))
+
+    # ---- ticking several pins to delete them -----------------------------
+    def toggle_select_mode(self):
+        """Select pins on / off. While on, a click ticks a pin instead of opening its box."""
+        self.select_mode = not self.select_mode
+        self.checked.clear()
+        self.close_popup()
+        self.btn_select.text = "Done" if self.select_mode else "Select pins"
+        self.btn_select.kind = "accent" if self.select_mode else "soft"
+        self.btn_select._paint()
+        if self.select_mode:
+            self.sel_bar.pack(fill="x", pady=(8, 0))
+        else:
+            self.sel_bar.pack_forget()
+        self._selection_changed()
+
+    def select_all_pins(self):
+        """Ctrl+A / All: tick every pin on the sheet."""
+        if not self.select_mode:
+            self.toggle_select_mode()
+        n = self._n()
+        self.checked = {i for i in self.slots if i < n}
+        self._selection_changed()
+
+    def _selection_changed(self):
+        k = len(self.checked)
+        self.sel_lbl.config(text=f"{k} pin{'s' if k != 1 else ''} ticked: click pins to tick them.")
+        self.btn_del_sel.text = f"Delete ({k})" if k else "Delete selected"
+        self.btn_del_sel._paint()
+        self.schedule_redraw()
+
+    def delete_checked(self):
+        """Remove every ticked pin in one undoable step."""
+        gone_idx = sorted(i for i in self.checked if i in self.slots)
+        if not gone_idx:
+            self.bell()
+            return
+        self._push_undo()
+        gone = [(self.slots.pop(i), self._circle_box(i)[:2]) for i in gone_idx] if self.geo else []
+        for i in gone_idx:
+            self.slots.pop(i, None)
+        self.checked.clear()
+        self._selection_changed()
+        self._redraw_then_fade(gone)
+        k = len(gone_idx)
+        self.toasts.show(f"{k} pin{'s' if k != 1 else ''} removed", body="Undo brings them back.",
+                         action=("Undo", self.undo))
+
+    def open_help(self):
+        """Help / F1: the list of keyboard shortcuts."""
+        self.close_popup()
+        Screen.open(self, HelpScreen)
 
     def clear_slot(self, idx):
         """Remove the image from one circle (can be undone)."""
@@ -1536,6 +1732,18 @@ class BadgeApp(RootBase):
                                       (x - w / 2 - off, y, x - w / 2 - off - tick, y),
                                       (x + w / 2 + off, y, x + w / 2 + off + tick, y)):
                 cv.create_line(x1, y1, x2, y2, fill=T.TICK)
+            if self.select_mode:
+                on = i in self.checked
+                if on:
+                    self._pin_item(cv, x, y, w, outline=T.TEAL, width=4)
+                r = max(8, min(w, hh) * 0.11)
+                bx, by = x - w * 0.34, y - hh * 0.34
+                cv.create_oval(bx - r, by - r, bx + r, by + r, width=2,
+                               fill=T.TEAL if on else "white", outline=T.TEAL if on else T.TEXT)
+                if on:
+                    cv.create_line(bx - r * .45, by, bx - r * .1, by + r * .4, bx + r * .5, by - r * .4,
+                                   fill="white", width=max(2, int(r * .22)), capstyle="round",
+                                   joinstyle="round")
             # A small orange "!" in the corner of images that would print soft.
             if self._ppi(art, p) < LOW_PPI:
                 r = max(6, min(w, hh) * 0.09)
@@ -1892,16 +2100,11 @@ class BadgeApp(RootBase):
         frame(1)
 
     def _update_stats(self, L, n, filled, low):
-        """Refresh the three tiles above the preview."""
+        """Refresh the slim status line above the preview."""
         W, H = L["page_w"], L["page_h"]
-        short = paper_short(self.v_paper.get())
-        self.t_sheet.set(short, f"{W:g} × {H:g} mm" + (" · Landscape" if L["orientation"] ==
-                                                          "landscape" else ""))
-        self.t_pins.set(str(n), f"pin{'s' if n != 1 else ''} per sheet")
-        pct = round(100 * filled / n) if n else 0
-        self.t_filled.set(f"{filled:02d}", f"{pct}% completed" + (f" · {low} low-res" if low
-                                                                  else ""),
-                          total=n, progress=filled / n if n else 0, warn=bool(low))
+        paper = f"{paper_short(self.v_paper.get())}  {W:g} × {H:g} mm" + (
+            "  Landscape" if L["orientation"] == "landscape" else "")
+        self.stats.set(paper, f"{n} pin{'s' if n != 1 else ''} per sheet", filled, n, low)
 
     def on_motion(self, e):
         """Highlight the circle under the mouse."""
@@ -2183,7 +2386,8 @@ class BadgeApp(RootBase):
             "photos": images,  # key name kept so older saves still open
             "slots": [{"slot": i, "photo": index[a.source.path], "zoom": a.zoom,
                        "cx": a.cx, "cy": a.cy, "angle": a.angle, "flip": bool(a.flip),
-                       **({"ring": [a.ring[0], ring_mod.to_hex(a.ring[1])]} if a.ring else {})}
+                       **({"ring": ring_mod.to_saved(a.ring, base)} if a.ring else {}),
+                       **({"filter": filters_mod.to_saved(a.filter)} if a.filter else {})}
                       for i, a in sorted(self.slots.items())],
         }
         return data
@@ -2291,7 +2495,8 @@ class BadgeApp(RootBase):
                                              float(sl.get("cx", 0.5)), float(sl.get("cy", 0.5)),
                                              float(sl.get("angle", 0.0)),
                                              bool(sl.get("flip", False)),
-                                             _ring_from_saved(sl.get("ring")))
+                                             ring_mod.from_saved(sl.get("ring"), base),
+                                             filters_mod.from_saved(sl.get("filter")))
             except (KeyError, ValueError, TypeError, IndexError):
                 continue
 
