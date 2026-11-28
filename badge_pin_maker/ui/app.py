@@ -61,6 +61,7 @@ from .dnd import DND_FILES, RootBase
 from .home_screen import HomeScreen
 from .cover import FULLSCREEN_MESSAGES, WINDOWED_MESSAGES, ThemeCover
 from .options_dialog import OptionsDialog
+from .screens import Screen
 from .toast import Toasts
 from .tour import EDITOR_STEPS, HOME_STEPS, Tour
 from .size_guide import SizeGuide
@@ -364,10 +365,11 @@ class BadgeApp(RootBase):
 
     @not_while_busy
     def open_options(self):
-        """Show the Options window (display mode, themes, canvases folder)."""
+        """Show the Options page (display mode, themes, canvases folder) over whatever is open.
+        Its Return button goes back to the start screen or the project.
+        """
         self.close_popup()
-        dlg = OptionsDialog(self)
-        self.wait_window(dlg)
+        Screen.open(self, OptionsDialog)
 
     def open_size_guide(self):
         """Ozzie's pop-up sheet about finished pin sizes and the paper circles."""
@@ -623,6 +625,9 @@ class BadgeApp(RootBase):
         old_home.destroy()
         old_editor.destroy()
         self._show(showing)
+        scr = getattr(self, "_screen", None)
+        if scr is not None and scr.winfo_exists():
+            scr.lift()                           # an open page (Options) stays on top
         set_titlebar(self)
         if self._morph:
             self._morph.lift()
@@ -765,7 +770,7 @@ class BadgeApp(RootBase):
         r.pack(anchor="w", pady=(8, 0))
         ttk.Button(r, text="Clear all", style="Soft.TButton",
                    command=self.clear_all).pack(side="left")
-        ttk.Button(r, text="Preview bundle", style="Soft.TButton",
+        ttk.Button(r, text="Preview pins", style="Soft.TButton",
                    command=self.preview_many).pack(side="left", padx=(8, 0))
 
         f = make_card(left, "Display")
@@ -1427,15 +1432,15 @@ class BadgeApp(RootBase):
         """Show one pin (and, if wanted, more of them) in a realistic scene."""
         pool, idxs = self._preview_pool()
         if idx in idxs:
-            PreviewDialog(self, pool, [idxs.index(idx)], self._params(), single=True)
+            Screen.open(self, PreviewDialog, pool, [idxs.index(idx)], self._params(), single=True)
 
     def preview_many(self):
         """Show every pin on the sheet (up to ten) as one bundle."""
         pool, idxs = self._preview_pool()
         if not pool:
-            messagebox.showinfo("Preview bundle", "Add at least one image to a pin first.", parent=self)
+            messagebox.showinfo("Preview pins", "Add at least one image to a pin first.", parent=self)
             return
-        PreviewSetup(self, pool, self._params())
+        Screen.open(self, PreviewSetup, pool, self._params())
 
     def _preview_title(self):
         return ""

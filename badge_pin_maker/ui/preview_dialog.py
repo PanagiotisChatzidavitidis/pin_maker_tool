@@ -26,6 +26,7 @@ from ..imaging import render_art
 from ..system_actions import print_pdf, reveal_folder
 from . import theme as T
 from .buttons import Btn
+from .screens import Screen
 
 SIZES = (("Web  (1600 px)", 1600), ("HD  (2400 px)", 2400), ("Print  (3000 px)", 3000))
 THUMB = (118, 79)                      # a film-strip picture, in pixels
@@ -84,12 +85,11 @@ class _Loading(tk.Frame):
         self._job = self.after(40, self._tick)
 
 
-class PreviewDialog(tk.Toplevel):
+class PreviewDialog(Screen):
+    """The \"Preview pins\" page: one pin, or the bundle and a close-up of each pin."""
+
     def __init__(self, parent, pool, sel, pin, single=False):
         super().__init__(parent)
-        self.title("Shop pictures")
-        self.configure(bg=T.BG)
-        self.transient(parent)
         self.parent, self.pool, self.pin, self.type, self.single = parent, list(pool), pin, "pin", single
         self.sel = list(sel)[:envs.MAX_PINS] or [0]
         self.env = "studio"
@@ -101,32 +101,22 @@ class PreviewDialog(tk.Toplevel):
         self._shown, self._job, self._busy, self._again = None, None, False, False
         self._strip_imgs, self._scale = [], 1.0
 
-        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        w, h = min(1320, int(sw * 0.92)), min(900, int(sh * 0.92))
-        self.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 3)}")
-        self.minsize(860, 560)
-
-        # ---- top bar: just Save, Print and Close ---------------------------------------------
-        bar = tk.Frame(self, bg=T.BG)
-        bar.pack(side="top", fill="x", padx=20, pady=(16, 10))
-        tk.Label(bar, text="Pin preview" if single else "Bundle preview", bg=T.BG, fg=T.TEXT,
-                 font=("TkDefaultFont", 14, "bold")).pack(side="left")
-        right = tk.Frame(bar, bg=T.BG)
-        right.pack(side="right")
-        self.m_save = tk.Menu(self, tearoff=0)
-        self.m_save.add_command(label="This picture…", command=lambda: self._save(False))
-        self.m_save.add_command(label="All pictures (to a folder)…", command=lambda: self._save(True))
-        self.m_print = tk.Menu(self, tearoff=0)
-        self.m_print.add_command(label="This picture", command=lambda: self._print(False))
-        self.m_print.add_command(label="All pictures (one per page)", command=lambda: self._print(True))
-        if single:
-            Btn(right, "Save image", lambda: self._save(False), bg=T.BG, icon="image").pack(side="left", padx=3)
-        else:
-            self.b_save = Btn(right, "Save", lambda: self._menu(self.b_save, self.m_save), bg=T.BG, icon="image")
-            self.b_print = Btn(right, "Print", lambda: self._menu(self.b_print, self.m_print), bg=T.BG)
-            self.b_save.pack(side="left", padx=3)
-            self.b_print.pack(side="left", padx=3)
-        Btn(right, "Close", self.destroy, kind="accent", bg=T.BG).pack(side="left", padx=(6, 0))
+        # ---- top bar: Return, the title, and Save / Print ----------------------------------------
+        def extras(right):
+            self.m_save = tk.Menu(self, tearoff=0)
+            self.m_save.add_command(label="This picture…", command=lambda: self._save(False))
+            self.m_save.add_command(label="All pictures (to a folder)…", command=lambda: self._save(True))
+            self.m_print = tk.Menu(self, tearoff=0)
+            self.m_print.add_command(label="This picture", command=lambda: self._print(False))
+            self.m_print.add_command(label="All pictures (one per page)", command=lambda: self._print(True))
+            if single:
+                Btn(right, "Save image", lambda: self._save(False), bg=T.BG, icon="image").pack(side="left", padx=3)
+            else:
+                self.b_save = Btn(right, "Save", lambda: self._menu(self.b_save, self.m_save), bg=T.BG, icon="image")
+                self.b_print = Btn(right, "Print", lambda: self._menu(self.b_print, self.m_print), bg=T.BG)
+                self.b_save.pack(side="left", padx=3)
+                self.b_print.pack(side="left", padx=3)
+        self.return_bar("Preview pins", "One pin" if single else "Your pins as a bundle", right=extras, pad=20)
 
         self.info = tk.Label(self, bg=T.BG, fg=T.MUTED, anchor="w", justify="left")
         self.info.pack(side="bottom", fill="x", padx=22, pady=(4, 12))
@@ -146,11 +136,17 @@ class PreviewDialog(tk.Toplevel):
         self.strip.bind("<Button-4>", lambda e: self.strip.xview_scroll(-1, "units"))
         self.strip.bind("<Button-5>", lambda e: self.strip.xview_scroll(1, "units"))
 
-        self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Left>", self._typed(lambda: self._step(-1)))
         self.bind("<Right>", self._typed(lambda: self._step(1)))
         self.after(80, self._prepare)
         self.focus_set()
+
+    def on_close(self):
+        """Stop the loading spinner and any redraw that is waiting."""
+        self.loading.stop()
+        if self._job is not None:
+            self.after_cancel(self._job)
+            self._job = None
 
     # ---- helpers ---------------------------------------------------------------------------
     @property

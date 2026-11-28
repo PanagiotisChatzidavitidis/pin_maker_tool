@@ -12,40 +12,30 @@ from .. import envs, ring as ring_mod
 from ..imaging import render_art
 from . import theme as T
 from .buttons import Btn
+from .screens import Screen
 
 CHIP = 72
 
 
-class PreviewSetup(tk.Toplevel):
-    def __init__(self, parent, pool, pin):
-        super().__init__(parent)
-        self.title("Preview bundle")
-        self.configure(bg=T.BG)
-        self.transient(parent)
-        self.parent, self.pool, self.pin = parent, list(pool), pin
+class PreviewSetup(Screen):
+    """The "Preview pins" page where the bundle's pins are picked."""
+
+    def __init__(self, host, pool, pin):
+        super().__init__(host)
+        self.parent, self.pool, self.pin = host, list(pool), pin
         self.sel, self._imgs, self._rows = [], [], []
 
-        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        w, h = min(760, int(sw * 0.94)), min(640, int(sh * 0.9))
-        self.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 3)}")
-        self.minsize(520, 420)
-
-        head = tk.Frame(self, bg=T.BG)
-        head.pack(side="top", fill="x", padx=28, pady=(22, 8))
-        tk.Label(head, text="Pick the pins for the bundle", bg=T.BG, fg=T.TEXT,
-                 font=("TkDefaultFont", 16, "bold")).pack(anchor="w")
-        tk.Label(head, text=f"Choose at least one, up to {envs.MAX_PINS}.", bg=T.BG, fg=T.MUTED).pack(anchor="w", pady=(2, 0))
+        self.return_bar("Preview pins", f"Pick the pins for the bundle: at least one, up to {envs.MAX_PINS}.")
 
         foot = tk.Frame(self, bg=T.BG)
         foot.pack(side="bottom", fill="x", padx=28, pady=(8, 20))
         self.go = Btn(foot, "Proceed", self._proceed, kind="soft", bg=T.BG, icon="eye")
         self.go.pack(side="right")
-        Btn(foot, "Cancel", self.destroy, kind="ghost", bg=T.BG).pack(side="right", padx=8)
         self.note = tk.Label(foot, bg=T.BG, fg=T.MUTED, anchor="w")
         self.note.pack(side="left")
 
         bar = tk.Frame(self, bg=T.BG)
-        bar.pack(side="top", fill="x", padx=28, pady=(0, 8))
+        bar.pack(side="top", fill="x", padx=28, pady=(12, 8))
         Btn(bar, "Select all", self._all, kind="ghost", bg=T.BG, height=30).pack(side="left")
         Btn(bar, "Clear", self._none, kind="ghost", bg=T.BG, height=30).pack(side="left", padx=6)
         self.count = tk.Label(bar, bg=T.BG, fg=T.MUTED)
@@ -62,7 +52,6 @@ class PreviewSetup(tk.Toplevel):
         self._wheel(self.cv)
         self._build()
         self._refresh()
-        self.bind("<Escape>", lambda e: self.destroy())
         self.focus_set()
 
     def _wheel(self, w):
@@ -136,6 +125,7 @@ class PreviewSetup(tk.Toplevel):
         if not self.sel:
             return self._flash("Pick at least one pin to continue.")
         from .preview_dialog import PreviewDialog
-        parent, pool, sel, pin = self.parent, self.pool, list(self.sel), self.pin
+        host, pool, sel, pin = self.host, self.pool, list(self.sel), self.pin
         self.destroy()
-        PreviewDialog(parent, pool, sel, pin)
+        host._screen = None
+        Screen.open(host, PreviewDialog, pool, sel, pin)

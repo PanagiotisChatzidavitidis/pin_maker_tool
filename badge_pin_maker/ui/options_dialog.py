@@ -1,4 +1,4 @@
-"""The Options window: every setting of the app in one place.
+"""The Options page: every setting of the app in one place.
 
 It is opened from the Options button on the start screen and in the editor. It holds the
 display mode (full screen or windowed), the light and dark themes, the tutorial and the
@@ -9,48 +9,24 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import mascot, smooth, theme as T
-from .cover import FULLSCREEN_MESSAGES, WINDOWED_MESSAGES, ThemeCover
-from .dialogs import keep_titlebar, messagebox, set_titlebar, set_window_icon
+from .dialogs import messagebox
 from ..system_actions import reveal_folder
+from .buttons import Btn
+from .screens import Screen
 from .widgets import MascotTile, Segmented, ThemeTile
 
 
-class OptionsDialog(tk.Toplevel):
-    """A modal window with the app's options. Changes apply straight away, so the only
-    buttons are Restore defaults and Return (which closes the window).
+class OptionsDialog(Screen):
+    """The Options page. Changes apply straight away, so the only buttons are Restore defaults
+    and Return (which goes back to the start screen or the project, whichever it came from).
     """
     def __init__(self, app):
-        """Build the window, centre it over the app and show it."""
+        """Build the page over the app's window."""
         super().__init__(app)
-        self.withdraw()                      # build off-screen, then show centred
         self.app = app
-        self._cover = None
-        self.title("Options")
-        self.resizable(False, False)
-        set_window_icon(self)
-        try:
-            if app.winfo_viewable():
-                self.transient(app)
-        except tk.TclError:
-            pass
         self._build()
-        self.bind("<Escape>", lambda e: self.destroy())
-        self.bind("<Return>", lambda e: self.destroy())
-
-        ThemeCover.warm(self)
-        self.update_idletasks()
-        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
-        x = app.winfo_rootx() + (app.winfo_width() - w) // 2
-        y = app.winfo_rooty() + (app.winfo_height() - h) // 3
-        self.geometry(f"+{max(0, x)}+{max(0, y)}")
-        set_titlebar(self)
-        self.deiconify()
-        try:
-            self.wait_visibility()
-            self.grab_set()
-        except tk.TclError:
-            pass
-        self.focus_force()
+        self.bind("<Return>", lambda e: self.back())
+        self.focus_set()
 
     def _build(self):
         """Fill the window with the current theme's colours. It is called again after a theme
@@ -72,6 +48,7 @@ class OptionsDialog(tk.Toplevel):
         # ---- header: the mascot on a soft plate, a big title and a friendly line
         head = tk.Frame(self, bg=T.BG)
         head.pack(fill="x", padx=30, pady=(16, 12))
+        Btn(head, "Return", self.back, kind="ghost", bg=T.BG, icon="back").pack(side="left", padx=(0, 18))
         self._logo = smooth.hero_logo(68, T._mix(T.BG, T.TEAL, 0.16), T.BG)
         self._logo_lbl = tk.Label(head, image=self._logo, bg=T.BG, bd=0)
         self._logo_lbl.pack(side="left", padx=(0, 16))
@@ -165,13 +142,13 @@ class OptionsDialog(tk.Toplevel):
         inner = tk.Frame(foot, bg=T.CARD)
         inner.pack(fill="x", padx=30, pady=10)
         ttk.Button(inner, text="Return", style="Accent.TButton",
-                   command=self.destroy).pack(side="right")
+                   command=self.back).pack(side="right")
         ttk.Button(inner, text="Restore defaults", style="Soft.TButton",
                    command=self._restore).pack(side="left")
 
     def _replay(self):
-        """Close Options and let the mascot give the tour again."""
-        self.destroy()
+        """Go back to the page below and let the mascot give the tour again."""
+        self.back()
         self.app.replay_guide()
 
     def _mascot_picked(self, mid):
@@ -217,50 +194,25 @@ class OptionsDialog(tk.Toplevel):
                   wraplength=wrap).pack(anchor="w", pady=(2, 0))
 
     def _mode_changed(self):
-        """Full screen / Windowed was picked."""
-        full = self.v_mode_full()
-        if full != self.app._is_full and not self.app._morph and not self._cover:
-            self._cover = ThemeCover(self.app, T.THEME_NAME, parent=self,
-                                     messages=FULLSCREEN_MESSAGES if full else WINDOWED_MESSAGES)
-            self.after(100, self._mode_cover_done)
-        set_titlebar(self, force=True)              # dark/light bar before the change...
-        self.app.set_fullscreen(full)
-        keep_titlebar(self)                         # ...and again while the window settles
+        """Full screen / Windowed was picked (the app shows its own loading screen)."""
+        self.app.set_fullscreen(self.v_mode_full())
 
     def v_mode_full(self):
         """True if the Window switch is on "Full screen"."""
         return self.app.v_window.get() == "fullscreen"
 
-    def _mode_cover_done(self):
-        """Take this window's loading screen away (it waits out its minimum time first)."""
-        if not self.winfo_exists():
-            return
-        if self.app._mode_cover is not None:          # the main window is still changing
-            self.after(40, self._mode_cover_done)
-            return
-        if self._cover:
-            cover, self._cover = self._cover, None
-            cover.close()
-
     def _theme_picked(self, theme_id):
-        """A theme tile was clicked: use that theme."""
+        """A theme tile was clicked: use that theme (the app covers itself while it changes)."""
         if theme_id == self.app.current_theme():
             return
-        if not (self._cover and not self._cover.closed):
-            self._cover = ThemeCover(self.app, theme_id, parent=self)   # hides the rebuild
         self.app.choose_theme(theme_id, done=self._rebuild)
 
     def _rebuild(self):
-        """Redraw this window in the new theme (unless it was closed meanwhile)."""
+        """Redraw this page in the new theme (unless it was closed meanwhile)."""
         if not self.winfo_exists():
             return
         self._build()
-        set_titlebar(self, force=True)
-        keep_titlebar(self, (60, 200, 450, 800))
-        if self._cover:
-            self._cover.lift()
-            self._cover.close()
-            self._cover = None
+        self.lift()
 
     def _restore(self):
         """Ask first, then put every option back to its default."""
@@ -268,7 +220,7 @@ class OptionsDialog(tk.Toplevel):
                 "Restore defaults",
                 "Put every option back to its default?\n\nThis resets the window mode, "
                 "the theme and the canvases folder. Your canvases are not touched.",
-                parent=self, yes="Restore", no="Keep my options"):
+                parent=self.app, yes="Restore", no="Keep my options"):
             return
         self.app.restore_defaults(done=self._rebuild)
 
@@ -313,10 +265,10 @@ class OptionsDialog(tk.Toplevel):
 
     def _change_folder(self):
         """Pick another canvases folder."""
-        if self.app.choose_canvases_folder(parent=self):
+        if self.app.choose_canvases_folder(parent=self.app):
             self.folder_lbl.config(text=self.app.canvases_dir())
 
     def _change_pdf_folder(self):
         """Pick another folder for exported PDFs."""
-        if self.app.choose_pdf_folder(parent=self):
+        if self.app.choose_pdf_folder(parent=self.app):
             self.pdf_lbl.config(text=self.app._dir("export_dir"))
